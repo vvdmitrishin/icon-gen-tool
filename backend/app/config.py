@@ -52,6 +52,7 @@ class Settings:
     job_budget_usd: float = 0.75
     total_budget_usd: float = 4.00
     max_card_retries: int = 0
+    max_regenerations_per_card: int = 2
     max_parallel_generations: int = 1
     max_images_per_job: int = 50
 
@@ -82,6 +83,10 @@ class Settings:
         return self.data_root / "ledger.jsonl"
 
     @property
+    def cloudflare_configured(self) -> bool:
+        return bool(self.cloudflare_account_id.strip()) and bool(self.cloudflare_api_token.strip())
+
+    @property
     def gemini_configured(self) -> bool:
         return self.gemini_api_enabled and bool(self.gemini_api_key.strip())
 
@@ -101,6 +106,7 @@ class Settings:
             job_budget_usd=_float(g("GEMINI_JOB_BUDGET_USD"), 0.75),
             total_budget_usd=_float(g("GEMINI_TOTAL_BUDGET_USD"), 4.00),
             max_card_retries=_int(g("MAX_CARD_RETRIES"), 0),
+            max_regenerations_per_card=_int(g("MAX_REGENERATIONS_PER_CARD"), 2),
             max_parallel_generations=_int(g("MAX_PARALLEL_GENERATIONS"), 1),
             max_images_per_job=_int(g("MAX_IMAGES_PER_JOB"), 50),
             cloudflare_account_id=g("CLOUDFLARE_ACCOUNT_ID", "") or "",

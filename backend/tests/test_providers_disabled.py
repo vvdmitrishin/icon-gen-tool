@@ -5,7 +5,6 @@ import pytest
 
 from app.config import Settings
 from app.providers.base import GenerationRequest, ProviderDisabled
-from app.providers.cloudflare_image import CloudflareImageProvider
 from app.providers.model_registry import ModelRegistry
 from app.providers.openai_image import OpenAIImageProvider
 
@@ -25,11 +24,6 @@ def test_openai_never_touches_network(monkeypatch):
     # even when both flags are flipped, the scaffold refuses (no implementation)
     with pytest.raises(ProviderDisabled):
         asyncio.run(OpenAIImageProvider(enabled=True, paid_calls_enabled=True).generate(req()))
-
-
-def test_cloudflare_pending():
-    with pytest.raises(ProviderDisabled):
-        asyncio.run(CloudflareImageProvider().generate(req()))
 
 
 def test_registry_lists_all_providers_with_honest_status(tmp_path):

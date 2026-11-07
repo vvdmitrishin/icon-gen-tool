@@ -40,3 +40,6 @@ Thumbs.db
 .idea/
 .vscode/
 .claude/
+
+# Frozen local benchmarks (may contain confidential reference assets)
+benchmarks/

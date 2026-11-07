@@ -74,6 +74,7 @@ export interface Artifact {
   created_at: string;
   origin: string;
   is_mock: boolean;
+  is_imported?: boolean;
   image: { url: string; width: number; height: number; bytes: number; sha256: string };
   card: { object_name: string; genre: string; category: number };
   provider: { id: string; model: string; label: string; model_status: string; model_notes: string[] };
@@ -84,7 +85,7 @@ export interface Artifact {
   review: { technical_qa: string; art_review: string };
 }
 
-// ---- Phase 3: sets / jobs -------------------------------------------------------------------
+// ---- sets / jobs ----------------------------------------------------------------------------
 export interface GenreInfo { genre: string; microthemes: string[]; max_variants: number }
 
 export type DistributionPayload =
@@ -123,6 +124,21 @@ export interface JobPreview {
   warnings: string[];
 }
 
+export interface QACheck { id: string; name: string; status: "pass" | "warn" | "fail"; detail: string }
+export type QAStatus = "passed" | "flagged" | "failed" | "not_run";
+export type ArtReview = "pending" | "approved" | "rejected";
+
+export interface CardVersion {
+  version: number;
+  artifact_id: string;
+  image_url: string;
+  created_at: string;
+  note: string | null;
+  qa_status: QAStatus;
+  art_review: ArtReview;
+  is_current: boolean;
+}
+
 export interface JobCard {
   card_id: string;
   position: number;
@@ -134,8 +150,34 @@ export interface JobCard {
   error: string | null;
   reference_selection: string | null;
   image_url: string | null;
+  qa_status: QAStatus;
+  qa: { status: QAStatus; checks: QACheck[] } | null;
+  art_review: ArtReview | null;
+  review_note: string | null;
+  regen_count: number;
+  regen_remaining: number;
+  spec_version: number;
+  versions: CardVersion[];
 }
-export interface JobVariant { variant_id: string; title: string; concept: string; cards: JobCard[] }
+
+export interface SetQA {
+  variant_id: string;
+  status: Exclude<QAStatus, "not_run">;
+  checks: QACheck[];
+  generated: number;
+  total: number;
+  art_review: { approved: number; pending: number; rejected: number };
+}
+
+export interface JobVariant {
+  variant_id: string;
+  title: string;
+  concept: string;
+  cards: JobCard[];
+  approved: boolean;
+  approved_at: string | null;
+  set_qa: SetQA;
+}
 
 export interface JobDetail {
   job_id: string;
@@ -143,7 +185,9 @@ export interface JobDetail {
   error: string | null;
   scope: "pilot" | "full";
   created_at: string;
+  updated_at: string;
   genre: string;
+  collection: string;
   seed: number;
   distribution: Record<string, number>;
   notes: string[];
@@ -153,8 +197,127 @@ export interface JobDetail {
   pending_estimate_usd: number;
   active: boolean;
   can_continue: boolean;
+  approved_variant_id: string | null;
+  max_regenerations_per_card: number;
   request: JobRequestPayload;
   budget: Budget;
 }
-export interface JobSummary { job_id: string; status: string; created_at: string; genre: string; variants: number; spent_est: number }
+export interface JobSummary {
+  job_id: string;
+  status: string;
+  created_at: string;
+  genre: string;
+  collection: string;
+  variants: number;
+  spent_est: number;
+  approved_variant_id: string | null;
+}
 export interface JobEvent { id: number; ts: string; level: string; message: string }
+
+export interface QAReport {
+  job_id: string;
+  genre: string;
+  generated_at: string;
+  limitations: string;
+  technical: Record<"passed" | "flagged" | "failed" | "not_run", number>;
+  cards: Record<string, { status: QAStatus; checks: QACheck[]; art_review: ArtReview | null; object_name: string; category: number }>;
+  variants: Record<string, SetQA>;
+  job_checks: QACheck[];
+  approved_variant_id: string | null;
+}
+
+// ---- Reference Compare ----------------------------------------------------------------------
+export interface CompareRef {
+  ref_id: string;
+  ref_type: string;
+  original_name: string;
+  width: number;
+  height: number;
+  mode: "auto" | "manual" | "candidate";
+  image_url: string;
+  thumbnail_url: string;
+  suggested?: boolean;
+}
+export interface CardComparison {
+  card_id: string;
+  variant_id: string;
+  position: number;
+  category: number;
+  object_name: string;
+  status: string;
+  image_url: string | null;
+  versions: { version: number; image_url: string; is_current: boolean; qa_status: QAStatus }[];
+  reference: CompareRef | null;
+  candidates: CompareRef[];
+  message: string | null;
+}
+export interface ComparisonPair {
+  card_id: string;
+  variant_id: string;
+  position: number;
+  category: number;
+  object_name: string;
+  status: string;
+  image_url: string | null;
+  qa_status: QAStatus;
+  art_review: ArtReview | null;
+  reference: CompareRef | null;
+}
+export interface ComparisonGrid { job_id: string; pairs: ComparisonPair[]; reference_count: number }
+
+// ---- Prompt Library / Templates / Settings --------------------------------------------------
+export interface PromptTemplate {
+  name: string;
+  label: string;
+  version: number;
+  text: string;
+  author: string;
+  created_at: string;
+  note: string | null;
+  is_default_text: boolean;
+  versions: number[];
+}
+export interface PromptVersion { name: string; version: number; text: string; author: string; created_at: string; note: string | null; is_active: number }
+export interface Preset { id: number; name: string; kind: "builtin" | "user"; payload: Record<string, unknown>; created_at: string }
+
+export interface SettingsView {
+  version: string;
+  spec_version: string;
+  providers: {
+    gemini: { enabled: boolean; key_configured: boolean; default_model: string; est_cost_per_image_usd: number };
+    cloudflare: { token_set: boolean; account_id_set: boolean; configured: boolean };
+    openai: { enabled: boolean; paid_calls_enabled: boolean; key_configured: boolean };
+    mock: { enabled: boolean };
+  };
+  budget: Budget;
+  limits: Record<string, number>;
+  storage: Record<string, string>;
+  how_to_change: string;
+}
+
+// ---- Collection / export --------------------------------------------------------------------
+export interface CollectionGenre {
+  genre: string;
+  jobs: number;
+  job_id: string | null;
+  status: string | null;
+  approved_variant_id: string | null;
+  generated: number;
+  ready: boolean;
+  blockers: string[];
+  contains_mock_images: boolean;
+}
+export interface CollectionOverview { collection: string; genres: CollectionGenre[]; final_ready: boolean; blockers: string[]; note: string }
+export interface ExportRecord {
+  export_id: string;
+  created_at: string;
+  kind: "variant" | "collection";
+  size: number;
+  download_url: string;
+  filename: string;
+  genre?: string;
+  variant_id?: string;
+  approved?: boolean;
+  partial?: boolean;
+  contains_mock_images: boolean;
+}

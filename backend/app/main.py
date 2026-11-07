@@ -5,12 +5,14 @@ from dataclasses import asdict
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, Field
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .config import Settings, load_settings
+from .config import REPO_ROOT, Settings, load_settings
 from .providers.base import ProviderError
 from .providers.model_registry import ModelRegistry
 from .services.category_distribution import (
@@ -22,11 +24,60 @@ from .services.category_distribution import (
 )
 from .services.cost_guard import CostGuard
 from .services.generation import GenerateCardRequest, GenerationFailure, GenerationService
-from .services.jobs import ContinueRequest, JobCreateRequest, JobFailure, JobService, JobStore
+from .services.comparison import ComparisonService
+from .services.db import Db
+from .services.exporter import ExportError, Exporter
+from .services.imports import ImportError_, import_sample
+from .services.jobs import (
+    ApproveVariantRequest, ContinueRequest, JobCreateRequest, JobFailure, JobService, JobStore,
+    PatchCardRequest, RegenerateRequest, ReviewRequest,
+)
+from .services.prompt_library import LibraryError, PromptLibrary
+from .services.presets import PresetError, PresetStore
 from .services.planning import supported_genres
 from .services.prompt_compiler import check_wishes
 from .services.reference_manager import REF_TYPES, ReferenceError_, ReferenceManager, is_valid_ref_id
 from .services.storage import ArtifactStore, is_valid_id
+
+
+class PromptSaveRequest(BaseModel):
+    name: str
+    text: str
+    author: str = "Local User"
+    note: str = Field(default="", max_length=200)
+
+
+class PromptRestoreRequest(BaseModel):
+    version: int
+    author: str = "Local User"
+
+
+class TemplateCreateRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
+
+
+class ComparisonRefRequest(BaseModel):
+    ref_id: str | None = None
+
+
+class ExportRequest(BaseModel):
+    job_id: str
+    variant_id: str | None = None
+    include_unapproved: bool = False
+    allow_mock: bool = False
+
+
+class CollectionExportRequest(BaseModel):
+    collection: str = "Movie Collection"
+    include_unapproved: bool = False
+    allow_mock: bool = False
+    allow_partial: bool = False
+
+
+class BatchJobRequest(JobCreateRequest):
+    genre: str = "batch"  # ignored: one job is created per entry of `genres`
+    genres: list[str]
 
 
 def _err(status: int, code: str, message: str, **extra: Any) -> HTTPException:
@@ -37,17 +88,23 @@ def create_app(
     settings: Settings | None = None,
     *,
     gemini_transport: httpx.AsyncBaseTransport | None = None,
+    cloudflare_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     s = settings or load_settings()
-    registry = ModelRegistry(s, gemini_transport=gemini_transport)
+    registry = ModelRegistry(s, gemini_transport=gemini_transport, cloudflare_transport=cloudflare_transport)
     guard = CostGuard(s)
     store = ArtifactStore(s.artifact_root)
     refs = ReferenceManager(s.reference_root, s.max_upload_bytes)
-    service = GenerationService(s, registry, guard, store, refs)
+    shared_db = Db(s.database_path)
+    library = PromptLibrary(shared_db)
+    presets = PresetStore(shared_db)
+    service = GenerationService(s, registry, guard, store, refs, library)
     registry.seed_live_from(store.list(200))
     job_store = JobStore(s.database_path)
     jobs = JobService(s, service, guard, refs, job_store)
     job_store.recover_interrupted()  # never auto-resumes paid work after a restart
+    comparison = ComparisonService(job_store, refs)
+    exporter = Exporter(s, jobs, shared_db)
 
     app = FastAPI(title="AI Collection Studio", version=__version__)
     app.add_middleware(
@@ -224,6 +281,205 @@ def create_app(
         except JobFailure as exc:
             raise _job_err(exc) from exc
 
+    # ---- Phase 4: QA, review, approval, regeneration, card edits
+    @app.get("/api/jobs/{job_id}/qa")
+    def jobs_qa(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.qa_report(job_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs/{job_id}/qa")
+    def jobs_qa_run(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.run_qa(job_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs/{job_id}/cards/{card_id}/review")
+    def card_review(job_id: str, card_id: str, req: ReviewRequest) -> dict[str, Any]:
+        try:
+            return jobs.review_card(job_id, card_id, req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs/{job_id}/cards/{card_id}/regenerate")
+    async def card_regenerate(job_id: str, card_id: str, req: RegenerateRequest) -> dict[str, Any]:
+        try:
+            return await jobs.regenerate_card(job_id, card_id, req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.patch("/api/jobs/{job_id}/cards/{card_id}")
+    def card_patch(job_id: str, card_id: str, req: PatchCardRequest) -> dict[str, Any]:
+        try:
+            return jobs.patch_card(job_id, card_id, req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs/{job_id}/variants/{variant_id}/approve")
+    def variant_approve(job_id: str, variant_id: str, req: ApproveVariantRequest | None = None) -> dict[str, Any]:
+        try:
+            return jobs.approve_variant(job_id, variant_id, req or ApproveVariantRequest())
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs/{job_id}/variants/{variant_id}/unapprove")
+    def variant_unapprove(job_id: str, variant_id: str) -> dict[str, Any]:
+        try:
+            return jobs.unapprove_variant(job_id, variant_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    # ---- Phase 5: Prompt Library, Templates, Reference Compare, Settings
+    @app.get("/api/prompts")
+    def prompts_list() -> list[dict[str, Any]]:
+        return library.listing()
+
+    @app.get("/api/prompts/{name}/versions")
+    def prompts_versions(name: str) -> list[dict[str, Any]]:
+        try:
+            return library.versions(name)
+        except LibraryError as exc:
+            raise _err(404, exc.code, exc.message) from exc
+
+    @app.post("/api/prompts")
+    def prompts_save(req: PromptSaveRequest) -> dict[str, Any]:
+        try:
+            library.save(req.name, req.text, req.author, req.note)
+        except LibraryError as exc:
+            raise _err(422, exc.code, exc.message) from exc
+        return next(x for x in library.listing() if x["name"] == req.name)
+
+    @app.post("/api/prompts/{name}/restore")
+    def prompts_restore(name: str, req: PromptRestoreRequest) -> dict[str, Any]:
+        try:
+            library.restore(name, req.version, req.author)
+        except LibraryError as exc:
+            raise _err(404 if exc.code.startswith("unknown") else 422, exc.code, exc.message) from exc
+        return next(x for x in library.listing() if x["name"] == name)
+
+    @app.get("/api/templates")
+    def templates_list() -> list[dict[str, Any]]:
+        return presets.list()
+
+    @app.post("/api/templates")
+    def templates_create(req: TemplateCreateRequest) -> dict[str, Any]:
+        try:
+            return presets.create(req.name, req.payload)
+        except PresetError as exc:
+            raise _err(409 if exc.code == "duplicate_name" else 422, exc.code, exc.message) from exc
+
+    @app.delete("/api/templates/{preset_id}")
+    def templates_delete(preset_id: int) -> dict[str, bool]:
+        try:
+            return {"deleted": presets.delete(preset_id)}
+        except PresetError as exc:
+            raise _err(409, exc.code, exc.message) from exc
+
+    @app.get("/api/jobs/{job_id}/comparison")
+    def comparison_grid(job_id: str) -> dict[str, Any]:
+        try:
+            return comparison.grid(job_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.get("/api/jobs/{job_id}/cards/{card_id}/comparison")
+    def comparison_card(job_id: str, card_id: str) -> dict[str, Any]:
+        try:
+            return comparison.card(job_id, card_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.patch("/api/jobs/{job_id}/cards/{card_id}/comparison-reference")
+    def comparison_set(job_id: str, card_id: str, req: ComparisonRefRequest) -> dict[str, Any]:
+        try:
+            return comparison.set_reference(job_id, card_id, req.ref_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.get("/api/settings")
+    def settings_view() -> dict[str, Any]:
+        def rel(path: Any) -> str:
+            try:
+                return path.relative_to(REPO_ROOT).as_posix()
+            except ValueError:
+                return path.name
+        return {
+            "version": __version__, "spec_version": "1.7",
+            "providers": {
+                "gemini": {"enabled": s.gemini_api_enabled, "key_configured": bool(s.gemini_api_key.strip()),
+                           "default_model": s.default_model, "est_cost_per_image_usd": s.gemini_est_cost_per_image_usd},
+                "cloudflare": {"token_set": bool(s.cloudflare_api_token.strip()), "account_id_set": bool(s.cloudflare_account_id.strip()),
+                               "configured": s.cloudflare_configured},
+                "openai": {"enabled": s.openai_image_enabled, "paid_calls_enabled": s.openai_paid_calls_enabled,
+                           "key_configured": bool(s.openai_api_key.strip())},
+                "mock": {"enabled": s.enable_mock_provider},
+            },
+            "budget": asdict(guard.summary()),
+            "limits": {"max_card_retries": s.max_card_retries, "max_regenerations_per_card": s.max_regenerations_per_card,
+                       "max_parallel_generations": 1, "max_images_per_job": s.max_images_per_job,
+                       "max_refs_per_request": s.max_refs_per_request, "max_upload_mb": s.max_upload_bytes // (1024 * 1024)},
+            "storage": {"data": rel(s.data_root), "artifacts": rel(s.artifact_root), "references": rel(s.reference_root),
+                        "database": rel(s.database_path), "exports": rel(s.data_root / "exports")},
+            "how_to_change": "Edit the local .env file and restart the backend. API keys are never shown or edited here.",
+        }
+
+    # ---- Phase 6: collection workflow, export, imports
+    def _export_err(exc: ExportError) -> HTTPException:
+        return _err(exc.status, exc.code, exc.message, **exc.extra)
+
+    @app.get("/api/collection/overview")
+    def collection_overview(collection: str = "Movie Collection") -> dict[str, Any]:
+        return exporter.overview(collection)
+
+    @app.post("/api/collection/batch")
+    async def collection_batch(req: BatchJobRequest) -> list[dict[str, Any]]:
+        try:
+            base = JobCreateRequest(**{k: v for k, v in req.model_dump().items() if k != "genres"})
+            return await jobs.create_batch(base, req.genres)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/collection/export")
+    def collection_export(req: CollectionExportRequest) -> dict[str, Any]:
+        try:
+            return exporter.export_collection(req.collection, include_unapproved=req.include_unapproved,
+                                              allow_mock=req.allow_mock, allow_partial=req.allow_partial)
+        except ExportError as exc:
+            raise _export_err(exc) from exc
+
+    @app.post("/api/exports")
+    def exports_create(req: ExportRequest) -> dict[str, Any]:
+        try:
+            return exporter.export_variant(req.job_id, req.variant_id, include_unapproved=req.include_unapproved,
+                                           allow_mock=req.allow_mock)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+        except ExportError as exc:
+            raise _export_err(exc) from exc
+
+    @app.get("/api/exports")
+    def exports_list() -> list[dict[str, Any]]:
+        return exporter.list()
+
+    @app.get("/api/exports/{export_id}/download")
+    def exports_download(export_id: str):
+        found = exporter.path(export_id)
+        if found is None:
+            raise _err(404, "not_found", "Export not found.")
+        return FileResponse(found[0], media_type="application/zip", filename=found[1])
+
+    @app.post("/api/imports")
+    async def imports_create(file: UploadFile = File(...), provider_label: str = Form(...), model_label: str = Form(...),
+                             prompt_note: str = Form(""), object_name: str = Form("")) -> dict[str, Any]:
+        data = await file.read(s.max_upload_bytes + 1)
+        try:
+            return import_sample(store, data, provider_label=provider_label, model_label=model_label,
+                                 prompt_note=prompt_note, object_name=object_name, max_bytes=s.max_upload_bytes)
+        except ImportError_ as exc:
+            raise _err(400, exc.code, exc.message) from exc
+
     app.state.jobs = jobs  # exposed for tests
 
     # --------------------------------------------------------------- artifacts
@@ -242,6 +498,19 @@ def create_app(
         if not is_valid_id(artifact_id) or (p := store.image_path(artifact_id)) is None:
             raise _err(404, "not_found", "Artifact not found.")
         return FileResponse(p, media_type="image/png")
+
+    dist = REPO_ROOT / "frontend" / "dist"
+    if dist.is_dir():  # single-process mode: start.bat builds the UI and serves it from the backend
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa(full_path: str):
+            if full_path.startswith("api/"):
+                raise _err(404, "not_found", "Unknown API route.")
+            target = (dist / full_path).resolve()
+            if full_path and target.is_file() and dist.resolve() in target.parents:
+                return FileResponse(target)
+            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})  # hashed assets cache; the shell must not
 
     return app
 

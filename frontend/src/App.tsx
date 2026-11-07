@@ -3,8 +3,11 @@ import { api, ApiError } from "./api/client";
 import { CategoryDistribution, type DistCounts, type DistMode } from "./components/CategoryDistribution";
 import { ModelSettings, keyOf } from "./components/ModelSettings";
 import { ReferenceUploader } from "./components/ReferenceUploader";
+import { HistoryView } from "./components/HistoryView";
 import { ResultPanel } from "./components/ResultPanel";
 import { SetPanel } from "./components/SetPanel";
+import { SettingsView } from "./components/SettingsView";
+import { TemplatesView } from "./components/TemplatesView";
 import type {
   Artifact, Budget, GenerateRequest, GenreInfo, JobDetail, JobEvent, JobPreview, JobRequestPayload,
   JobSummary, ModelsResponse, PreviewResponse, RefMeta,
@@ -18,11 +21,13 @@ const CATEGORIES: { n: 1 | 2 | 3 | 4; label: string }[] = [
   { n: 4, label: "Cat. 4 — in an environment" },
 ];
 type Mode = "set" | "single";
+type View = "generate" | "history" | "templates" | "settings";
 
 const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? `${e.message}${e.code ? ` [${e.code}]` : ""}` : fallback);
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("set");
+  const [view, setView] = useState<View>("generate");
   const [models, setModels] = useState<ModelsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refs, setRefs] = useState<RefMeta[]>([]);
@@ -129,6 +134,27 @@ export default function App() {
   const refIds = useMemo(() => selectedRefs.filter((id) => refs.some((r) => r.ref_id === id)), [selectedRefs, refs]);
   const maxVariants = genres.find((g) => g.genre === genre)?.max_variants ?? 5;
 
+  const perImageSel = model?.est_cost_per_image_usd ?? 0;
+  const perImageJob = useMemo(() => {
+    const m = models?.models.find((x) => x.provider_id === job?.request.provider && x.model_id === job?.request.model);
+    return m?.est_cost_per_image_usd ?? 0;
+  }, [models, job?.request.provider, job?.request.model]);
+
+  const applyPreset = useCallback((pl: Record<string, unknown>) => {
+    setMode("set");
+    if (typeof pl.genre === "string") setGenre(pl.genre);
+    if (typeof pl.number_of_variants === "number") setVariants(pl.number_of_variants);
+    if (pl.scope === "pilot" || pl.scope === "full") setScope(pl.scope);
+    if (typeof pl.wishes === "string") setWishes(pl.wishes);
+    const d = pl.category_distribution as { mode?: string; counts?: Record<string, number> } | undefined;
+    if (d?.mode === "custom" && d.counts) {
+      setDistMode("custom");
+      setCustomDist({ "1": d.counts["1"] ?? 1, "2": d.counts["2"] ?? 1, "3": d.counts["3"] ?? 1, "4": d.counts["4"] ?? 1 });
+    } else setDistMode("auto_balanced");
+    setSeed(null);
+    setView("generate");
+  }, []);
+
   const request = useCallback(
     (confirmed: boolean, policyOverride?: boolean): GenerateRequest => ({
       collection: collection.trim() || "Movie Collection",
@@ -167,6 +193,12 @@ export default function App() {
     }),
     [collection, genre, wishes, variants, distMode, customDist, defaultDist, model, refIds, policy, aspect, scope, seed],
   );
+
+  const onBatch = useCallback(async (confirmed: boolean) => {
+    await api.batch(jobRequest(confirmed), ["Science Fiction", "Detective", "Fantasy"]);
+    loadJobs();
+    loadModels();
+  }, [jobRequest, loadJobs, loadModels]);
 
   const singleValid = !!genre.trim() && !!objectName.trim() && !!model;
   const setValid = !!genre.trim() && !!model;
@@ -277,9 +309,20 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header budget={models?.budget} />
+      <Header budget={models?.budget} view={view} onView={setView} />
       {loadError && <div className="alert err top" role="alert">{loadError}</div>}
-      <main>
+      {view === "history" && (
+        <HistoryView jobs={jobs} perImage={perImageSel} variants={variants} scope={scope} busy={!!job?.active || starting}
+          onOpen={(id) => { openJob(id); setMode("set"); setView("generate"); }} onBatch={onBatch} onRefresh={loadJobs} />
+      )}
+      {view === "templates" && (
+        <TemplatesView onApply={applyPreset} current={() => ({
+          genre, number_of_variants: variants, scope, wishes: wishes.slice(0, 500),
+          category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? defaultDist) } },
+        })} />
+      )}
+      {view === "settings" && <SettingsView />}
+      <main hidden={view !== "generate"}>
         <aside className="left" aria-label="Request settings">
           <div className="seg modeseg" role="radiogroup" aria-label="Mode">
             <button type="button" role="radio" aria-checked={mode === "set"} className={mode === "set" ? "on" : ""} onClick={() => setMode("set")}>Card sets</button>
@@ -396,7 +439,8 @@ export default function App() {
 
         {mode === "set" ? (
           <SetPanel job={job} preview={jobPreview} previewError={jobPreviewError} events={events} jobs={jobs}
-            error={jobError} starting={starting} onPickJob={openJob} onContinue={onContinue}
+            error={jobError} starting={starting} perImage={perImageJob} onJob={(d) => { setJob(d); loadJobs(); if (!d.active) loadModels(); }}
+            onError={setJobError} onPickJob={openJob} onContinue={onContinue}
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
             onNew={() => { setJob(null); setEvents([]); setJobError(null); }} />
         ) : (
@@ -407,7 +451,7 @@ export default function App() {
   );
 }
 
-function Header({ budget }: { budget?: Budget }) {
+function Header({ budget, view, onView }: { budget?: Budget; view: View; onView: (v: View) => void }) {
   return (
     <header className="top">
       <div className="brand">
@@ -416,10 +460,11 @@ function Header({ budget }: { budget?: Budget }) {
         <span className="tag">Game Art Production for Collectible Card Sets</span>
       </div>
       <nav>
-        <button className="pill on">✦ Generate</button>
-        <button className="pill" disabled title="Coming in a later phase">History</button>
-        <button className="pill" disabled title="Coming in a later phase">Templates</button>
-        <button className="pill" disabled title="Coming in a later phase">Settings</button>
+        {(["generate", "history", "templates", "settings"] as View[]).map((v) => (
+          <button key={v} className={`pill ${view === v ? "on" : ""}`} aria-current={view === v ? "page" : undefined} onClick={() => onView(v)}>
+            {v === "generate" ? "✦ Generate" : v[0].toUpperCase() + v.slice(1)}
+          </button>
+        ))}
       </nav>
       <div className="budget" title={budget?.note}>
         {budget ? <>Est. spend <strong>${budget.spent_estimated_usd.toFixed(2)}</strong> / ${budget.total_budget_usd.toFixed(2)} cap <em>(local estimate)</em></> : "…"}

@@ -15,6 +15,7 @@ from ..providers.base import GenerationRequest, ProviderDisabled, ProviderError
 from ..providers.model_registry import ModelInfo, ModelRegistry
 from .cost_guard import BudgetExceeded, CostGuard
 from .prompt_compiler import CardSpec, CompiledPrompt, compile_card_prompt
+from .prompt_library import PromptLibrary
 from .reference_manager import ReferenceError_, ReferenceManager
 from .storage import ArtifactStore, new_artifact_id
 
@@ -33,6 +34,7 @@ class GenerateCardRequest(BaseModel):
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"] = "1:1"
     confirmed: bool = False  # explicit user confirmation of the shown cost estimate
     context: dict[str, Any] = Field(default_factory=dict)  # e.g. job_id/variant_id/position (provenance)
+    repair_note: str = Field(default="", max_length=300)  # regeneration corrections (spec §11.4)
 
     def card(self) -> CardSpec:
         return CardSpec(
@@ -58,10 +60,12 @@ class GenerationService:
         cost_guard: CostGuard,
         store: ArtifactStore,
         refs: ReferenceManager,
+        prompts: PromptLibrary | None = None,
     ) -> None:
         self.s, self.registry, self.guard, self.store, self.refs = (
             settings, registry, cost_guard, store, refs,
         )
+        self.prompts = prompts
         self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------ prepare
@@ -101,7 +105,10 @@ class GenerationService:
                 "AI provider before generating (spec §6.5).",
             )
         try:
-            compiled = compile_card_prompt(req.card(), req.wishes, [r.role for r in refs])
+            texts, versions = self.prompts.active_texts() if self.prompts else ({}, {})
+            compiled = compile_card_prompt(req.card(), req.wishes, [r.role for r in refs], texts,
+                                           req.repair_note or None)
+            compiled.template_versions = versions  # type: ignore[attr-defined]
         except ValueError as exc:
             raise GenerationFailure(422, "invalid_card", str(exc)) from exc
         estimate = self.guard.estimate_usd(model.provider_id, 1)
@@ -226,6 +233,8 @@ class GenerationService:
                 "template_version": compiled.template_version,
                 "style_bible_version": compiled.style_bible_version,
                 "category_rules_version": compiled.category_rules_version,
+                "template_versions": getattr(compiled, "template_versions", {}),
+                "repair_note": req.repair_note,
                 "free_wishes": req.wishes,
                 "warnings": compiled.warnings,
             },

@@ -61,9 +61,11 @@ class ModelRegistry:
         settings: Settings,
         *,
         gemini_transport: httpx.AsyncBaseTransport | None = None,
+        cloudflare_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._s = settings
         self._gemini_transport = gemini_transport
+        self._cloudflare_transport = cloudflare_transport
         self._availability: dict[str, bool] = {}
         self._live: set[tuple[str, str]] = set()
         self.availability_checked_at: str | None = None
@@ -90,7 +92,10 @@ class ModelRegistry:
                 enabled=s.openai_image_enabled, paid_calls_enabled=s.openai_paid_calls_enabled
             )
         elif provider_id == "cloudflare":
-            p = CloudflareImageProvider()
+            if not s.cloudflare_configured:
+                raise ProviderDisabled("Cloudflare is not configured: set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in your local .env.")
+            p = CloudflareImageProvider(s.cloudflare_account_id, s.cloudflare_api_token,
+                                        timeout_s=s.gemini_timeout_s, transport=self._cloudflare_transport)
         elif provider_id == "mock" and s.enable_mock_provider:
             p = MockImageProvider()
         else:
@@ -105,7 +110,7 @@ class ModelRegistry:
     def seed_live_from(self, artifact_metadata: list[dict[str, Any]]) -> None:
         for m in artifact_metadata:
             prov = m.get("provider", {})
-            if prov.get("id") and prov.get("id") != "mock" and prov.get("model"):
+            if prov.get("id") and prov.get("id") not in ("mock", "imported") and prov.get("model"):
                 self.mark_live(prov["id"], prov["model"])
 
     def _gemini_info(self) -> list[ModelInfo]:
@@ -159,6 +164,12 @@ class ModelRegistry:
     def models(self) -> list[ModelInfo]:
         s = self._s
         out = self._gemini_info()
+        cf_ok = s.cloudflare_configured
+        if cf_ok:
+            cf_status, cf_reason = ModelStatus.EXTERNAL_REST_VERIFIED, None
+        else:
+            missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", s.cloudflare_account_id), ("CLOUDFLARE_API_TOKEN", s.cloudflare_api_token)) if not v.strip()]
+            cf_status, cf_reason = ModelStatus.DISABLED_NO_KEY, f"Set {' and '.join(missing)} in your local .env."
         out.append(
             ModelInfo(
                 provider_id="cloudflare",
@@ -166,9 +177,9 @@ class ModelRegistry:
                 model_id=CLOUDFLARE_MODEL_ID,
                 label="FLUX.2 Klein 4B",
                 role="fallback",
-                status=ModelStatus.ADAPTER_PENDING.value,
-                selectable=False,
-                disabled_reason="Verified in an external REST test; app adapter arrives in Phase 2.",
+                status=cf_status.value,
+                selectable=cf_ok,
+                disabled_reason=cf_reason,
                 capabilities=asdict(CLOUDFLARE_CAPABILITIES),
                 est_cost_per_image_usd=0.0,
                 origin_badge="Live API · Cloudflare FLUX.2 Klein 4B",
