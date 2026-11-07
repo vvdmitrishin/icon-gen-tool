@@ -1,0 +1,20 @@
+# Category composition rules (spec §3.2). Categories 1-4 only; Cat. 5 (golden) is not
+# generated in the Movie demo. NO per-set quotas are defined here (spec §3.2, §0.2 [A]).
+version: category_v0
+categories:
+  1:
+    name: Simple floating object
+    composition: One main object with a very readable silhouette, floating in the air with no ground or surface.
+    background: Plain, gradient or simple patterned flat background. No room, no realistic ground.
+  2:
+    name: Simple object on a surface
+    composition: One main object standing on a simple surface with a modest supporting context.
+    background: A simple vertical backdrop or plain background behind the surface. Do not turn it into a complex scene.
+  3:
+    name: Object on a realistic surface
+    composition: The main object is placed on a volumetric, believable surface with a clear foreground.
+    background: A spatial background with depth. The object is still clearly the hero.
+  4:
+    name: Central object in an environment
+    composition: The main object sits at the center of a recognizable surrounding environment that tells a small local story.
+    background: A full recognizable environment. The object must not get lost in the decor.

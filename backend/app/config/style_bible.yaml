@@ -1,0 +1,21 @@
+# Layer A — System Prompt / Style Bible (spec §11.1).
+# STATUS: draft scaffold; must be validated against the Playrix references (spec §11.1, §3.2).
+id: reference-match-v1
+version: system_style_v0
+status: draft_needs_reference_validation
+style_description: >-
+  Polished, readable, colorful casual-game object illustrations with soft stylized 3D volume
+visual_rules:
+  silhouette: Clear silhouette that stays readable at thumbnail size
+  materials: Soft polished materials, stylized volume, clean highlights
+  lighting: Controlled soft lighting; avoid harsh photo-realism
+  color: Bright, well-separated, saturated colors consistent with the references
+  camera: Keep perspective and object scale consistent with the reference examples
+  object_centrality: The primary object stays visually dominant, central and unobstructed
+  text: No embedded labels, letters, watermarks or UI typography
+negative_rules:
+  - no card frame, no border, no collection window
+  - no stars, no rarity badges, no UI elements
+  - no text, no labels, no watermark
+  - no famous franchise logos, posters or recognizable copyrighted characters
+  - no photographic realism

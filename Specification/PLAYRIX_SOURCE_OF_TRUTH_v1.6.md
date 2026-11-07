@@ -1,28 +1,74 @@
 # Playrix AI Producer — Collection Studio
 ## Source of Truth / Product Requirements + UX + Technical Design + Execution Plan
 
-**Версія:** 1.4 (model-agnostic image providers; Cloudflare REST API validated; Claude Code development-only; Qwen/ComfyUI optional)  
-**Дата:** 7 листопада 2026 року (база: 04.11.2026; Reference Compare: 06.11.2026)  
-**Статус:** `SPECIFICATION / APP NOT IMPLEMENTED`; **окремий Cloudflare REST API smoke test успішний** (PNG за текстовим запитом і запит із графічним референсом). Повний Web UI/backend/job pipeline ще НЕ реалізовані.  
+**Версія:** 1.6 (Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
+**Дата:** 7 листопада 2026 року (оновлення v1.6: Gemini REST API and reference-input verified)  
+**Статус:** `SPECIFICATION / APP NOT IMPLEMENTED`; **Gemini Nano Banana 2.1 REST API перевірений у PowerShell: text-to-image PNG + reference-to-image PNG**; **Cloudflare FLUX.2 Klein 4B REST API раніше перевірений**. **OpenAI GPT Image: planned, API не підключений, billing не активований.** Повний Web UI/backend/job pipeline ще НЕ реалізовані.  
 **Власник концепції:** кандидат на роль AI Producer  
 **Мова робочого документа:** українська; назви кнопок, об'єктів та API — англійською  
 **Мета:** єдиний документ для розробки, делегування AI coding agent, перевірки scope та підготовки презентації результатів тестового завдання.
 
 > **Головне правило:** цей документ навмисно розрізняє **[P] вимогу Playrix**, **[U] побажання користувача / автора концепції**, **[D] запропоноване дизайн-рішення**, **[A] припущення, що потребує перевірки**, **[F] можливе майбутнє розширення**. Не можна подавати [D], [A] чи [F] як вимоги роботодавця.
 
-> **Обмеження достовірності:** повний застосунок ще не розроблений. Окремий **Cloudflare Workers AI REST API → FLUX.2 Klein 4B → PNG** перевірено користувачем у Windows PowerShell, у тому числі виконання запиту з `input_image_0`; це НЕ доводить придатну якість стилю, повний 10-card pipeline чи гарантовану безкоштовну квоту. Мокап UI — не робочий застосунок. Не вигадувати QA scores, API credits, кількість згенерованих карток або фінальний readiness.
+> **Обмеження достовірності:** повний застосунок ще не розроблений. **Gemini Nano Banana 2.1 (`gemini-nano-banana-2.1`)** реально повернув PNG після текстового REST виклику; також отримано `SUCCESS!` і файл PNG після REST виклику з одиничним Playrix reference PNG. **Художній результат цього файлу асистент ще НЕ бачив і не оцінював.** Раніше також перевірено **Cloudflare FLUX.2 Klein 4B** у PowerShell (текст і референс). Ці smoke tests не доводять придатну художню якість, працездатність 10-card pipeline чи завершення UI. Мокап UI — не робочий застосунок. Не вигадувати QA scores, API credits, кількість згенерованих карток або фінальний readiness.
 
 ---
 
-## Головне архітектурне рішення v1.4 — Актуальне, має пріоритет (07.11.2026)
+## АКТУАЛЬНЕ РІШЕННЯ v1.6 — ВАЖЛИВІШЕ ЗА ІСТОРИЧНІ РОЗДІЛИ НИЖЧЕ (07.11.2026)
+
+Це **єдиний поточний статус** підключення провайдерів. Пізніші рішення v1.6 мають пріоритет над застарілими прикладами, де Cloudflare названо основним, Gemini позначено `Samples only` або runtime-budget вимагав суворо `$0`.
+
+| Provider | Model | Факт, підтверджений користувачем | Роль у застосунку після реалізації | Активний у власному Web UI зараз? |
+|---|---|---|---|---|
+| **Google Gemini** | **`gemini-nano-banana-2.1`** | **API key + оплата налаштовані; текстовий REST `generateContent` повернув PNG; REST із `inlineData` Playrix PNG повернув PNG.** На акаунт внесено **€5**. | **Default / primary image generation provider** | **Ні — app ще не створений; API smoke test пройдено в PowerShell** |
+| Google Gemini | `gemini-3.1-flash-image` (Nano Banana 2), `gemini-3.1-flash-lite-image` (2 Lite), `gemini-3-pro-image` (Pro) | Є офіційна документація; **ці моделі не тестувалися в акаунті користувача** | Вибір моделей під одним Gemini adapter за наявності доступу | Ні — `Available after live model check` |
+| **Cloudflare Workers AI** | `@cf/black-forest-labs/flux-2-klein-4b` | Раніше перевірені текстовий REST і REST із reference PNG | **Free baseline / fallback**; без автоматичного paid upgrade | **Ні — app ще не створений; зовнішній API smoke test пройдено** |
+| **OpenAI GPT Image** | `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` (та інші після перевірки) | Офіційні Image API/Edits API задокументовані; **особистий API key, оплата і live-виклики НЕ налаштовані/НЕ тестувалися** | **Planned provider, visible in UI, disabled until separately configured and approved** | **Ні, `Not configured`** |
+
+**Рішення власника [U]:** **Gemini підключаємо першим**; **OpenAI GPT Image всюди передбачаємо** (UI, provider registry, adapters interface, settings/env template, jobs, image refs, cost counters, provenance, README, QA/tests), але **не виконуємо OpenAI API-запитів і не активуємо його оплату** без окремого рішення. Cloudflare зберігаємо як резервну альтернативу.
+
+**Verified evidence у Windows PowerShell [U]:**
+- Text-to-image з `gemini-nano-banana-2.1` → `SUCCESS! Image saved: C:\Users\vd\gemini_test.png`.
+- Reference-to-image з `playrix_single_reference_calculator.png` → `SUCCESS! Image saved to: C:\Users\vd\Documents\GitHub\icon-gen-tool\Specification\gemini_ref_test.png`.
+- Для reference було використано `contents[].parts[].inlineData = {mimeType: 'image/png', data: '<base64>'}`. **Факт успіху = файл створився; не означає перевіреного стилю Playrix.**
+- Початкова помилка `400 Bad Request` у першому text smoke test виникла через некоректний запит `generationConfig.responseFormat.image`; виправлений запит **без цього блоку** успішний. Перший reference `400 Unable to process input image` виник через **неіснуючий локальний шлях і порожній Base64**; виправлений шлях дав успішний PNG. Не записувати ці 400 як дефекти Gemini.
+
+**Перед великими jobs:** перевірити зображення `gemini_ref_test.png` в Art Review; порівняти Cat. 1–4, зробити 10-card mini pilot, підтвердити реальні квоти й доступність потрібних модельних ID. Відстежувати залишок €5 у Google AI Studio. **App-level budget guard — best-effort, а не гарантія жорсткої межі від Google**, бо usage/billing можуть оновлюватися із затримкою. Відмовляти в запуску, якщо обсяг job не вписується в консервативний ліміт.
+
+**Офіційна документація:** https://ai.google.dev/gemini-api/docs/image-generation ; https://ai.google.dev/gemini-api/docs/pricing ; https://developers.openai.com/api/docs/guides/image-generation ; https://developers.cloudflare.com/workers-ai/platform/pricing/ .
+
+---
+
+## Головне оновлення v1.5 — вибір image provider після порівняння API (07.11.2026)
+
+**Історичний висновок v1.5, підтверджений доступом v1.6:** оскільки ми **вже активували невеликий paid Gemini API-бюджет**, то для цього тестового і для **не дуже складних casual-style іконок / card art objects** я рекомендую **починати з Gemini як першого premium image adapter**, а саме:
+
+- **`gemini-nano-banana-2.1`** — якщо хочемо кращий баланс якості, редагування, reference-following і шансів на style match;
+- **`gemini-3.1-flash-lite-image` (Nano Banana 2 Lite)** — якщо головний пріоритет це **мінімальна ціна** і висока пропускна здатність;
+- **OpenAI GPT Image** варто тримати як **другий optional adapter / backup**, а не як першу інтеграцію;
+- **Cloudflare FLUX.2 Klein 4B** залишається **першим реально перевіреним live adapter**, але зараз це радше **zero-cost baseline / fallback**, а не найкращий кандидат на фінальний art quality.
+
+**Чому так:** офіційні docs Gemini прямо позиціонують `Gemini 3.1 Flash Image (Nano Banana 2)` як **go-to image generation model** з найкращим балансом якості/ціни/латентності, підтримкою **multi-turn image editing**, **up to 14 reference images** у сімействі Gemini 3 image models та high-fidelity object/character reference workflows. Для Playrix-style workflow це дуже корисно: в нас є референси, ітерації і потреба тримати сет узгодженим.
+
+**Історична рекомендація для планування v1.5 (успішний Gemini REST test у v1.6 змінює її статус):**
+
+1. **Не інтегрувати одразу два платних image providers.**
+2. Спочатку зробити **provider-agnostic core** + **один premium adapter**.
+3. Якщо дозволяємо невеликий spend — **першим підключати Gemini**.
+4. OpenAI додати **лише другим кроком**, якщо після pilot виникне реальна потреба у ще кращому editing/repair workflow або окремих output modes (наприклад, transparent PNG / SVG / GIF).
+5. Cloudflare зберегти як **дешевий baseline / fallback / smoke-test provider**.
+
+**Бюджетний висновок [D]:** для швидкого prototyping найраціональніше виглядає **один provider first**. Якщо потрібен paid route, він має бути **Gemini first**; якщо залишаємось у жорсткому `0 extra spend`, то працюємо далі через Cloudflare Free, але чесно приймаємо ризик нижчої візуальної якості.
+
+## Історичне архітектурне рішення v1.4 — статус оновлено в v1.6 (07.11.2026)
 
 **Підтверджене користувачем:** Cloudflare REST API з моделлю `@cf/black-forest-labs/flux-2-klein-4b` повернув PNG після **реального** виклику з Windows PowerShell. Окремий виклик із наданим зображенням через `input_image_0` також повернув PNG. **Якість слабка**; «reference request accepted» не дорівнює «reference style accurately matched». Playground FLUX.2 Klein 9B — лише візуальний експеримент; live REST API для 9B у цьому проєкті **не верифіковано**.
 
-**Model-agnostic runtime [U]/[D]:** інструмент не залежить від FLUX, Cloudflare, Qwen чи конкретного постачальника. `ImageProvider` — універсальний контракт із можливостями моделі (`capabilities`, supported reference inputs, dimensions, status) та провайдер-специфічними адаптерами. Перший adapter для MVP — **Cloudflare Workers AI / FLUX.2 Klein 4B**, бо він перевірений через власний REST API. У майбутньому: FLUX.2 інші версії, локальний ComfyUI/SDXL, Gemini Image API, GPT Image тощо за наявності реального дозволеного доступу.
+**Model-agnostic runtime [U]/[D]:** інструмент не залежить від FLUX, Cloudflare, Gemini, OpenAI чи конкретного постачальника. `ImageProvider` — універсальний контракт із можливостями моделі (`capabilities`, supported reference inputs, dimensions, status) та провайдер-специфічними адаптерами. **Перший хронологічно перевірений зовнішній REST endpoint** — **Cloudflare Workers AI / FLUX.2 Klein 4B**. **Перший paid API зі справжнім успішним text/reference smoke test і головний adapter для реалізації** — **Google Gemini image family** (передусім `gemini-nano-banana-2.1`, альтернативно `gemini-3.1-flash-lite-image`). OpenAI GPT Image — другий optional premium adapter. У майбутньому: FLUX.2 інші версії, локальний ComfyUI/SDXL, Gemini Image API, GPT Image тощо за наявності реального дозволеного доступу.
 
 **Claude Code — інструмент РОЗРОБКИ, не runtime planner.** Claude пише код, prompt templates, правила, скрипти, тести і UI. Підписка Claude Pro **не надає runtime Claude API** застосунку. **Qwen/Ollama не є обов'язковими**. Для обмеженої Movie demo перший `set-planner` може використовувати попередньо складені жанрові object pools + детерміновані правила + варіативність; це **не еквівалент повноцінного розуміння довільного творчого брифу**. Якщо потрібне справді динамічне планування будь-якої теми/побажань, передбачити **опціональний TextPlanner provider** (дозволений Cloudflare text API / інший сумісний LLM API) і чесно позначати `template_mode` vs `ai_planning_live`.
 
-**Cloudflare + бюджет [U]/[D]:** власний Cloudflare API — не «локальна модель». На ноутбуці запускається Web UI + FastAPI, а inference виконується у хмарі Cloudflare. **Додаткові платежі = 0** як суворе обмеження; перед batch необхідний preflight реального free-tier usage/quota, rate limits, умов провайдера; зупинка при вичерпанні квоти й без автоактивації платного режиму. Не робити тверджень, що free-tier вистачить на 90 зображень, доки цього не перевірено.
+**Cloudflare + бюджет (історичне формулювання v1.5; пріоритет має v1.6) [U]/[D]:** власний Cloudflare API — не «локальна модель». На ноутбуці запускається Web UI + FastAPI, а inference виконується у хмарі Cloudflare. У v1.5 фіксуємо **два допустимі режими бюджету**: (a) `Zero-cost mode` — тільки Cloudflare Free / інший безкоштовний реально доступний provider, без доплат; (b) `Minimal paid mode` — **один** платний image provider для pilot, рекомендовано Gemini. У будь-якому режимі перед batch потрібен preflight usage/quota, rate limits і hard-stop при перевищенні лімітів. Не робити тверджень, що free-tier вистачить на 90 зображень, доки цього не перевірено.
 
 **QA:** deterministic technical QA + human art review, без фейкових style scores та без обов'язкового Vision QA. Фінальні 3 Movie-набори мають бути створені **через реальний pipeline**, а не підставлені з ручної генерації в Gemini/GPT, яку можна використовувати лише як окреме дослідження.
 
@@ -38,8 +84,8 @@
 - **Visual / Artistic QA — Human-in-the-loop / обов'язково:** продюсер або художник дивиться artwork і референси через Split Slider, Side by Side та Grid View; самостійно обирає Approve / Reject / Regenerate. Художня відповідність не зводиться до автоматичного числового показника.
 - **Vision LLM QA — опціональне експериментальне розширення, НЕ must-have MVP:** модель може повідомляти про підозрілі проблеми, але не затверджує фінальну якість, не запускає необмежені перегенерації та не надає необґрунтованих `style scores`.
 - **Оновлення UI:** попередні `Style Score 0.92 / 0.87 / 0.85`, `Best Match` або `QA passed` у референсному скетчі є демо-маркерами, не вимірюваннями. Показувати фактичні статуси `Generated 10/10`, `Technical QA: passed`, `Art Review: pending/approved/rejected`.
-- **Немає доступу до образотворчого API:** GPT Image / Nano Banana відображаються як `Samples only` або `Not configured`, доки не налаштоване реальне API. Імпортовані картинки позначаються `manual_import`, а не результатом автоматичного запуску.
-- **No extra cost:** жодного платного API або додаткового сервісу як обов'язкової залежності. Локальну генерацію через FLUX/SDXL потрібно спочатку перевірити на якість; застосунок не можна оголошувати успішним, якщо art pilot провалено.
+- **Статуси провайдерів (v1.6 override):** Gemini `gemini-nano-banana-2.1` = `api_smoke_tested_text_and_reference` (майбутній primary in app); інші Gemini image model IDs = `documented_unverified`; OpenAI GPT Image = `planned_not_configured` та `Generate disabled`; Cloudflare FLUX.2 Klein 4B = `api_smoke_tested_text_and_reference` (fallback). Імпортовані вручну картинки залишаються `manual_import`.
+- **Runtime budget (v1.6 override):** один дозволений платний Gemini account із prepaid €5; Cloudflare Free fallback; OpenAI paid API НЕ активувати. Hard-stop за локальною оцінкою budget, без auto top-up і без безкінечних retries. Художню якість перевіряти окремо.
 
 ---
 
@@ -47,7 +93,7 @@
 
 **Collection Studio** — локальний Web UI для продюсера/геймдизайнера. Користувач задає **тему колекції**, **один жанр набору** (або три жанри для пакетного Movie demo), **необов'язкові "вільні побажання"**, додає референси й обирає наявну модель. **System Prompt / Style Bible** з обов'язковими правилами композиції та категорій визначений заздалегідь; UI-параметри і побажання не замінюють ці правила. Planner формує **3–5 альтернативних планів на кожен замовлений жанр**, а підключений image provider намагається створити **по 10 окремих artwork PNG** для кожного варіанта. Зберігаються промпти, provenance, ітерації та результати. Frontend показує gallery, імпортовані дослідницькі приклади, Reference Compare (Slider / Side by Side / Grid) і Export. **Саме artwork, не ігрові рамки/вікна, є deliverable.**
 
-**Бюджетний принцип v1.4 [U]: 0 USD/EUR додаткових платежів НА runtime/API** (наявна підписка Claude Code є окремим інструментом розробки). **Перший live image provider: Cloudflare Workers AI → FLUX.2 Klein 4B**, запит уже повертав PNG із PowerShell, включно зі сценарієм із reference input. Всі інші image providers — незалежні змінні adapters; GPT Image/Nano Banana без authorized API залишаються `Samples only`. Qwen/Ollama/ComfyUI **не є обов’язковими**. Планування в PoC: реалізований Python planner із перевірними правилами; опціонально runtime TextPlanner API для довільних тем і побажань. Застосунок працює локально на ноутбуці, **inference Cloudflare — віддалений**. Статичний HTML без backend картинки не генерує. Живе тестування Playrix на публічному URL не є прямою вимогою ТЗ.
+**Бюджетний принцип v1.6 [U]/[D]:** базово тримаємо **мінімальні витрати**, але більше **не вимагаємо** штучно, щоб єдиний сценарій був лише `0 USD` за будь-яку ціну для якості. Дозволені два режими: **Zero-cost baseline** (Cloudflare Free) і **Minimal paid quality-first pilot** (один premium provider, рекомендовано Gemini). **Перший історично перевірений зовнішній REST provider:** Cloudflare Workers AI → FLUX.2 Klein 4B; **перший підтверджений paid image API:** Gemini Nano Banana 2.1 через PowerShell (текст + reference). OpenAI GPT Image — **planned in UI and architecture but disabled until separate API/billing activation**. Qwen/Ollama/ComfyUI **не є обов’язковими**. Планування в PoC: реалізований Python planner із перевірними правилами; опціонально runtime TextPlanner API для довільних тем і побажань. Застосунок працює локально на ноутбуці, а inference виконується через зовнішній API provider. Статичний HTML без backend картинки не генерує. Живе тестування Playrix на публічному URL не є прямою вимогою ТЗ.
 
 ## 0.1 Пріоритети
 
@@ -70,19 +116,19 @@
 
 ---
 
-## 0.3 Погоджені продуктово-технічні рішення v1.4 [U]/[D]
+## 0.3 Погоджені продуктово-технічні рішення v1.6 [U]/[D]
 
 | Питання | Актуальне рішення | Обмеження / пояснення |
 |---|---|---|
 | Потрібен публічний SaaS? | **Ні.** Web UI + Python FastAPI запускаються локально | Доступ до Cloudflare AI API через інтернет; немає вимоги публікувати наш backend |
 | Вимога реального інструменту | **Так.** Зробити три фінальні Movie-набори через власний pipeline | Mock UI + ручні картинки НЕ закривають автоматичне виробництво |
-| Live генерація | **Cloudflare Workers AI / FLUX.2 Klein 4B (перший adapter)** | Реальний REST smoke test + reference request пройшов; art quality слабка; full batch не протестований |
-| Інші image-моделі | **Плагінні адаптери, не прив'язувати ядро до FLUX** | ComfyUI / FLUX інші / SDXL / GPT Image / Gemini після перевірки capabilities та API доступу |
+| Live генерація | **Gemini Nano Banana 2.1 primary; Cloudflare FLUX.2 Klein 4B fallback** | Обидва пройшли окремі external REST text/ref smoke tests; **жоден ще не інтегрований у власний застосунок**; art review pending |
+| Інші image-моделі | **Плагінні адаптери, ядро незалежне від моделі** | Gemini multi-model dropdown після model-by-model live check; **OpenAI GPT Image visible/planned but disabled**; optional others |
 | Планування (без Qwen) | **Python rules + object pools / templated planning для Movie demo** | Це bounded planning; не заявляти про повну семантичну адаптацію до будь-якого довільного `Free Wishes` |
 | Довільний semantic planning | Опціональний **TextPlanner provider через API** | Claude Code Pro — не runtime API; Cloudflare text model можна додати після перевірки конкретного endpoint та quota |
 | Backend | **FastAPI + job manager + Prompt Compiler + ImageProvider registry** | Логіка категорій, трейсинг, зберігання, технічний QA, export |
 | Machine split | **Ноутбук: UI + FastAPI; Cloudflare: inference** | Десктоп/Ollama/ComfyUI потрібні тільки якщо додамо optional local provider |
-| Budget | **$0 додаткового API-спенду** | Cloudflare free tier необхідно перевіряти під час batch; не активувати платні витрати |
+| Budget | **€5 prepaid Gemini; Cloudflare Free fallback; OpenAI paid DISABLED** | Консервативний per-job budget guard, квоти й retries; не включати OpenAI billing |
 | QA | Детерміновані technical checks + ручне artistic approval | Vision LLM не є must-have, ніяких вигаданих style-score |
 | Final image | **Тільки artwork**, без рамок гри; Miro insertion вручну | Пряма вимога Playrix |
 | Gold cards | В generic architecture optional; Movie demo **OFF** | No Category 5 у фінальних трьох наборах |
@@ -403,14 +449,14 @@ Collection («Кіно», «Літо», «Подорожі»...)
 | Поле | UX | Що відбувається насправді |
 |---|---|---|
 | `Planning Mode` | Dropdown | `Rules / Templates` за замовчуванням; `AI Planning` лише коли налаштовано реальний runtime TextPlanner API. Claude Code Pro не є таким API |
-| `Image Model` | Dropdown | Перший live adapter: `Cloudflare / FLUX.2 Klein 4B`; ComfyUI/GPT Image/Nano Banana — `Not configured` або `Samples only`, доки не перевірено API |
+| `Image Model` | Dropdown | **Gemini / Nano Banana 2.1** default після реалізації; Gemini Nano Banana 2, 2 Lite, Pro у dropdown з availability check; **Cloudflare FLUX.2 Klein 4B** fallback; **OpenAI GPT Image** видно як `Not configured (disabled)` із `Configure later` |
 | `Provider Status` | Status label | `Live API`, `Live Local`, `Samples Only`, `Not Configured`, `Unavailable`, `Connecting`; `Generate` тільки для реально підключеного image adapter |
 | `Resolution` | Dropdown | Список допустимих розмірів **для обраної моделі**, а не довільні значення |
 | `Quality` | Dropdown | Показати лише якщо provider підтримує цю опцію |
 | `Creativity` | Advanced slider або `Conservative / Balanced / Exploratory` | Універсального «creativity API parameter» у image API може **не бути**; це наш preset формулювання промптів / генерації планів |
 | `Reference adherence` | Advanced preset | Не видавати за гарантований API strength; реалізовувати через промпти, ref selection, editing та QA |
 | `Max retries / card` | Number | Встановлює budget і stop condition |
-| `Max job cost` | Currency | Для zero-cost MVP `0` і вимкнені оплачувані API за замовчуванням; якщо колись дозволять API — окреме явне opt-in + hard limit |
+| `Max job cost` | Currency | **Paid Gemini включено свідомо** після prepaid €5. Показувати estimated spend, budget remaining, max allowed cost per job та cost guard; Cloudflare Free = 0; OpenAI = disabled. Внутрішній guard не гарантує миттєвої відповідності provider invoice |
 | `Seed` | Advanced optional | Показувати **лише якщо підтримується обраною моделлю** |
 | `Parallel jobs` | Advanced | Backend concurrency, без перевищення provider limits |
 
@@ -442,7 +488,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 **Важливо:** зображення рамок, зірок і UI, намальовані в попередньому скетчі, **не повинні трактуватися як output за вимогою Playrix**. Для MVP показувати artwork; overlay у рамці — необов'язковий preview. На новому мокапі теж використані **виключно ілюстративні sample images**; `Quality 0.92`, `Cost $0.34` тощо заборонено показувати як реальні метрики без вимірювання.
 
-**Gallery origin badges:** `Live API · Cloudflare FLUX.2 Klein 4B` / `Live API · [other configured provider]` / `Live Local · ComfyUI` / `Imported · GPT Image` / `Imported · Nano Banana` / `Mock UI`. Для imported content немає фіктивного статусу `generated by pipeline`, а regenerate доступний лише для фактично підключеного image provider.
+**Gallery origin badges:** `Live API · Gemini Nano Banana 2.1` (тільки після реалізації та app call), `Live API · Cloudflare FLUX.2 Klein 4B` (після app call), `Planned · OpenAI GPT Image (disabled)`, `Live Local · ComfyUI` (лише якщо колись налаштований), `Imported · [provider/model]`, `Mock UI`. Для imported content немає фіктивного статусу `generated by pipeline`, а regenerate доступний лише для фактично підключеного image provider.
 
 ## 6.8.1 Reference Compare — новий UX-модуль [U] + деталі реалізації [D]
 
@@ -636,12 +682,13 @@ Collection («Кіно», «Літо», «Подорожі»...)
 5. Backend ставить три jobs у чергу та накопичує результати в окремих genre tabs.
 6. Після завершення користувач експортує найкращий варіант кожного жанру (30 artworks) і вручну вставляє їх у Playrix шаблони.
 
-## Scenario F: «Є ілюстрації з ChatGPT/Gemini, але немає image API»
+## Scenario F: «OpenAI GPT Image передбачений, але оплата/API ще не підключені» (v1.6)
 
-1. Обираю `GPT Image — Samples Only` або `Nano Banana — Samples Only`.
-2. Бачу `No API configured`; **Generate disabled**. Є `Import Images` і `View Research Samples`.
-3. Додаю PNG/JPG, вказую model name, prompt, style refs (якщо дозволено), дату й тип `manual_import`.
-4. Можу переглядати gallery, Compare і export, але **не називаю їх автоматично згенерованими через наш pipeline**.
+1. У `Provider` бачу `Gemini — Available after app integration`, `Cloudflare — Available after app integration`, `OpenAI GPT Image — Not configured`.
+2. Коли обираю `OpenAI GPT Image`, доступні info/capabilities/model candidates й пояснення `API key and billing not configured`; **Generate disabled**. UI не намагається викликати OpenAI endpoint.
+3. За потреби можу вручну імпортувати PNG/JPG і додати model name, prompt, refs, дату та `manual_import`.
+4. Для `Gemini` після підключення app adapter генерація через API має бути доступною; для `OpenAI` лише після **окремого** дозволу на конфігурацію та paid calls.
+5. Файли, отримані PowerShell smoke tests, — `external_api_smoke_test` при імпорті, а не `live_app_generation`.
 
 
 ## UX acceptance criteria
@@ -672,7 +719,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 9. **Reproducibility by provenance:** повністю відтворити стохастичне зображення може бути неможливо; натомість ми зберігаємо всі інпути, параметри і версії.
 10. **MVP first, production-ready boundaries:** у MVP просте середовище, але чіткі модулі.
 
-## 8.2 High-level component diagram — v1.4
+## 8.2 High-level component diagram — v1.6
 
 ```mermaid
 flowchart TD
@@ -683,10 +730,10 @@ flowchart TD
     PLAN --> PROMPT[Prompt Compiler + Style Bible + Categories]
     TEXT --> PROMPT
     PROMPT --> REGISTRY[Universal ImageProvider Registry]
-    REGISTRY --> CF[Cloudflare FLUX.2 Klein 4B - first verified REST API]
+    REGISTRY --> GOOGLE[Gemini Nano Banana 2.1 - primary REST API verified]
     REGISTRY -. optional .-> LOCAL[ComfyUI / Local FLUX / SDXL]
-    REGISTRY -. optional .-> GOOGLE[Gemini Image API]
-    REGISTRY -. optional .-> OPENAI[OpenAI GPT Image API]
+    REGISTRY --> CF[Cloudflare FLUX.2 Klein 4B - verified free fallback]
+    REGISTRY -. planned / disabled .-> OPENAI[OpenAI GPT Image - adapter planned, no API/billing]
     CF --> ART[(Local PNG + Metadata Store)]
     LOCAL --> ART
     GOOGLE --> ART
@@ -699,7 +746,7 @@ flowchart TD
 
 **Планувальник — окремий модуль, але його НЕ потрібно реалізовувати через Qwen.** Режим `Rules` достатній для контрольованого demo зі збереженими object pools; для довільного жанру/wishes показати чесне попередження про межі цього режиму та передбачити `TextPlanner` adapter. **Claude Code — засіб написання компонентів, НЕ runtime node на діаграмі.**
 
-## 8.3 Конкретний рекомендований MVP stack v1.4 [D]
+## 8.3 Конкретний рекомендований MVP stack v1.6 [D]
 
 | Layer | MVP | Обґрунтування |
 |---|---|---|
@@ -707,9 +754,11 @@ flowchart TD
 | Backend | Python + FastAPI + Pydantic | REST API та image/job orchestration |
 | Set planning | Python `RulesPlanner` + локальні об'єктні каталоги | Без API-рахунків; працює для трьох підготовлених жанрів |
 | Dynamic planning | Опціональний `TextPlanner` adapter | Лише при реальній інтеграції дозволеної text LLM; не плутати з Claude Code Pro |
-| Image Provider | **Cloudflare Workers AI / `@cf/black-forest-labs/flux-2-klein-4b`** | Уже перевірено raw REST call і повернення PNG; reference input прийнято |
+| Image Provider | **Gemini API / `gemini-nano-banana-2.1`** | Верифіковано text-to-image та reference-to-image через PowerShell; реалізувати як primary backend adapter |
 | Image Provider interface | **Provider registry + adapter/capabilities** | Без прив'язки UI або prompt compiler до одного endpoint |
-| Optional providers | FLUX.2 variants, ComfyUI, SDXL, GPT Image, Gemini Image | `NOT CONFIGURED` до окремої перевірки та доступу |
+| Verified fallback | **Cloudflare Workers AI / `@cf/black-forest-labs/flux-2-klein-4b`** | Попередні text/ref REST smoke tests успішні; free baseline |
+| Planned UI + adapter contract | **OpenAI GPT Image** (`gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` models after availability check) | **Visible, disabled / Not configured**; no API key required for MVP; no OpenAI paid calls |
+| Other optional models | Gemini 2 / 2 Lite / Pro, FLUX.2 variants, ComfyUI, SDXL | Model-by-model verification before enabling; optional local inference |
 | QA | Deterministic technical checks + human review | Немає недоведених LLM style scores |
 | Storage | SQLite + filesystem | Простий provenance і resume |
 | Tests | pytest + базові frontend interaction tests | Core rules, API mocks і реальний smoke test |
@@ -719,19 +768,23 @@ flowchart TD
 ```text
 Windows laptop: Browser + Frontend + FastAPI + SQLite + local output images
                       |
-                      | HTTPS (Cloudflare API token only server-side)
+                      | HTTPS (credentials only server-side)
                       v
-Cloudflare Workers AI: Image model (currently FLUX.2 Klein 4B)
+         Gemini API: Nano Banana 2.1 (PRIMARY)
+                      |
+                      +--> Cloudflare Workers AI / FLUX.2 Klein 4B (FREE FALLBACK)
+                      |
+                      +--> OpenAI GPT Image (PLANNED, DISABLED; NO CALLS)
 
 Optional later:
-  - second Cloudflare/other cloud image adapter
+  - Gemini other image models after model availability checks
   - desktop GPU + ComfyUI local adapter (only if needed)
   - authorized text-model adapter for truly open-ended planning
 ```
 
 **Умови доступності:** інтернет та діюча API-авторизація. Backend має перевіряти реальні `model ID`, supported inputs і залишок квоти. Наявність Free plan не доводить безлімітне або гарантоване отримання всіх 90 зображень. Desktop із Qwen/ComfyUI **не потрібен** для першого MVP.
 
-**No extra spend:** `ALLOW_PAID_API=false` і максимум запитів/ретраїв на job; при перевищенні quota зупинити job із повідомленням, а не автоматично переходити на paid tier. Корпоративні ChatGPT/Gemini web subscriptions не дорівнюють API-ключу; жодної browser-cookie automation.
+**Paid-budget gate v1.6:** Gemini paid access свідомо активовано з prepaid €5; лімітувати витрати перед кожним job, контролювати Google Billing і retries. Cloudflare Free fallback не потребує платної активації. **OpenAI GPT Image — provider adapter planned but runtime disabled, no paid API requests**. Вебпідписки ChatGPT/Gemini не дорівнюють API-ключам; жодної browser-cookie automation.
 
 ## 8.4 Logical modules / responsibility matrix
 
@@ -1030,11 +1083,12 @@ ExportBundle
   "prompt_template_version": "movie-v1",
   "reference_ids": ["ref-001", "ref-002", "ref-003"],
   "planning_mode": "rules",
-  "image_provider": "cloudflare",
-  "image_model": "@cf/black-forest-labs/flux-2-klein-4b",
-  "resolution": "512x512",
+  "image_provider": "gemini",
+  "image_model": "gemini-nano-banana-2.1",
+  "resolution": "1024x1024",
   "max_regenerations_per_card": 2,
-  "allow_paid_api": false
+  "paid_api_allowed_for": ["gemini"],
+  "max_estimated_job_cost_usd": 0.50
 }
 ```
 
@@ -1261,68 +1315,111 @@ reference_ids: [style-ref-01, category-1-ref-01, category-3-ref-01]
 
 # 12. Image model selection / provider strategy
 
-**Рішення v1.4:** provider list поділяється на `Live API`, `Live Local`, `Samples Only` та `Not Configured`. Пріоритет — нульова додаткова вартість і реальна відтворюваність. Не заявляти, що вебпідписки на ChatGPT/Gemini є API-доступом. Model names/version IDs — довідкові й мають перевірятися перед фактичним інтегруванням.
+**Рішення v1.6:** provider list поділяється на `Live API`, `Live Local`, `Samples Only` та `Not Configured`, але тепер окремо фіксуємо **verified baseline provider** і **recommended first premium provider**. Не заявляти, що вебпідписки на ChatGPT/Gemini є API-доступом. Model names/version IDs — довідкові й мають перевірятися перед фактичним інтегруванням.
 
 
-## 12.1 Принцип вибору
+## 12.1 Практичний висновок
 
-**Модель не обираємо лише за назвою, популярністю чи ціною.** Оцінюємо на **ідентичних card specs і однаковому reference pack**. Знімаємо результати на категоріях 1–4. Рішення приймаємо за відповідністю референсам, контрольованістю композиції, стабільністю по сету та реальною вартістю прийнятої картки.
+Для цього тестового потрібні **стилізовані object-centric card artworks**, а не надскладні ілюстрації на рівні cinematic key art. Через це **немає сенсу одразу ускладнювати стек двома платними image APIs**. Раціональний шлях такий:
 
-## 12.2 Candidate image models — validated / optional (v1.4)
+- **Cloudflare FLUX.2 Klein 4B** — зберігаємо як **verified zero-cost baseline / fallback**.
+- **Gemini** — рекомендований **перший premium provider**.
+- **OpenAI GPT Image** — рекомендований **другий premium provider / backup**, а не перша інтеграція.
 
-| Provider | Модель | Фактичний статус |
-|---|---|---|
-| **Cloudflare Workers AI** | **`@cf/black-forest-labs/flux-2-klein-4b`** | **REST API smoke test successful:** user generated PNG із Windows PowerShell; reference input `input_image_0` прийнявся, output PNG повернувся. Артова відповідність стилю поки слабка. **Перший live adapter** |
-| Cloudflare Workers AI / Playground | FLUX.2 Klein 9B та інші | Playground-only експерименти; REST API, reference contract, доступ у власному акаунті **не перевірені** |
-| Local optional | ComfyUI / FLUX / SDXL / інші | **Not configured** — резерв на випадок слабкої якості або вичерпання хмарної квоти |
-| Google Gemini | Nano Banana image family | Manual benchmark via user interface; без authorized image API = `Samples only` |
-| OpenAI | GPT Image family | Manual benchmark / optional future API; web підписка ≠ image API budget |
+**Тобто:** якщо питання звучить як *«чи варто брати Nano Banana 2.1, бо у нас не дуже складні іконки?»* — **так, варто**, якщо ми допускаємо невеликий платний API-бюджет.
+
+## 12.2 Candidate image models — verified / documented / planned (v1.6)
+
+| Provider | Модель | Фактичний статус | Роль у проєкті v1.6 |
+|---|---|---|---|
+| **Cloudflare Workers AI** | **`@cf/black-forest-labs/flux-2-klein-4b`** | **REST API smoke test successful:** user generated PNG із Windows PowerShell; reference input `input_image_0` прийнявся, output PNG повернувся. Артова відповідність стилю поки слабка. | **Verified baseline / fallback / zero-cost path** |
+| Cloudflare Workers AI / Playground | FLUX.2 Klein 9B та інші | Playground-only експерименти; REST API, reference contract, доступ у власному акаунті **не перевірені** | Optional future experiments |
+| **Google Gemini** | **`gemini-nano-banana-2.1`** | **Real external PowerShell REST text-to-image + reference-to-image PNG tests passed; €5 prepaid.** Художня якість ще не оцінена; Web UI/backend adapter ще не написаний. | **Primary provider to implement next** |
+| Google Gemini | `gemini-3.1-flash-lite-image` | Офіційний image API задокументований; ultra-low latency / low-cost option. | **Budget-first premium adapter** |
+| OpenAI | `gpt-image-2.5-flare` | Документація підтверджена; **no API key, no billing, no calls** | **Planned in UI + architecture, disabled** |
+| OpenAI | `gpt-image-2.5-sunburst` | Документація підтверджена; **no API key, no billing, no calls** | **Planned in UI + architecture, disabled** |
+| Local optional | ComfyUI / FLUX / SDXL / інші | **Not configured** | Резерв на випадок слабкої якості або вичерпання хмарної квоти |
 
 **Не фіксувати FLUX як єдиного провайдера:** однаковий request contract + різні model adapters. Не змішувати `provider` із `model ID`; за потреби в межах Cloudflare можна додати інші моделі адаптерами.
 
-**No paid costs:** для Cloudflare Free plan з'ясувати актуальний залишок quota, реальні витрати нейронів на reference-based calls і поведінку при ліміті **перед масовими job**. Повернення одного PNG не означає, що доступно 90+ викликів.
+## 12.3 Чому Gemini primary, а OpenAI planned/disabled
 
-Документація для перевірки реалізації:
-- https://developers.cloudflare.com/workers-ai/
-- https://developers.cloudflare.com/workers-ai/models/
-- https://ai.google.dev/gemini-api/docs/image-generation
-- https://developers.openai.com/api/docs/guides/image-generation
+### Gemini — сильні сторони для цього кейсу
 
-## 12.3 Provider capabilities — не приписувати те, чого немає
+- Google прямо пише, що **Gemini 3.1 Flash Image (Nano Banana 2)** має бути **go-to image generation model** і дає найкращий баланс performance/intelligence/cost/latency.
+- Gemini image docs підтримують **image editing**, **multi-turn image editing**, **conversational iteration** та **reference images**; у Gemini 3 image models можна змішувати **до 14 reference images** з різними high-fidelity обмеженнями залежно від моделі.
+- Для `gemini-3.1-flash-image` pricing page дає просту оцінку приблизно **$0.067 за 1K image** у standard mode, а `gemini-3.1-flash-lite-image` — приблизно **$0.0336 за 1K image**; у batch ще дешевше.
+- Для нашого workflow це означає: **досить сильний reference/edit pipeline** без надлишкової складності й з передбачуванішим бюджетом на 30–90 card artworks.
 
-`ImageProviderAdapter` повертає capabilities + availability **під час runtime**:
+### OpenAI — сильні сторони
+
+- OpenAI image stack чітко розділяє **Image API** (generations + edits) та **Responses API** для conversational / multi-step flows.
+- GPT Image також підтримує **кілька reference images** у reference workflow.
+- Корисні додаткові можливості: **transparent backgrounds**, **SVG output** і **animated GIF output**.
+- Моделі `gpt-image-2.5-flare` і `gpt-image-2.5-sunburst` описані як fast everyday generation та most capable editing-oriented variant відповідно.
+
+### Чому OpenAI не перший вибір саме зараз
+
+- Для нашого конкретного Playrix test case головне — **швидко запустити один якісний image adapter**, а не роздувати інтеграцію.
+- Gemini дає простішу для planning/product thinking картину: **go-to image model + cheaper lite variant + зрозумілий per-image equivalent**.
+- OpenAI я би тримав як **adapter №2**, якщо pilot покаже, що потрібні або кращі repair edits, або спеціальні output modes (SVG/transparent/GIF), або просто альтернативний art benchmark.
+
+## 12.3.1 Model selector and availability in the intended Web UI (v1.6)
+
+The **single Gemini API key** is used for multiple Gemini image model IDs. UI shows:
+
+- `Gemini · Nano Banana 2.1` / `gemini-nano-banana-2.1`: **Verified external REST text+reference**; default after backend integration.
+- `Gemini · Nano Banana 2` / `gemini-3.1-flash-image`: **Documented; account/model availability not yet checked**.
+- `Gemini · Nano Banana 2 Lite` / `gemini-3.1-flash-lite-image`: **Documented; account/model availability not yet checked**.
+- `Gemini · Nano Banana Pro` / `gemini-3-pro-image`: **Documented; account/model availability not yet checked**.
+- `OpenAI · GPT Image Flare` / `gpt-image-2.5-flare`: **Planned, disabled / Not configured**.
+- `OpenAI · GPT Image Sunburst` / `gpt-image-2.5-sunburst`: **Planned, disabled / Not configured**.
+- `Cloudflare · FLUX.2 Klein 4B`: **Verified external REST / fallback after backend integration**.
+
+**Do not conflate**: API account key exists ≠ each image model is available ≠ adapter implemented in Web UI. Never call a model just because its name is visible. UI `status` should represent `documented` / `external_rest_verified` / `configured_app` / `app_live` / `disabled_no_key` separately.
+
+**Required OpenAI planned adapter scaffold:** `OpenAIImageProvider` implementing the common interface (reference upload or edits, generation, output PNG normalization, exceptions, usage estimation and provenance); capability metadata and contract tests using mocks; backend runtime feature flag `OPENAI_IMAGE_ENABLED=false`; **no real API network requests in build/test pipelines**, unless the user later chooses to enable and fund it. UI must show disabled state with reason and future configuration instructions.
+
+## 12.4 Provider capabilities — не приписувати те, чого немає
+
+`ImageProviderAdapter` повертає capabilities + availability **під час runtime**. Для різних провайдерів вони можуть відрізнятись, тому UI не повинен удавати однакову поведінку всюди. Приклад внутрішнього capability contract:
 
 ```json
 {
-  "provider": "cloudflare-workers-ai",
-  "model": "@cf/black-forest-labs/flux-2-klein-4b",
+  "provider": "google-gemini",
+  "model": "gemini-nano-banana-2.1",
   "supports_reference_images": true,
-  "supported_sizes": ["512x512"],
-  "supports_quality_levels": false,
-  "supports_seed": false,
-  "supports_image_editing": false,
-  "status": "api_smoke_tested",
-  "cost_type": "cloudflare_quota"
+  "supports_multi_turn_editing": true,
+  "supports_image_editing": true,
+  "supports_transparent_background": false,
+  "supports_svg_output": false,
+  "supports_batch_mode": true,
+  "cost_type": "token_billing_with_per-image-equivalent",
+  "status": "api_doc_verified"
 }
 ```
 
-**Зразок вище — умовна внутрішня UX capability map, НЕ дослівна схема Cloudflare API; значення 512×512 перевірялось у нашому smoke test, решту capability flags потрібно підтверджувати за конкретною моделлю/endpoint.** Під час інтеграції поля треба привести до реальних provider capabilities, включно з можливими aspect ratios і vendor-specific aliases. Якщо провайдер не підтримує slider/seed/negative_prompt, UI **не повинен удавати**, що змінює generation engine.
+Окремо для OpenAI capability map має вміти показувати `transparent_background`, `svg_output`, `gif_output`, а для Cloudflare — значно скромніший набір можливостей.
 
-## 12.4 Model evaluation plan
+## 12.5 Model evaluation plan
 
 **Pilot:**
 
 1. Вибрати 4 референсні category cases (по одному на категорію 1–4).
 2. Для кожного case обрати один і той самий object spec та style refs.
-3. Згенерувати **по кілька outputs** двома-трьома моделями (або двома підходами до refs).
-4. Оцінити blind або хоча б за однаковим rubric.
-5. Повторити для складнішої категорії 4.
+3. Спочатку порівняти **Cloudflare baseline vs Gemini first premium**.
+4. Лише якщо потрібно — додати **OpenAI** як третій benchmark.
+5. Оцінити blind або хоча б за однаковим rubric.
 6. Зафіксувати: effective pass rate, реальні витрати, processing time, кількість retries, найтиповіші помилки.
 7. Вибрати default, fallback та strategy для категорій.
 
-**Висновок pilot має бути даними, а не заздалегідь заданою перевагою Gemini/OpenAI.**
+**Висновок pilot має бути даними, але поточний implementation priority у v1.6 такий:**
 
-## 12.5 Вартість і бюджет: формула замість фальшивої точності
+- `primary provider = Gemini Nano Banana 2.1` (external REST text+reference verified; app integration pending)
+- `default zero-cost baseline = Cloudflare FLUX.2 Klein 4B`
+- `planned optional second provider = OpenAI GPT Image` (**runtime disabled**, no billing)
+
+## 12.6 Вартість і бюджет: формула замість фальшивої точності
 
 ```text
 planned_initial_images = number_of_sets * variants_per_set * 10
@@ -1335,9 +1432,9 @@ cost_per_accepted_card = total_cost / accepted_cards
 cost_per_accepted_set = total_cost / accepted_sets
 ```
 
-**Zero-cost MVP:** **$0 додаткових витрат**, але **Cloudflare Workers AI Free може бути активним API з лімітованою безкоштовною квотою**. Не плутати `API використовується` з `API платний`: вже є перевірений REST image call. Витрати/usage і квоту перевіряти для кожного batch; при ліміті зупиняти запуск без оплат. Локальний GPU — лише optional fallback. Числові тарифи попередніх концептів **не є бюджетом поточного MVP**.
+**v1.6 cost model:** **Gemini Nano Banana 2.1 підключено у власному платному API-акаунті з prepaid €5**; Cloudflare Workers AI Free може бути fallback з лімітованою квотою, OpenAI GPT Image витрати заборонені. Не плутати `API використовується` з `API платний`: вже є перевірений REST image call. Витрати/usage і квоту перевіряти для кожного batch; при ліміті зупиняти запуск без оплат. Локальний GPU — лише optional fallback. Числові тарифи попередніх концептів **не є бюджетом поточного MVP**.
 
-**Для MVP default:** `allow_paid_api=false`, `max_cost_usd=0`, `max_retries_per_card`, `max_parallel_generations`. Для локального GPU варто показувати `execution time / output count / retries`, а не вигадані доларові витрати. Майбутній paid adapter повинен мати explicit opt-in й hard-stop.
+**Для MVP default v1.6:** `image_provider=gemini`, `image_model=gemini-nano-banana-2.1`, `paid_api_allowed_for=[gemini]`, `max_estimated_job_cost_usd` із консервативним невеликим лімітом, `max_retries_per_card`, `max_parallel_generations`. **OpenAI paid = false**; Cloudflare fallback може працювати за безкоштовною квотою. Локальні cost guards — best-effort, а не гарантія точного списання Google. Для локального GPU показувати `execution time / output count / retries`, а не вигадані доларові витрати.
 
 ---
 
@@ -1415,7 +1512,7 @@ cost_per_accepted_set = total_cost / accepted_sets
 | Planning | One plan then random variations | 3–5 explicitly different concepts | Semantic novelty |
 | Generation | All images independently | Shared style manifest + prior approved examples | Cohesion |
 | QA | Technical checks + human review | Targeted regeneration after human feedback | Accepted rate / intervention count |
-| Models | Cloudflare FLUX.2 Klein 4B (REST tested) | Other authorized image model adapter / imported Gemini-GPT benchmark (not live) | Style/category fidelity, API availability, quota |
+| Models | **Gemini Nano Banana 2.1 (text/reference REST tested)** | **Cloudflare fallback; OpenAI GPT Image planned/disabled** | Style/category fidelity, actual app integration, budget/quota |
 | Resolution | 512 px verified smoke-test size | Other supported sizes only after provider-specific verification | Quality / actual quota cost |
 
 Результати фіксувати в таблиці `experiments.csv` та в Miro: **гіпотеза → inputs → outputs → спостереження → рішення**.
@@ -1575,8 +1672,8 @@ planning_validity_rate = valid_plans / proposed_plans
 ## 16.5 Реалістичний бюджет часу та stop conditions для неоплачуваного PoC [U]/[D]
 
 - Критична перевірка **до масштабування:** окремий Cloudflare REST smoke test уже пройдено (текстовий + з референсом), але художня якість слабка; протестувати 4 категорії, інші модельні adapters та невеликий batch із реальним quota-monitoring перед 30/90 images.
-- No paid API **charges**: live Cloudflare **Free** має працювати з токеном у backend (`ALLOW_PAID_API=false` означає заборону витрат, а не заборону безкоштовних API). Import research samples працює незалежно від providers.
-- Якщо Cloudflare art слабкий: перевірити іншу доступну image-модель або fallback local provider; задокументувати quality gap, не підміняти імпортованими GPT/Nano Banana картинками автоматичний output.
+- Paid API **лише Gemini**: prepaid €5 уже зараховано; app-level budget gate + finite retry limit; Cloudflare **Free** може бути fallback. OpenAI `OPENAI_IMAGE_ENABLED=false` і `OPENAI_PAID_CALLS_ENABLED=false`. Import research samples працює незалежно від providers.
+- Якщо Gemini art зі style reference недостатньо близький: змінити ref selection/prompt/QA, порівняти Cloudflare baseline та окремі дозволені Gemini models; задокументувати gap, не підміняти імпортованими картинками результат живого app pipeline.
 - No public hosting, accounts, complex cloud queues, автоматичне компонування рамок, навчання власної LoRA у першому PoC.
 
 
@@ -1599,7 +1696,7 @@ planning_validity_rate = valid_plans / proposed_plans
 
 **Tasks:**
 - [ ] Перевірити API key/billing/quota і доступність моделей.
-- [ ] Реалізувати **Cloudflare Workers AI / FLUX.2 Klein 4B adapter** на основі вже перевіреного REST smoke test; токен лише backend.
+- [ ] Реалізувати **Gemini / Nano Banana 2.1 adapter** на основі вже перевірених text-to-image та reference-to-image REST smoke tests; токен лише backend. Потім додати Cloudflare fallback adapter.
 - [ ] Згенерувати 4–8 пробних картинок Cat. 1–4.
 - [ ] Порівняти за rubric; задокументувати failed cases.
 - [ ] За потреби порівняти challenger model.
@@ -1729,10 +1826,10 @@ playrix-collection-studio/
 │   │   │   └── exporter.py
 │   │   ├── providers/
 │   │   │   ├── base.py
-│   │   │   ├── cloudflare_image.py        # MVP live adapter
+│   │   │   ├── cloudflare_image.py        # verified external REST / free fallback
 │   │   │   ├── comfyui_image.py          # optional future
-│   │   │   ├── gemini_image.py           # optional future
-│   │   │   ├── openai_image.py           # optional future
+│   │   │   ├── gemini_image.py           # FIRST primary app adapter to implement
+│   │   │   ├── openai_image.py           # planned scaffold, disabled / no paid calls
 │   │   │   └── model_registry.py
 │   │   ├── worker/
 │   │   │   ├── runner.py
@@ -1767,7 +1864,7 @@ playrix-collection-studio/
 Два варіанти запуску — **без вимоги хмарного сервера**:
 
 1. **UI-only demonstration**: відкрити `Playrix_Collection_Studio_UI_Mockup.html` у браузері. Можна подивитися налаштування й sample gallery; **не запускає генерацію**.
-2. **Working local PoC після реалізації**: у README буде `start.bat` (Windows) / аналог для іншої ОС, який запускає UI + FastAPI. Обов'язкова умова live генерації для актуального MVP — налаштований **Cloudflare Workers AI API token у backend** і доступна безкоштовна quota. `Ollama` та `ComfyUI` **не потрібні**, поки не активовано optional local adapter. Не приписувати HTML можливості, яких у нього немає.
+2. **Working local PoC після реалізації**: у README буде `start.bat` (Windows) / аналог для іншої ОС, який запускає UI + FastAPI. Для primary generation потрібен **Gemini API key у backend** і доступна paid quota; для fallback — Cloudflare Workers AI token і Free allowance; **OpenAI key не потрібен**. `Ollama` та `ComfyUI` **не потрібні**, поки не активовано optional local adapter. Не приписувати HTML можливості, яких у нього немає.
 
 **Пропоновані Windows-команди** (не стверджуємо, що вони вже працюють, доки немає реалізації):
 
@@ -1778,35 +1875,43 @@ Copy-Item .env.example .env
 # Open http://127.0.0.1:3000 (or chosen dev port)
 ```
 
-Готовий repo має містити реальну інструкцію створення Cloudflare Workers AI token/account, перевірки квоти, роботи з референсами та збереження PNG. ComfyUI і desktop GPU описувати лише в optional fallback setup, без припущення, що вони є у reviewer.
+Готовий repo має містити інструкції налаштування Gemini API, вибору image models, prepay/quota та fallback Cloudflare token, роботи з референсами й збереження PNG. OpenAI описати як planned/disabled без кроку обов’язкового billing. ComfyUI і desktop GPU описувати лише в optional fallback setup, без припущення, що вони є у reviewer.
 
-## 18.2 Environment variables (proposed v1.4)
+## 18.2 Environment variables (proposed v1.6)
 
 ```dotenv
-# Default: Cloudflare Free inference; secrets only on the backend
-CLOUDFLARE_ACCOUNT_ID=
-CLOUDFLARE_API_TOKEN=
-DEFAULT_IMAGE_PROVIDER=cloudflare
-DEFAULT_IMAGE_MODEL=@cf/black-forest-labs/flux-2-klein-4b
+# Proposed .env.example ONLY: never commit real secrets
+DEFAULT_IMAGE_PROVIDER=gemini
+DEFAULT_IMAGE_MODEL=gemini-nano-banana-2.1
 DEFAULT_PLANNING_MODE=rules
+GEMINI_API_KEY=
+GEMINI_API_ENABLED=true
 
-# Explicitly prohibit paid usage and bound retries / calls
-ALLOW_PAID_API=false
+# Gemini is the sole enabled paid provider; €5 prepaid is external account state
+# Example LOCAL soft guard, not a guarantee against delayed provider billing
+GEMINI_JOB_BUDGET_USD=0.50
+PAID_IMAGE_CALLS_ENABLED=true
 MAX_CARD_RETRIES=2
 MAX_PARALLEL_GENERATIONS=1
 MAX_IMAGES_PER_JOB=50
 
+# Verified free fallback; switchable in UI once app adapter implemented
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+
+# OpenAI GPT Image is SPECIFIED but DISABLED by default
+OPENAI_API_KEY=
+OPENAI_IMAGE_ENABLED=false
+OPENAI_PAID_CALLS_ENABLED=false
+OPENAI_IMAGE_DEFAULT_MODEL=gpt-image-2.5-flare
+
 DATABASE_URL=sqlite:///./data/collection_studio.sqlite3
 ARTIFACT_ROOT=./data/artifacts
-
-# Optional providers, disabled unless configured
 COMFYUI_BASE_URL=
-GEMINI_API_KEY=
-OPENAI_API_KEY=
 TEXT_PLANNER_PROVIDER=
 ```
 
-`.env.example` містить ТІЛЬКИ назви параметрів без секретних значень. Реальні `.env`, токени, dumps, outputs — у `.gitignore`. Claude Code Pro не є текстовим runtime API. Реальні model IDs та endpoint перевіряти перед запуском. **Не копіювати API-токени із тестових чатів у публічний repo чи демо-слайди**.
+`.env.example` містить ТІЛЬКИ назви параметрів без секретних значень. Реальні `.env`, токени, dumps, outputs — у `.gitignore`. **Не комітити `gemini_ref_test.png` або інші згенеровані файли в Specification без свідомого рішення**; для app outputs використовувати `data/artifacts/`. Claude Code Pro не є текстовим runtime API. Реальні model IDs та endpoint перевіряти перед запуском. **Не копіювати API-токени із тестових чатів у публічний repo чи демо-слайди**.
 
 # 19. Security, rights, reliability
 
@@ -2074,7 +2179,7 @@ TEXT_PLANNER_PROVIDER=
 | ADR-002 | Планувати 10 об'єктів до image generation | Семантичний контроль | Завжди core |
 | ADR-003 | Одна картка / один primary image request | Редагування, QA, versioning | Якщо batch дає вимірювану перевагу |
 | ADR-004 | Artwork-only output | Пряма вимога тестового | Тільки якщо зміниться ТЗ |
-| ADR-005 | **Cloudflare FLUX.2 Klein 4B** — first live image adapter | REST image request із референсом вже працює; zero extra API spend constraint | За результатами quality / free quota pilot |
+| ADR-005 | **Gemini Nano Banana 2.1** — first implemented premium adapter (target); **Cloudflare** — free fallback | Обидва мають підтверджені окремі REST smoke tests; Gemini text/ref успішні; лише Gemini має ввімкнений prepaid account | За результатами art-quality pilot |
 | ADR-006 | **Model-agnostic ImageProvider registry: Live API / Live Local / Samples Only / Not Configured** | Міняти моделі без переписування Web UI / pipeline | Залишити |
 | ADR-007 | SQLite + local files для MVP | Простота й достатня надійність | Перед multi-user/cloud |
 | ADR-008 | **Technical QA у Python + human art approval**; Vision QA optional advisory only | Не вигадувати точність AI judge | Після реального калібрування |
@@ -2082,7 +2187,8 @@ TEXT_PLANNER_PROVIDER=
 | ADR-010 | No LoRA training у MVP | Обсяг і правила тестового | Якщо окремо доведена потреба/права |
 | ADR-011 | System Rules + UI Settings + Producer Free Wishes | Розділити policy/structure та творчі побажання | Лише якщо зміниться продуктове ТЗ |
 | ADR-012 | Prompt Library: view/edit/save versioned templates | Повторне використання, контроль ітерацій | MVP vs P1 detail |
-| ADR-013 | No extra spend, laptop-local app + Cloudflare Free inference | API smoke test працює з ноутбука; desktop GPU optional | Якщо Cloudflare quota / quality не підійде |
+| ADR-013 | **€5 Gemini prepaid + per-job spend guard**, local Windows app; Cloudflare Free fallback; **OpenAI paid disabled** | Quality-first з контрольованими витратами; desktop GPU optional | Якщо Gemini quality, price чи quota не підійдуть |
+| ADR-014 | **OpenAI GPT Image everywhere in specification, UI and registry, runtime disabled** | Майбутнє розширення без перероблення ядра і без передчасних витрат | Лише після явної активації API та витрат |
 
 ---
 
@@ -2101,11 +2207,11 @@ TEXT_PLANNER_PROVIDER=
 9. Додати model adapter №2, QA, retries, reports.
 10. Провести acceptance tests на трьох жанрах і підготувати Miro.
 
-### Prompt для Claude Code / Codex (актуальний v1.4; можна копіювати)
+### Prompt для Claude Code / Codex (актуальний v1.6; можна копіювати)
 
 ```text
-Build "AI Collection Studio" as a ZERO-ADDITIONAL-COST LOCAL WEB APP with CLOUD IMAGE INFERENCE for the Playrix AI Producer take-home.
-Read docs/SOURCE_OF_TRUTH.md. Version 1.4 overrides previous Qwen/ComfyUI-first assumptions.
+Build "AI Collection Studio" as a BUDGET-CONTROLLED LOCAL WEB APP with CLOUD IMAGE INFERENCE for the Playrix AI Producer take-home.
+Read docs/SOURCE_OF_TRUTH.md. Version 1.6 overrides previous Cloudflare-only / zero-spend assumptions.
 Requirements: [P] Playrix, [U] user preference, [D] design, [A] assumption, [F] future.
 
 HARD CONSTRAINTS:
@@ -2115,11 +2221,19 @@ HARD CONSTRAINTS:
 - Final demo: three different movie genres, without Golden Cards.
 - Three instruction layers: permanent Style Bible, structured settings, optional Free Wishes.
 - Independent image-provider adapter architecture; do not hardcode app logic to FLUX.
-- First LIVE provider: Cloudflare Workers AI / @cf/black-forest-labs/flux-2-klein-4b.
-  REST API + PNG smoke test with and without reference input succeeded outside the app.
-  Full app, 10-card batch, API quota and art quality remain UNVERIFIED.
+- PRIMARY provider to implement: Google Gemini / gemini-nano-banana-2.1.
+  Real external PowerShell REST text-to-image and single-reference-to-image PNG tests SUCCEEDED.
+  User configured paid Gemini API with EUR 5 prepaid. Actual art/style match is NOT YET REVIEWED.
+- VERIFIED fallback adapter: Cloudflare Workers AI / @cf/black-forest-labs/flux-2-klein-4b.
+  External REST + reference PNG smoke tests succeeded; app pipeline not built.
+- PLANNED, DISABLED provider: OpenAI GPT Image (e.g. gpt-image-2.5-flare/sunburst).
+  Include in provider registry, UI, model choices, settings, env template, docs, status and tests.
+  No OpenAI API key, paid billing or OpenAI requests required or allowed now.
+  Full app, 10-card batch, quotas and art quality remain UNVERIFIED.
 - Keep provider credentials server-side only. Never copy tokens into examples or repo.
-- NO additional API spend, paid fallback, auto billing or unbounded retries.
+- Allow only intentionally configured paid GEMINI calls with conservative per-job cost guard.
+  No auto top-up, no unexpected OpenAI charges, no unbounded retries.
+  Cloudflare Free is fallback; OpenAI stays disabled until explicit user authorization.
 - Qwen/Ollama/ComfyUI are NOT REQUIRED for MVP.
 - Claude Code writes code and prompts but is NOT a runtime Claude API planner.
 - Set planning MVP: Python rules + prepared object pools (bounded Movie demo).
@@ -2128,10 +2242,14 @@ HARD CONSTRAINTS:
 - Implement technical QA and human art approval. No fake AI art scores.
 - Provide reference upload, 3–5 variants, gallery, targeted regeneration, compare
   (Split Slider / Side by Side / Grid), prompt library, PNG/ZIP export and provenance.
-- Label imported Gemini/GPT samples honestly, separate from live-generated artwork.
+- Label imported samples honestly; distinguish external API PowerShell smoke test from live-app-generated artwork.
+- Provider status must distinguish docs-only, externally smoke-tested, app-configured, app-live, disabled.
+- Dynamically allow Gemini image-model selection ONLY for models verified available in the account.
+- Preserve the ORIGINAL detailed UI sketch and all three reference compare modes.
 
-START WITH: a small functional end-to-end path using Cloudflare adapter + one reference
-+ one image + saved PNG, then batch generation, then match the detailed UI.
+START WITH: a small functional end-to-end path using GEMINI adapter + one reference
++ one image + saved PNG, then 10-card generation, cost/status controls, then the detailed UI.
+Keep Cloudflare as fallback; show OpenAI in UI but DISABLED.
 Show implementation/test status clearly, commit in small milestones.
 ```
 
@@ -2149,11 +2267,11 @@ Show implementation/test status clearly, commit in small milestones.
 
 ---
 
-# 28. Рекомендований порядок наступних практичних рішень (v1.4)
+# 28. Рекомендований порядок наступних практичних рішень (v1.6)
 
-1. **Already done:** Cloudflare REST smoke test з PowerShell (PNG з текстом і з reference input); зберегти output і відокремити від app demo.
-2. **Art feasibility:** перевірити ілюстрації Cat.1–4 із тією самою групою референсів; підвищити якість стилю (інша модель / prompt / refs), а не просто кількість зображень.
-3. **First backend slice:** FastAPI + `CloudflareImageProvider` + одне завдання з референсом → файл PNG і metadata. Перевірити власну quota без оплати.
+1. **Already done:** Gemini Nano Banana 2.1 та Cloudflare FLUX.2 Klein 4B окремо пройшли text/reference REST smoke tests у Windows PowerShell; це не app integration. Gemini prepaid €5 активовано.
+2. **Art feasibility:** завантажити `gemini_ref_test.png`, вручну оцінити схожість із Playrix reference; порівняти Cat.1–4 із тим самим ref pack, підвищити якість стилю (prompt / refs / generation mode), а не просто кількість зображень.
+3. **First backend slice:** FastAPI + `GeminiImageProvider` + одне завдання з референсом → файл PNG і metadata. Потім додати `CloudflareImageProvider` як fallback. OpenAI — planned/disabled.
 4. **Set planning:** `RulesPlanner` + object pools / category rules, версіонований Prompt Compiler; обмеження для довільного Free Wishes чесно показувати. `TextPlanner` API — за необхідності.
 5. **Batch generation:** 10 cards + 3–5 variants, прогрес, квоти, retry, resume, technical QA, provenance.
 6. **Detailed Web UI:** відтворити ПЕРШИЙ багатий мокап; додати Free Wishes, Provider selection/status, Prompt Library, Compare/Grid, human review, export.
@@ -2179,11 +2297,11 @@ Show implementation/test status clearly, commit in small milestones.
 
 - [ ] Вхід: theme + genre + optional producer wishes, **окремо від системних rules і UI settings**.
 - [ ] Вихід: 3–5 альтернативних повних наборів на запит.
-- [ ] Є реальна автоматизація через **Cloudflare Workers AI image REST API** (перший live provider), не просто PowerShell smoke test; можливі інші adapters.
+- [ ] Є реальна автоматизація через **Gemini Nano Banana 2.1 image REST API** всередині Web UI/backend (primary); Cloudflare fallback, OpenAI GPT Image scaffold disabled. Окремі PowerShell smoke tests — ще не реалізація застосунку.
 - [ ] Підтримуються style refs; `Golden Cards` у Movie preset вимкнено й заблоковано.
-- [ ] Planning Mode (`Rules` / авторизований `Text API`) і Image Model selector відокремлені; GPT/Nano Banana samples не видаються за live API.
+- [ ] Planning Mode (`Rules` / авторизований `Text API`) і Image Model selector відокремлені; **Gemini Nano Banana 2.1 — external REST verified, app adapter pending; GPT Image — UI planned/disabled**; imported samples не видаються за live-app API.
 - [ ] Prompt Library дозволяє перегляд, редагування і збереження версій без виклику моделі.
-- [ ] UI/backend працює локально з безкоштовним Cloudflare image API; без платного API, без публічного сервера і без обов'язкової desktop GPU; `quota exceeded` обробляється.
+- [ ] UI/backend працює локально з **Gemini Nano Banana 2.1 paid API (активний prepaid €5)** та Cloudflare Free fallback; **OpenAI GPT Image disabled без API key/billing**; публічний сервер та desktop GPU не обов'язкові; `quota exceeded` обробляється.
 - [ ] Можна регенерувати тільки одну картку.
 - [ ] Є хоча б базовий QA та visible errors.
 - [ ] Можна працювати без автора інструмента.
@@ -2242,9 +2360,11 @@ Show implementation/test status clearly, commit in small milestones.
 | **1.2** | **2026-11-07** | **Three prompt layers**: System Rules + Generation Settings + Producer Free Wishes; Prompt Library editing/versioning; 3 genres vs 3–5 variants per genre; Gold OFF; separate planning/image model dropdowns and accurate Live Local vs Samples Only; 0-additional-cost local stack; laptop/desktop topology; manual GPT/Gemini sample import; revised UI sketch; honest PoC handoff. |
 | **1.3** | **2026-11-07** | Technical QA + human visual approval; Vision model optional, not required; remove ungrounded style scores |
 | **1.4** | **2026-11-07** | **First verified Cloudflare FLUX.2 Klein 4B REST PNG generation** (plain prompt + reference input); **model-agnostic ImageProvider registry**; Qwen/Ollama/ComfyUI no longer mandatory; Claude Code is development-time only; `RulesPlanner` with optional runtime TextPlanner; Cloudflare Free quota gate; detailed original mockup stays design reference; revise QA, stack, README, API settings, roadmap, implementation-agent prompt |
+| **1.5** | **2026-11-07** | **Provider comparison update:** Cloudflare remains verified zero-cost baseline; **Gemini (Nano Banana 2.1 / 3.1 Flash Lite Image)** becomes recommended first premium image adapter after API comparison; **OpenAI GPT Image** is validated as optional second adapter; document now explicitly recommends **one provider first**, not two paid providers at once. |
+| **1.6** | **2026-11-07** | **Real Gemini Nano Banana 2.1 external REST proof:** text-to-image + Playrix-reference-to-image PNG succeeded; €5 prepaid. **Gemini = target primary image provider; Cloudflare = verified fallback; OpenAI GPT Image = everywhere in design/architecture/UI but disabled, not paid/connected.** Correct prior 400 diagnosis; revise default model, env, cost controls, UI statuses, architecture, coding-agent instructions and roadmap. |
 
 ## Final status
 
 **Документ готовий як детальна специфікація для обговорення й старту розробки.**  
-**Повний Web-застосунок ще не створено; outputs у скетчі — макетні. Окремий PowerShell → Cloudflare FLUX.2 Klein 4B → PNG smoke test (без/із reference input) уже підтверджено.**  
-**Поточний технічний стан:** окремий Cloudflare Workers AI REST image smoke test пройдено (PNG + reference input). **Наступний gate:** перевірити якість на Cat.1–4, реальну безкоштовну квоту та end-to-end генерацію 10-card set у власному Python/Web застосунку. Якщо art pilot не проходить — шукати інший image provider і документувати обмеження, не підміняти автоматичний output імпортованими cloud samples.
+**Повний Web-застосунок ще не створено; outputs у скетчі — макетні. PowerShell → Gemini Nano Banana 2.1 → PNG (text + reference) і PowerShell → Cloudflare FLUX.2 Klein 4B → PNG (text + reference) підтверджено.**  
+**Поточний технічний стан:** Gemini Nano Banana 2.1 image API **реально перевірено в PowerShell**: text-to-image PNG і reference-to-image PNG; prepaid €5 в акаунті. Cloudflare FLUX.2 Klein 4B раніше також пройшов власний REST smoke test (текст + reference). **Жоден image provider ще не інтегрований у завершений Web UI/backend**. OpenAI GPT Image — documentation/planned only, `Not configured`, no paid requests. **Наступний gate:** переглянути й оцінити `gemini_ref_test.png` поруч з референсом, реалізувати GeminiImageProvider → one-card end-to-end app job → 10-card set і категорії 1–4; далі Cloudflare fallback. Не підміняти автоматичний app output зовнішніми smoke tests.
