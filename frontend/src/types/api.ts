@@ -7,14 +7,36 @@ export interface ModelInfo {
   status: string;
   selectable: boolean;
   disabled_reason: string | null;
-  capabilities: {
-    supports_reference_images: boolean;
-    max_reference_images: number;
-    aspect_ratios: string[];
-  };
+  capabilities: ModelCapabilities;
   est_cost_per_image_usd: number | null;
   origin_badge: string;
   availability_checked: boolean;
+  /** Provider/runtime grouping (optional: older backends omit it). */
+  runtime?: "cloud_api" | "local" | "test";
+  runtime_label?: string;
+  runtime_requirements?: string | null;
+  options?: ModelOption[];
+  price_note?: string | null;
+}
+
+/** `null` means "not verified" - never rendered as supported. */
+export interface ModelCapabilities {
+  supports_reference_images: boolean;
+  max_reference_images: number | null;
+  aspect_ratios: string[];
+  text_to_image?: boolean | null;
+  image_editing?: boolean | null;
+  notes?: string | null;
+  /** false = expectations for a planned model, not verified in this app */
+  verified?: boolean;
+}
+
+export interface ModelOption {
+  key: string;
+  label: string;
+  default: boolean;
+  status: string;
+  description?: string;
 }
 
 export interface Budget {

@@ -60,6 +60,13 @@ QA-not-failed variant unless explicitly overridden for testing.
 - Files: `data/artifacts/<id>.png|json` (immutable), `data/references/`, `data/exports/`, `data/ledger.jsonl`.
 - Deviation from spec §10.5: a flat artifact store plus SQLite instead of per-project folders.
 
+## Model roadmap (post-MVP backlog)
+
+Future cloud and local models plug into the same `ImageProvider` abstraction and registry; local ones would go through a local
+inference runtime (potentially ComfyUI API). Until an adapter and runtime configuration exist they are shown as `planned`,
+visible but never selectable. Capability metadata (tri-state text-to-image / editing, reference limits, runtime requirements,
+optional settings such as ERNIE Prompt Enhancement) is part of each registry entry. Details: spec §12.7.
+
 ## Tests
 
 `pytest` (161 tests): providers (mocked transports), planner, distribution, QA, jobs (lifecycle, budget, breaker, cancel,

@@ -16,6 +16,7 @@ class ModelStatus(str, Enum):
     CONFIGURED_APP = "configured_app"
     APP_LIVE = "app_live"
     ADAPTER_PENDING = "adapter_pending"
+    PLANNED = "planned"  # visible roadmap entry: no adapter/runtime yet, never selectable
     DISABLED_NO_KEY = "disabled_no_key"
     DISABLED_BY_FLAG = "disabled_by_flag"
     MOCK = "mock"

@@ -23,6 +23,7 @@ from .cloudflare_image import (
 )
 from .gemini_image import GEMINI_CAPABILITIES, GeminiImageProvider
 from .mock_image import MOCK_CAPABILITIES, MOCK_MODEL_ID, MockImageProvider
+from .roadmap import PLANNED_MODELS, PlannedModel, SEEDREAM_45
 from .openai_image import (
     DISABLED_REASON as OPENAI_DISABLED_REASON,
     OPENAI_CAPABILITIES,
@@ -53,6 +54,29 @@ class ModelInfo:
     origin_badge: str
     availability_checked: bool = False
     notes: list[str] = field(default_factory=list)
+    # --- model-selector contract (spec v1.8 §12.7): runtime grouping, requirements, options, price
+    runtime: str = "cloud_api"  # cloud_api | local | test
+    runtime_label: str = "Cloud API"
+    runtime_requirements: str | None = None
+    options: list[dict[str, Any]] = field(default_factory=list)  # e.g. ERNIE prompt_enhancement (planned)
+    price_note: str | None = None
+
+
+def caps(base: ProviderCapabilities, *, text_to_image: bool | None, image_editing: bool | None, notes: str) -> dict[str, Any]:
+    """Capability dict with the v1.8 fields. `None` = unverified, never assumed true."""
+    d = asdict(base)
+    d.update(text_to_image=text_to_image, image_editing=image_editing, notes=notes, verified=True)
+    return d
+
+
+def planned_info(m: PlannedModel) -> "ModelInfo":
+    return ModelInfo(
+        provider_id=m.provider_id, provider_label=m.provider_label, model_id=m.model_id, label=m.label,
+        role="planned", status=ModelStatus.PLANNED.value, selectable=False, disabled_reason=m.reason,
+        capabilities=m.capabilities(), est_cost_per_image_usd=m.est_cost_per_image_usd,
+        origin_badge=f"Planned · {m.label} (disabled)", runtime=m.runtime, runtime_label=m.runtime_label,
+        runtime_requirements=m.runtime_requirements, options=[dict(o) for o in m.options], price_note=m.price_note,
+    )
 
 
 class ModelRegistry:
@@ -153,7 +177,9 @@ class ModelRegistry:
                     status=status.value,
                     selectable=selectable,
                     disabled_reason=reason,
-                    capabilities=asdict(GEMINI_CAPABILITIES),
+                    capabilities=caps(GEMINI_CAPABILITIES, text_to_image=True, image_editing=True,
+                                      notes="Primary provider. Text and reference-image generation verified live."),
+                    runtime_requirements="Gemini API key in the local .env (paid, cost-guarded).",
                     est_cost_per_image_usd=s.gemini_est_cost_per_image_usd,
                     origin_badge=f"Live API · Gemini {label}",
                     availability_checked=model_id in self._availability,
@@ -180,11 +206,14 @@ class ModelRegistry:
                 status=cf_status.value,
                 selectable=cf_ok,
                 disabled_reason=cf_reason,
-                capabilities=asdict(CLOUDFLARE_CAPABILITIES),
+                capabilities=caps(CLOUDFLARE_CAPABILITIES, text_to_image=True, image_editing=None,
+                                  notes="Text and reference input verified in an external REST test. Adapter implemented and mock-tested; live app verification pending (needs CLOUDFLARE_ACCOUNT_ID)."),
+                runtime_requirements="Cloudflare account ID and API token in the local .env.",
                 est_cost_per_image_usd=0.0,
                 origin_badge="Live API · Cloudflare FLUX.2 Klein 4B",
             )
         )
+        out.append(planned_info(SEEDREAM_45))
         for model_id, label in OPENAI_MODELS:
             flagged = not s.openai_image_enabled
             out.append(
@@ -197,11 +226,14 @@ class ModelRegistry:
                     status=(ModelStatus.DISABLED_BY_FLAG if flagged else ModelStatus.DISABLED_NO_KEY).value,
                     selectable=False,
                     disabled_reason=OPENAI_DISABLED_REASON,
-                    capabilities=asdict(OPENAI_CAPABILITIES),
+                    capabilities=caps(OPENAI_CAPABILITIES, text_to_image=True, image_editing=True,
+                                      notes="Planned and disabled: no key, no billing, no network code."),
+                    runtime_requirements="OpenAI API key and billing (not configured; paid calls are disabled by design).",
                     est_cost_per_image_usd=None,
                     origin_badge="Planned · OpenAI GPT Image (disabled)",
                 )
             )
+        out.extend(planned_info(m) for m in PLANNED_MODELS if m.runtime == "local")
         if s.enable_mock_provider:
             out.append(
                 ModelInfo(
@@ -213,7 +245,10 @@ class ModelRegistry:
                     status=ModelStatus.MOCK.value,
                     selectable=True,
                     disabled_reason=None,
-                    capabilities=asdict(MOCK_CAPABILITIES),
+                    capabilities=caps(MOCK_CAPABILITIES, text_to_image=True, image_editing=False,
+                                      notes="Offline placeholder generator for development and tests; not AI artwork."),
+                    runtime="test", runtime_label="Development / testing",
+                    runtime_requirements="None: runs offline inside the backend (no network, no cost).",
                     est_cost_per_image_usd=0.0,
                     origin_badge="Mock · no AI model called",
                 )

@@ -1,8 +1,8 @@
 # Playrix AI Producer — Collection Studio
 ## Source of Truth / Product Requirements + UX + Technical Design + Execution Plan
 
-**Версія:** 1.7 (v1.6 + Card Category Distribution: `Auto (Balanced)` / `Custom`, Σ=10, Cat.5 locked 0; Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
-**Дата:** 7 листопада 2026 року (оновлення v1.7: Card Category Distribution; v1.6: Gemini REST API and reference-input verified)  
+**Версія:** 1.8 (v1.7 + model roadmap: runtime-grouped Model Selector, future cloud/local model backlog, capability metadata; Card Category Distribution: `Auto (Balanced)` / `Custom`, Σ=10, Cat.5 locked 0; Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
+**Дата:** 8 листопада 2026 року (оновлення v1.8: model roadmap; v1.7: Card Category Distribution; v1.6: Gemini REST API and reference-input verified)  
 **Статус:** `SPECIFICATION / APP NOT IMPLEMENTED`; **Gemini Nano Banana 2.1 REST API перевірений у PowerShell: text-to-image PNG + reference-to-image PNG**; **Cloudflare FLUX.2 Klein 4B REST API раніше перевірений**. **OpenAI GPT Image: planned, API не підключений, billing не активований.** Повний Web UI/backend/job pipeline ще НЕ реалізовані.  
 **Власник концепції:** кандидат на роль AI Producer  
 **Мова робочого документа:** українська; назви кнопок, об'єктів та API — англійською  
@@ -38,6 +38,10 @@
 **Офіційна документація:** https://ai.google.dev/gemini-api/docs/image-generation ; https://ai.google.dev/gemini-api/docs/pricing ; https://developers.openai.com/api/docs/guides/image-generation ; https://developers.cloudflare.com/workers-ai/platform/pricing/ .
 
 ---
+
+## ОНОВЛЕННЯ v1.8 — Model roadmap та Model Selector (08.11.2026)
+
+Додано **future integration backlog** для альтернативних image-моделей (деталі — **§12.7**): Model Selector групується за runtime — **Cloud API** (Gemini Nano Banana 2.1 = Active; Cloudflare FLUX.2 Klein 4B; ByteDance Seedream 4.5 = Planned; OpenAI GPT Image = Not configured, disabled) і **Local (planned)** (FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo, ERNIE-Image Base, Qwen-Image-Edit-2511, Qwen-Image-2512); **Mock** лишається для development/testing. Усі моделі працюють через **існуючу provider abstraction**; planned-моделі **видимі, але disabled**, доки не готові adapter і runtime-конфігурація; недоступну модель **ніколи не показувати як робочу**. Ваги моделей і локальні runtimes **зараз не завантажуються й не встановлюються**. Це **backlog, а не scope MVP**: фази 0–7, функціональність і Gemini-інтеграція **без змін**; оцінка локальних моделей і порівняння якості — після того, як MVP запрацює.
 
 ## ОНОВЛЕННЯ v1.7 — Card Category Distribution (07.11.2026)
 
@@ -129,7 +133,7 @@
 | Потрібен публічний SaaS? | **Ні.** Web UI + Python FastAPI запускаються локально | Доступ до Cloudflare AI API через інтернет; немає вимоги публікувати наш backend |
 | Вимога реального інструменту | **Так.** Зробити три фінальні Movie-набори через власний pipeline | Mock UI + ручні картинки НЕ закривають автоматичне виробництво |
 | Live генерація | **Gemini Nano Banana 2.1 primary; Cloudflare FLUX.2 Klein 4B fallback** | Обидва пройшли окремі external REST text/ref smoke tests; **жоден ще не інтегрований у власний застосунок**; art review pending |
-| Інші image-моделі | **Плагінні адаптери, ядро незалежне від моделі** | Gemini multi-model dropdown після model-by-model live check; **OpenAI GPT Image visible/planned but disabled**; optional others |
+| Інші image-моделі | **Плагінні адаптери, ядро незалежне від моделі** | Gemini multi-model dropdown після model-by-model live check; **OpenAI GPT Image visible/planned but disabled**; (v1.8) future cloud/local backlog — Seedream 4.5, FLUX.2 Klein 4B / Z-Image / ERNIE-Image / Qwen-Image (local) — visible but disabled, **не scope MVP** (§12.7) |
 | Планування (без Qwen) | **Python rules + object pools / templated planning для Movie demo** | Це bounded planning; не заявляти про повну семантичну адаптацію до будь-якого довільного `Free Wishes` |
 | Довільний semantic planning | Опціональний **TextPlanner provider через API** | Claude Code Pro — не runtime API; Cloudflare text model можна додати після перевірки конкретного endpoint та quota |
 | Backend | **FastAPI + job manager + Prompt Compiler + ImageProvider registry** | Логіка категорій, трейсинг, зберігання, технічний QA, export |
@@ -496,7 +500,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 |---|---|---|
 | `Planning Mode` | Dropdown | `Rules / Templates` за замовчуванням; `AI Planning` лише коли налаштовано реальний runtime TextPlanner API. Claude Code Pro не є таким API |
 | `Card Category Distribution` (v1.7) | Segmented `Auto (Balanced)` / `Custom` + компактні number-steppers Cat.1–4, Cat.5 = `0` (locked, disabled) і live-лічильник `Σ = 10` | `Auto (Balanced)`: конфігурований default [2,2,3,3] — наше припущення [D], не вимога Playrix. `Custom`: ручні значення. Валідація: Σ = 10, кожна Cat.1–4 ≥ 1, Cat.5 = 0 для Movie demo. Це один компактний рядок у Generation Settings без зміни затвердженого layout; правила й застосування — §3.4 |
-| `Image Model` | Dropdown | **Gemini / Nano Banana 2.1** default після реалізації; Gemini Nano Banana 2, 2 Lite, Pro у dropdown з availability check; **Cloudflare FLUX.2 Klein 4B** fallback; **OpenAI GPT Image** видно як `Not configured (disabled)` із `Configure later` |
+| `Image Model` | Dropdown, **згрупований за runtime** (v1.8): `Cloud API` / `Local (planned)` / `Development / testing` | **Gemini / Nano Banana 2.1** default після реалізації; Gemini Nano Banana 2, 2 Lite, Pro з availability check; **Cloudflare FLUX.2 Klein 4B** fallback; **ByteDance Seedream 4.5** `Planned`; **OpenAI GPT Image** видно як `Not configured (disabled)` із `Configure later`; **local-моделі** (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) — `Planned`, visible but disabled; **Mock** — для development/testing. Для кожної моделі UI показує status, `disabled_reason` і capabilities; недоступна модель ніколи не виглядає робочою (§12.7) |
 | `Provider Status` | Status label | `Live API`, `Live Local`, `Samples Only`, `Not Configured`, `Unavailable`, `Connecting`; `Generate` тільки для реально підключеного image adapter |
 | `Resolution` | Dropdown | Список допустимих розмірів **для обраної моделі**, а не довільні значення |
 | `Quality` | Dropdown | Показати лише якщо provider підтримує цю опцію |
@@ -804,9 +808,10 @@ flowchart TD
 | Dynamic planning | Опціональний `TextPlanner` adapter | Лише при реальній інтеграції дозволеної text LLM; не плутати з Claude Code Pro |
 | Image Provider | **Gemini API / `gemini-nano-banana-2.1`** | Верифіковано text-to-image та reference-to-image через PowerShell; реалізувати як primary backend adapter |
 | Image Provider interface | **Provider registry + adapter/capabilities** | Без прив'язки UI або prompt compiler до одного endpoint |
-| Verified fallback | **Cloudflare Workers AI / `@cf/black-forest-labs/flux-2-klein-4b`** | Попередні text/ref REST smoke tests успішні; free baseline |
+| Verified fallback | **Cloudflare Workers AI / `@cf/black-forest-labs/flux-2-klein-4b`** | Попередні text/ref REST smoke tests успішні; free baseline; (v1.8) adapter реалізований і mock-tested, live-перевірка очікує `CLOUDFLARE_ACCOUNT_ID` |
 | Planned UI + adapter contract | **OpenAI GPT Image** (`gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` models after availability check) | **Visible, disabled / Not configured**; no API key required for MVP; no OpenAI paid calls |
 | Other optional models | Gemini 2 / 2 Lite / Pro, FLUX.2 variants, ComfyUI, SDXL | Model-by-model verification before enabling; optional local inference |
+| Future cloud/local backlog (v1.8) | Seedream 4.5 (via Cloudflare); local FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512 через локальний runtime (потенційно ComfyUI API) | **Planned, visible but disabled**; ваги й runtimes не завантажуються/не встановлюються зараз; post-MVP evaluation (§12.7) |
 | QA | Deterministic technical checks + human review | Немає недоведених LLM style scores |
 | Storage | SQLite + filesystem | Простий provenance і resume |
 | Tests | pytest + базові frontend interaction tests | Core rules, API mocks і реальний smoke test |
@@ -1386,13 +1391,15 @@ reference_ids: [style-ref-01, category-1-ref-01, category-3-ref-01]
 
 | Provider | Модель | Фактичний статус | Роль у проєкті v1.6 |
 |---|---|---|---|
-| **Cloudflare Workers AI** | **`@cf/black-forest-labs/flux-2-klein-4b`** | **REST API smoke test successful:** user generated PNG із Windows PowerShell; reference input `input_image_0` прийнявся, output PNG повернувся. Артова відповідність стилю поки слабка. | **Verified baseline / fallback / zero-cost path** |
+| **Cloudflare Workers AI** | **`@cf/black-forest-labs/flux-2-klein-4b`** | **REST API smoke test successful:** user generated PNG із Windows PowerShell; reference input `input_image_0` прийнявся, output PNG повернувся. Артова відповідність стилю поки слабка. **(v1.8)** App-adapter реалізований у збірці v1.7 за задокументованим REST-контрактом і протестований на mock; **live-перевірка в застосунку ще очікує** `CLOUDFLARE_ACCOUNT_ID`. | **Verified baseline / fallback / zero-cost path** |
 | Cloudflare Workers AI / Playground | FLUX.2 Klein 9B та інші | Playground-only експерименти; REST API, reference contract, доступ у власному акаунті **не перевірені** | Optional future experiments |
 | **Google Gemini** | **`gemini-nano-banana-2.1`** | **Real external PowerShell REST text-to-image + reference-to-image PNG tests passed; €5 prepaid.** Художня якість ще не оцінена; Web UI/backend adapter ще не написаний. | **Primary provider to implement next** |
 | Google Gemini | `gemini-3.1-flash-lite-image` | Офіційний image API задокументований; ultra-low latency / low-cost option. | **Budget-first premium adapter** |
 | OpenAI | `gpt-image-2.5-flare` | Документація підтверджена; **no API key, no billing, no calls** | **Planned in UI + architecture, disabled** |
 | OpenAI | `gpt-image-2.5-sunburst` | Документація підтверджена; **no API key, no billing, no calls** | **Planned in UI + architecture, disabled** |
 | Local optional | ComfyUI / FLUX / SDXL / інші | **Not configured** | Резерв на випадок слабкої якості або вичерпання хмарної квоти |
+| **ByteDance Seedream 4.5** (v1.8, через Cloudflare) | `bytedance/seedream-4.5` | **Planned**: лише в backlog; опублікована ціна ≈ $0.04 за зображення; не перевірялась у власному акаунті | **Future cloud candidate; не вмикати й не робити платних викликів без окремого схвалення** (§12.7) |
+| Local models (v1.8) | FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo, ERNIE-Image Base, Qwen-Image-Edit-2511, Qwen-Image-2512 | **Planned**: ваги не завантажені, runtime не встановлений, adapters немає | **Visible but disabled; post-MVP evaluation** (§12.7) |
 
 **Не фіксувати FLUX як єдиного провайдера:** однаковий request contract + різні model adapters. Не змішувати `provider` із `model ID`; за потреби в межах Cloudflare можна додати інші моделі адаптерами.
 
@@ -1428,7 +1435,12 @@ The **single Gemini API key** is used for multiple Gemini image model IDs. UI sh
 - `Gemini · Nano Banana Pro` / `gemini-3-pro-image`: **Documented; account/model availability not yet checked**.
 - `OpenAI · GPT Image Flare` / `gpt-image-2.5-flare`: **Planned, disabled / Not configured**.
 - `OpenAI · GPT Image Sunburst` / `gpt-image-2.5-sunburst`: **Planned, disabled / Not configured**.
-- `Cloudflare · FLUX.2 Klein 4B`: **Verified external REST / fallback after backend integration**.
+- `Cloudflare · FLUX.2 Klein 4B`: **Verified external REST / fallback**; (v1.8) adapter implemented and mock-tested, **live app verification pending `CLOUDFLARE_ACCOUNT_ID`**; shown disabled (`Not configured`) until configured.
+- `ByteDance · Seedream 4.5` / `bytedance/seedream-4.5` (via Cloudflare): **Planned, disabled** (v1.8).
+- **Local models (v1.8, all Planned, visible but disabled):** FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo, ERNIE-Image Base, Qwen-Image-Edit-2511, Qwen-Image-2512.
+- `Mock` — для development/testing.
+
+**(v1.8) Групування селектора за runtime:** `Cloud API` → `Local (planned)` → `Development / testing`; повний реєстр, правила й metadata-контракт — §12.7.
 
 **Do not conflate**: API account key exists ≠ each image model is available ≠ adapter implemented in Web UI. Never call a model just because its name is visible. UI `status` should represent `documented` / `external_rest_verified` / `configured_app` / `app_live` / `disabled_no_key` separately.
 
@@ -1489,6 +1501,57 @@ cost_per_accepted_set = total_cost / accepted_sets
 **v1.6 cost model:** **Gemini Nano Banana 2.1 підключено у власному платному API-акаунті з prepaid €5**; Cloudflare Workers AI Free може бути fallback з лімітованою квотою, OpenAI GPT Image витрати заборонені. Не плутати `API використовується` з `API платний`: вже є перевірений REST image call. Витрати/usage і квоту перевіряти для кожного batch; при ліміті зупиняти запуск без оплат. Локальний GPU — лише optional fallback. Числові тарифи попередніх концептів **не є бюджетом поточного MVP**.
 
 **Для MVP default v1.6:** `image_provider=gemini`, `image_model=gemini-nano-banana-2.1`, `paid_api_allowed_for=[gemini]`, `max_estimated_job_cost_usd` із консервативним невеликим лімітом, `max_retries_per_card`, `max_parallel_generations`. **OpenAI paid = false**; Cloudflare fallback може працювати за безкоштовною квотою. Локальні cost guards — best-effort, а не гарантія точного списання Google. Для локального GPU показувати `execution time / output count / retries`, а не вигадані доларові витрати.
+
+## 12.7 Model roadmap and capability metadata (v1.8) [U]/[D]
+
+**Статус:** це **future integration backlog**, а не scope MVP. Фази 0–7, наявна Gemini-функціональність і provider abstraction **не змінюються**. Жодна з нових моделей не встановлюється, не завантажується й не інтегрується зараз; після того, як MVP запрацює, оцінюємо локальні моделі, порівнюємо якість і вирішуємо, які активувати. **Базова лінія для порівняння:** локальний Phase 3 Gemini benchmark (`benchmarks/phase3_gemini_baseline`, поза Git).
+
+### Реєстр моделей (групування Model Selector за runtime)
+
+| Runtime | UI label | `provider_id` / `model_id` | Статус у v1.8 | Примітки щодо capabilities |
+|---|---|---|---|---|
+| Cloud API | Google Gemini · Nano Banana 2.1 | `gemini` / `gemini-nano-banana-2.1` | **Active** (наявна інтеграція, без змін) | text-to-image ✓ (перевірено live); editing і references за документацією (до 14 refs у Gemini 3 family) |
+| Cloud API | Cloudflare · FLUX.2 Klein 4B | `cloudflare` / `@cf/black-forest-labs/flux-2-klein-4b` | **Pending live verification**: adapter реалізований у збірці v1.7 за задокументованим REST-контрактом і mock-tested; потрібен `CLOUDFLARE_ACCOUNT_ID` | text-to-image ✓ (зовнішній smoke test); reference через `input_image_0` (в adapter max 1) |
+| Cloud API | ByteDance Seedream 4.5 (через Cloudflare) | `cloudflare` / `bytedance/seedream-4.5` | **Planned** (visible, disabled) | capabilities — лише очікування (`verified: false`; editing `null`, references не припускаються); опублікована ціна ≈ $0.04 / image |
+| Cloud API | OpenAI GPT Image | `openai` / `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` | **Not configured, disabled** (без key/billing/викликів) | за документацією: generation, edits, кілька refs |
+| Local (planned) | FLUX.2 Klein 4B | `local` / `flux-2-klein-4b` | **Planned** | очікується text-to-image і reference-editing (hosted-версія приймає reference); локально не перевірено (`verified: false`) |
+| Local (planned) | Z-Image-Turbo | `local` / `z-image-turbo` | **Planned** | очікується text-to-image; editing і references не припускаються |
+| Local (planned) | Z-Image Base | `local` / `z-image-base` | **Planned** | очікується text-to-image; editing і references не припускаються |
+| Local (planned) | ERNIE-Image-Turbo | `local` / `ernie-image-turbo` | **Planned** | очікується text-to-image; опція `prompt_enhancement` (нижче) |
+| Local (planned) | ERNIE-Image Base | `local` / `ernie-image-base` | **Planned** | очікується text-to-image; опція `prompt_enhancement` |
+| Local (planned) | Qwen-Image-Edit-2511 | `local` / `qwen-image-edit-2511` | **Planned** | **editing-capable model**: `image_editing` очікується ✓, `text_to_image` = `null` (**не** вважати стандартним text-to-image генератором) |
+| Local (planned) | Qwen-Image-2512 | `local` / `qwen-image-2512` | **Planned** | очікується text-to-image; editing не припускати (`null`) |
+| Development / testing | Mock (offline) | `mock` / `mock-placeholder-v1` | Available (завжди позначений Mock) | без AI-моделі, без вартості |
+
+`model_id` для `local` — робочі ідентифікатори реєстру (не твердження про офіційні upstream-назви); їх можна уточнити під час інтеграції адаптера. Для Seedream свідомо обрано версію **4.5**.
+
+### Вимоги до інтеграції
+
+1. **Усі моделі працюють через наявну provider abstraction** (`ImageProvider`, registry, capabilities); ядро, Prompt Compiler і UI не прив'язуються до конкретної моделі.
+2. **Local-моделі підключаються пізніше через локальний inference runtime**, потенційно **ComfyUI API** (один runtime-adapter, workflow на модель). **Ваги моделей і runtimes зараз не завантажуються й не встановлюються.**
+3. **Planned-моделі видимі, але `selectable=false`**, доки не готові adapter і runtime-конфігурація; статус змінюється лише за наявною таксономією (`planned` → `configured_app` → `app_live`) після реальної перевірки. **Недоступну модель ніколи не показувати як робочу**; у селекторі завжди є `disabled_reason`.
+4. **Qwen-Image-Edit-2511 — editing-capable модель**, а не автоматично стандартний text-to-image генератор: у UI позначка `Editing model`, а для режиму «нова картка з тексту» вона недоступна, доки text-to-image не підтверджено.
+5. **ERNIE:** `Prompt Enhancement` планується як **опційна конфігурація** (`options`, за замовчуванням вимкнена, статус `planned`), **а не дубль моделей** у селекторі. Якщо її ввімкнено, provenance має зберігати і вихідний, і покращений prompt.
+6. **Capability metadata ведеться для кожної моделі** (контракт нижче); для planned-моделей значення — **очікування**, позначені `verified: false` (UI показує «expected, not verified»); невідоме позначається `null` (unverified), а `max_reference_images` = `null`, якщо невідомо; **не вигадувати** обсяги VRAM/розміри.
+7. **Ідентифікатори (`provider_id`, `model_id`) відокремлені від людиночитних `label`** у UI; логіка, provenance і manifest використовують лише ідентифікатори.
+
+### Metadata-контракт запису моделі (API `/api/models`)
+
+| Поле | Значення |
+|---|---|
+| `provider_id`, `provider_label` | технічний id провайдера / назва для UI |
+| `model_id` · `label` | фактичний ідентифікатор · людиночитний UI-текст (окремі поля) |
+| `runtime` | `cloud_api` \| `local` \| `test` |
+| `status` | наявна таксономія + `planned` |
+| `selectable`, `disabled_reason` | чи можна обрати · чому ні |
+| `capabilities` | `text_to_image` (`true`/`false`/`null` = unverified), `image_editing` (`true`/`false`/`null`), `supports_reference_images`, `max_reference_images` (`null`, якщо невідомо), `aspect_ratios`, `notes`, `verified` (`false` = очікування для planned-моделі, ще не перевірене в застосунку) |
+| `runtime_requirements` | напр. «local inference runtime (потенційно ComfyUI API) + ваги моделі; не встановлено» |
+| `options` | напр. ERNIE: `[{key: "prompt_enhancement", label: "Prompt Enhancement", default: false, status: "planned"}]` |
+| `price_note` | напр. Seedream 4.5: «опублікована ціна ≈ $0.04 / image; не перевірено» |
+
+### Seedream 4.5 (через Cloudflare)
+
+Cloudflare model ID: **`bytedance/seedream-4.5`**; опублікована ціна **≈ $0.04 за згенероване зображення**. **Не вмикати й не робити платних викликів**, доки інтеграцію явно не схвалено та не перевірено billing і credentials; до цього — лише рядок `Planned` у селекторі. Cost guard при вмиканні має отримати окрему оцінку за зображення, а не ставку Gemini.
 
 ---
 
@@ -1831,6 +1894,14 @@ planning_validity_rate = valid_plans / proposed_plans
 - [ ] Перевірити всі links, secrets, ліцензії, asset rights.
 
 **DoD:** reviewer може зрозуміти й запустити систему за README та оцінити результати на Miro.
+
+### Future integration backlog (post-MVP, v1.8) — поза фазами 0–7
+
+Не змінює фази й не входить у scope MVP; порядок визначається після оцінки якості (§12.5, §12.7):
+
+- [ ] Seedream 4.5 через Cloudflare (`bytedance/seedream-4.5`): adapter, окрема оцінка вартості, перевірка billing/credentials — **лише після явного схвалення**.
+- [ ] Local runtime adapter (потенційно ComfyUI API) і workflows для: FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo/Base (з опційним Prompt Enhancement), Qwen-Image-Edit-2511 (editing), Qwen-Image-2512.
+- [ ] Порівняння якості на Phase 3 benchmark і рішення, які моделі активувати.
 
 ---
 
@@ -2248,6 +2319,7 @@ TEXT_PLANNER_PROVIDER=
 | ADR-013 | **€5 Gemini prepaid + per-job spend guard**, local Windows app; Cloudflare Free fallback; **OpenAI paid disabled** | Quality-first з контрольованими витратами; desktop GPU optional | Якщо Gemini quality, price чи quota не підійдуть |
 | ADR-014 | **OpenAI GPT Image everywhere in specification, UI and registry, runtime disabled** | Майбутнє розширення без перероблення ядра і без передчасних витрат | Лише після явної активації API та витрат |
 | ADR-015 | **Card Category Distribution: `Auto (Balanced)` [2,2,3,3] / `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 locked** | Playrix не фіксує кількість по категоріях; конфігурований розподіл дає контроль без вигаданої вимоги; застосовується на Set Planning до генерації й однаковий для всіх альтернатив | Якщо аналіз референсів покаже фактичний розподіл, або зміниться ТЗ щодо Cat.5 |
+| ADR-016 | **Model roadmap (v1.8): селектор за runtime; Seedream 4.5 + 7 local-моделей як visible-but-disabled backlog; capability metadata; ERNIE Prompt Enhancement — опція; Qwen-Image-Edit-2511 — editing-модель** | Видимий roadmap без розширення scope MVP; ніколи не показувати недоступне як робоче; єдина provider abstraction для cloud і local (ComfyUI API) | Після MVP: оцінка якості на Phase 3 benchmark; явне схвалення перед будь-якими платними викликами Seedream |
 
 ---
 
@@ -2284,6 +2356,14 @@ HARD CONSTRAINTS:
   the prompt (Cat.1 floating/no small details/simple background; Cat.2 simple surface + vertical backdrop;
   Cat.3 realistic surface/volumetric; Cat.4 realistic environment, object remains focus). Distribution is
   separate from rarity/stars. Integrate into the approved layout without redesign.
+- Model roadmap (spec §12.7, v1.8): the Model Selector is grouped by runtime (Cloud API / Local planned /
+  Development-testing). Seedream 4.5 (`bytedance/seedream-4.5`, via Cloudflare) and the local models
+  (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) are
+  PLANNED: visible but DISABLED, never shown as working, no weights/runtimes downloaded or installed, no paid
+  Seedream calls without explicit approval. All go through the existing provider abstraction with capability
+  metadata (identifiers separate from UI labels; unverified = null). Qwen-Image-Edit-2511 is an editing model,
+  not assumed text-to-image; ERNIE Prompt Enhancement is an optional setting, not extra models. This backlog is
+  NOT MVP scope: keep building the MVP first.
 - Final demo: three different movie genres, without Golden Cards.
 - Three instruction layers: permanent Style Bible, structured settings, optional Free Wishes.
 - Independent image-provider adapter architecture; do not hardcode app logic to FLUX.
@@ -2341,7 +2421,7 @@ Show implementation/test status clearly, commit in small milestones.
 4. **Set planning:** `RulesPlanner` + object pools / category rules, версіонований Prompt Compiler; обмеження для довільного Free Wishes чесно показувати. `TextPlanner` API — за необхідності.
 5. **Batch generation:** 10 cards + 3–5 variants, прогрес, квоти, retry, resume, technical QA, provenance.
 6. **Detailed Web UI:** відтворити ПЕРШИЙ багатий мокап; додати Free Wishes, Provider selection/status, Prompt Library, Compare/Grid, human review, export.
-7. **Alternative image providers:** після art pilot — plug-in adapters для інших моделей без перероблення UI.
+7. **Alternative image providers:** після art pilot — plug-in adapters для інших моделей без перероблення UI. (v1.8) Конкретний backlog (Seedream 4.5; local FLUX.2 Klein 4B, Z-Image, ERNIE-Image, Qwen-Image) — §12.7; **не scope MVP**, активація — після порівняння якості.
 8. **Submission:** три кіножанри, Miro з raw/selected images та чесними experiment logs, GitHub із working code.
 
 **Головний trade-off:** runtime зображення — єдиний обов'язковий AI inference для першого PoC; Claude Code — засіб розробки. Але кінцева автономність для *довільного* нового жанру/вільного тексту потребуватиме семантичного planner (опціонального text API) або чесного обмеження підтримуваних сценаріїв.
@@ -2429,6 +2509,7 @@ Show implementation/test status clearly, commit in small milestones.
 | **1.5** | **2026-11-07** | **Provider comparison update:** Cloudflare remains verified zero-cost baseline; **Gemini (Nano Banana 2.1 / 3.1 Flash Lite Image)** becomes recommended first premium image adapter after API comparison; **OpenAI GPT Image** is validated as optional second adapter; document now explicitly recommends **one provider first**, not two paid providers at once. |
 | **1.6** | **2026-11-07** | **Real Gemini Nano Banana 2.1 external REST proof:** text-to-image + Playrix-reference-to-image PNG succeeded; €5 prepaid. **Gemini = target primary image provider; Cloudflare = verified fallback; OpenAI GPT Image = everywhere in design/architecture/UI but disabled, not paid/connected.** Correct prior 400 diagnosis; revise default model, env, cost controls, UI statuses, architecture, coding-agent instructions and roadmap. |
 | **1.7** | **2026-11-07** | **Card Category Distribution** (new §3.4): `Auto (Balanced)` default [2,2,3,3] (our assumption, not Playrix-mandated) / `Custom`; Σ=10, each Cat.1–4 ≥1, Cat.5 locked 0 for Movie demo; applied at Set Planning, identical across 3–5 alternatives; category-specific prompt logic documented. Targeted edits only (header, §0.2/0.3, §3.2, §6.4/6.6, §8.4, Stages 1–4, §10.3, §11.1, HR-08, phases, tests, OQ-01, ADR-015, handoff prompt, UX criteria); no change to providers, budget, scope or approved UI layout. |
+| **1.8** | **2026-11-08** | **Model roadmap** (new §12.7): Model Selector grouped by runtime (Cloud API / Local planned / Development-testing); Seedream 4.5 (`bytedance/seedream-4.5`, via Cloudflare, ≈ $0.04/image, not enabled) and 7 local models (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) as visible-but-disabled backlog; capability metadata contract (`runtime`, `planned` status, tri-state capabilities, `options`, `price_note`); ERNIE Prompt Enhancement as optional config; Qwen-Image-Edit-2511 = editing model; Cloudflare FLUX status stated honestly (adapter implemented + mock-tested, live verification pending account ID). Targeted edits only (header, v1.8 notice, §0.3, §6.6, §8.3, §12.2, §12.3.1, §12.7, §17 backlog list, §26 ADR-016, §27 prompt, §28, this log); no change to phases 0-7, architecture, Gemini functionality or approved UI layout. |
 
 ## Final status
 

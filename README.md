@@ -3,7 +3,7 @@
 Local web app for the Playrix AI Producer assignment. It plans and generates **collectible-card artwork** (artwork only: no
 frames, stars or game UI) for themed 10-card sets, checks it, lets a human review and approve it, and exports it.
 
-Source of truth: [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.7.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.7.md) ·
+Source of truth: [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.8.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.8.md) ·
 Docs: [User guide](docs/USER_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Known issues](docs/KNOWN_ISSUES.md)
 
 ## Quick start (Windows)
@@ -37,6 +37,7 @@ Put your `GEMINI_API_KEY` in the git-ignored `.env`. Without a key you can still
 | Gemini | **verified live**: text-only image, reference image, 4-card pilot (Phase 3). Everything since is tested against a mocked transport |
 | Cloudflare adapter | implemented from the documented REST contract; **mock-tested only** until `CLOUDFLARE_ACCOUNT_ID` is set for a live check |
 | OpenAI GPT Image | in registry/UI/settings, **disabled, no network code** |
+| Model roadmap (spec §12.7) | future backlog, **not MVP scope**: the selector is grouped by runtime and lists Seedream 4.5 (via Cloudflare) and local FLUX.2 Klein 4B, Z-Image, ERNIE-Image, Qwen-Image as **planned / disabled**; nothing is downloaded or enabled |
 | Art quality | **not tuned** (by decision). Known: Cat. 3 drifts to full scenes and can render text; Cat. 4 can be dark. See [known issues](docs/KNOWN_ISSUES.md) |
 | Not implemented | TextPlanner (free-form genres/wishes), Vision/LLM QA, automatic provider fallback, Miro automation (manual per spec), multi-user, frontend unit tests |
 
