@@ -1,7 +1,7 @@
 # AI Collection Studio
 
 Local web app that produces collectible-card **artwork** (not game frames) for the Playrix AI Producer
-assignment. The source of truth is [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.6.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.6.md).
+assignment. The source of truth is [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.7.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.7.md).
 
 ## Implementation status (honest)
 
@@ -11,6 +11,7 @@ assignment. The source of truth is [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.6.
 | Phase 1 – single-card vertical slice (input → prompt compiler → Gemini → PNG → metadata → UI) | implemented; **unit/integration tests use a mocked Gemini transport**; a live call needs your key (see below) |
 | Reference upload + reference-based generation | implemented (validated, re-encoded, policy checkbox) |
 | Cost guard (per-call + cumulative ledger, retries OFF, no batches) | implemented – local estimate only |
+| Card Category Distribution (spec §3.4): `Auto (Balanced)` [2,2,3,3] / `Custom`, validation, slot assignment, category prompt rules, UI control | validation, slot assignment, API and UI control **implemented**; **not yet applied to planning** (the planner arrives in Phase 3). [2,2,3,3] is a design assumption, not a Playrix ratio |
 | Cloudflare FLUX.2 Klein 4B fallback | registered, **adapter pending (Phase 2)** |
 | OpenAI GPT Image | registered in registry/UI, **disabled, no network code** |
 | 10-card sets, 3–5 variants, planner, QA, regenerate, Reference Compare, export | **not implemented yet** (Phases 3–6) |

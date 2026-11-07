@@ -29,7 +29,7 @@ export interface Budget {
 
 export interface ModelsResponse {
   models: ModelInfo[];
-  defaults: { provider: string; model: string };
+  defaults: { provider: string; model: string; category_distribution: Record<string, number> };
   budget: Budget;
   availability: { checked_at: string | null; error: string | null };
   limits: { max_refs_per_request: number; max_upload_bytes: number; ref_types: string[] };

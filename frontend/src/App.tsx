@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api/client";
+import { CategoryDistribution, type DistCounts, type DistMode } from "./components/CategoryDistribution";
 import { ModelSettings, keyOf } from "./components/ModelSettings";
 import { ReferenceUploader } from "./components/ReferenceUploader";
 import { ResultPanel } from "./components/ResultPanel";
@@ -28,6 +29,8 @@ export default function App() {
   const [wishes, setWishes] = useState("");
   const [modelKey, setModelKey] = useState("");
   const [aspect, setAspect] = useState("1:1");
+  const [distMode, setDistMode] = useState<DistMode>("auto_balanced");
+  const [customDist, setCustomDist] = useState<DistCounts | null>(null);
 
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -65,6 +68,10 @@ export default function App() {
 
   useEffect(() => { loadModels(); loadRefs(); loadHistory(); }, [loadModels, loadRefs, loadHistory]);
 
+  const defaultDist = useMemo<DistCounts>(() => {
+    const d = models?.defaults.category_distribution ?? {};
+    return { "1": d["1"] ?? 2, "2": d["2"] ?? 2, "3": d["3"] ?? 3, "4": d["4"] ?? 3 };
+  }, [models]);
   const model = useMemo(() => models?.models.find((m) => keyOf(m) === modelKey), [models, modelKey]);
   const refIds = useMemo(() => selectedRefs.filter((id) => refs.some((r) => r.ref_id === id)), [selectedRefs, refs]);
 
@@ -195,6 +202,13 @@ export default function App() {
           </Section>
 
           <Section n={4} title="Generation Setup">
+            <CategoryDistribution
+              mode={distMode}
+              counts={customDist ?? defaultDist}
+              defaults={defaultDist}
+              onMode={(m) => { setDistMode(m); if (m === "custom") setCustomDist((c) => c ?? { ...defaultDist }); }}
+              onCount={(cat, v) => setCustomDist((c) => ({ ...(c ?? defaultDist), [cat]: Math.max(0, Math.min(10, v)) }))}
+            />
             {models ? (
               <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} aspect={aspect} onAspect={setAspect}
                 checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />

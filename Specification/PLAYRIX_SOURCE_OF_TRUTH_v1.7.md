@@ -1,8 +1,8 @@
 # Playrix AI Producer — Collection Studio
 ## Source of Truth / Product Requirements + UX + Technical Design + Execution Plan
 
-**Версія:** 1.6 (Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
-**Дата:** 7 листопада 2026 року (оновлення v1.6: Gemini REST API and reference-input verified)  
+**Версія:** 1.7 (v1.6 + Card Category Distribution: `Auto (Balanced)` / `Custom`, Σ=10, Cat.5 locked 0; Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
+**Дата:** 7 листопада 2026 року (оновлення v1.7: Card Category Distribution; v1.6: Gemini REST API and reference-input verified)  
 **Статус:** `SPECIFICATION / APP NOT IMPLEMENTED`; **Gemini Nano Banana 2.1 REST API перевірений у PowerShell: text-to-image PNG + reference-to-image PNG**; **Cloudflare FLUX.2 Klein 4B REST API раніше перевірений**. **OpenAI GPT Image: planned, API не підключений, billing не активований.** Повний Web UI/backend/job pipeline ще НЕ реалізовані.  
 **Власник концепції:** кандидат на роль AI Producer  
 **Мова робочого документа:** українська; назви кнопок, об'єктів та API — англійською  
@@ -36,6 +36,12 @@
 **Перед великими jobs:** перевірити зображення `gemini_ref_test.png` в Art Review; порівняти Cat. 1–4, зробити 10-card mini pilot, підтвердити реальні квоти й доступність потрібних модельних ID. Відстежувати залишок €5 у Google AI Studio. **App-level budget guard — best-effort, а не гарантія жорсткої межі від Google**, бо usage/billing можуть оновлюватися із затримкою. Відмовляти в запуску, якщо обсяг job не вписується в консервативний ліміт.
 
 **Офіційна документація:** https://ai.google.dev/gemini-api/docs/image-generation ; https://ai.google.dev/gemini-api/docs/pricing ; https://developers.openai.com/api/docs/guides/image-generation ; https://developers.cloudflare.com/workers-ai/platform/pricing/ .
+
+---
+
+## ОНОВЛЕННЯ v1.7 — Card Category Distribution (07.11.2026)
+
+Додано вимогу **Card Category Distribution** (деталі — **§3.4**): кожен стандартний набір = **10 карток** з усіма категоріями **1–4**; режими `Auto (Balanced)` (default **[2,2,3,3]** — *наше проєктне припущення [D], а не фіксоване співвідношення Playrix*) та `Custom`; валідація Σ=10 і кожна категорія ≥1; **Cat.5 = 0 (locked)** у Movie demo; розподіл застосовується на Set Planning до генерації й однаковий для всіх 3–5 альтернатив. Усе інше з v1.6 (провайдери, бюджет, UI, scope) **без змін**. Де ранні розділи кажуть «не вигадувати квоти» або «quotas, якщо затверджені», діє §3.4: Playrix точну кількість не фіксує, тому розподіл — конфігурований [D].
 
 ---
 
@@ -112,7 +118,7 @@
 - [P] Демонстраційна тема — **«Кіно-колекція»**.
 - [P] Треба створити **3 різні набори** на тему різних кіножанрів, **без золотих карток**.
 - [D] Для повного live pilot: 3 жанри × 3 альтернативи на кожен жанр × 10 карток = **90 первинних зображень** (плюс retries). Якщо ресурси обмежені — **поступові jobs**, а не нечесне твердження про виконані 90 зображень; для фіналу відбираємо 3 × 10 = **30** карток. Все що імпортовано вручну, позначати окремо.
-- [A] Точне обов'язкове співвідношення категорій 1–4 в наборі не задане текстом: його треба встановити аналізом фреймів і погодити як конфігурацію; **не вигадувати квоти**.
+- [P]/[A] Кожен стандартний набір містить усі категорії 1–4, але **точна кількість карток на категорію у вихідних матеріалах не зафіксована**. [D] Розподіл задає `Card Category Distribution` (§3.4): `Auto (Balanced)` default [2,2,3,3] — **наше припущення, не вимога Playrix** — або `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0.
 
 ---
 
@@ -131,7 +137,8 @@
 | Budget | **€5 prepaid Gemini; Cloudflare Free fallback; OpenAI paid DISABLED** | Консервативний per-job budget guard, квоти й retries; не включати OpenAI billing |
 | QA | Детерміновані technical checks + ручне artistic approval | Vision LLM не є must-have, ніяких вигаданих style-score |
 | Final image | **Тільки artwork**, без рамок гри; Miro insertion вручну | Пряма вимога Playrix |
-| Gold cards | В generic architecture optional; Movie demo **OFF** | No Category 5 у фінальних трьох наборах |
+| Gold cards | В generic architecture optional; Movie demo **OFF** | No Category 5 у фінальних трьох наборах; Cat.5 = 0 locked (§3.4) |
+| Card Category Distribution (v1.7) | `Auto (Balanced)` default [2,2,3,3] або `Custom`; Σ=10, кожна Cat.1–4 ≥1 | [2,2,3,3] — наше припущення [D], не вимога Playrix; застосовується на Set Planning; однаковий для всіх 3–5 альтернатив (§3.4) |
 | Дизайн | **ПЕРШИЙ детальний UI-мокап** + нові поля `Free Wishes`, provider status та compare | Пізній спрощений UI не замінює перший reference |
 | Scope | Працездатний PoC з 1 live image adapter, а не SaaS | Позначати `implemented / mock / future` |
 
@@ -275,7 +282,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 ### Чого не можна припускати без аналізу скриншотів
 
-- Не встановлювати квоту на категорії (наприклад, «2,2,3,3») як вимогу Playrix, поки це не перевірено на оригінальних фреймах.
+- Не подавати розподіл категорій (наприклад, «2,2,3,3») як вимогу Playrix: у вихідних матеріалах точна кількість не зафіксована. Використовувати його лише як конфігурований [D] default `Auto (Balanced)` (§3.4); фактичну картину за потреби звірити з оригінальними фреймами.
 - Кількість зірок, оформлення рамок і рідкість картки не тотожні автоматично категорії артової композиції. У ТЗ прямо сказано, що **рідкість сама по собі не впливає на зображення предмета**.
 - Golden Cards мають окрему логіку; в демонстрації вони заборонені, навіть якщо загальна система згодом їх підтримуватиме.
 
@@ -291,6 +298,45 @@ Collection («Кіно», «Літо», «Подорожі»...)
 8. **Collection-wide non-overlap:** новий сет додає нову грань великої теми, а не дублює інші сети.
 
 Ці принципи мають бути оформлені як **Art & Product Rubric**, а не залишатися лише текстовими висновками в Miro.
+
+## 3.4 Card Category Distribution (v1.7) [P]/[A]/[D]
+
+**Що підтверджено [P]:** за референсом кожен стандартний набір (10 карток) містить **усі чотири стандартні арт-категорії 1–4**. **Точна кількість карток на категорію у вихідних матеріалах НЕ зафіксована** [A].
+
+**Продуктове рішення [D]:** розподіл — конфігурований параметр запиту, а не жорстка вимога Playrix. У UI це контрол **`Card Category Distribution`** у Generation Settings (§6.6).
+
+| Режим | Поведінка |
+|---|---|
+| `Auto (Balanced)` (default) | Конфігурований default; початково **Cat.1 = 2, Cat.2 = 2, Cat.3 = 3, Cat.4 = 3** (Σ = 10). **Співвідношення [2,2,3,3] — наше проєктне припущення [D], а не фіксоване співвідношення Playrix.** Зберігається в конфігурації (`category_distribution_default` у StyleProfile) і змінюється без правок коду |
+| `Custom` | Продюсер вручну задає кількість карток для Cat.1–4 |
+
+**Правила валідації (однакові в UI, API і Planner):**
+
+1. Σ(Cat.1–4) = **10**: стандартний набір містить рівно 10 карток.
+2. Кожна з Cat.1–4 має **щонайменше 1** картку.
+3. Кількості — цілі невід'ємні числа.
+4. **Cat.5 (Golden Cards) = 0** і заблокована (read-only, disabled) для Movie Collection demo / поточного пілоту; значення > 0 відхиляється помилкою валідації, а не виправляється мовчки.
+5. Розподіл по категоріях **окремий від rarity / кількості зірок** (див. §3.2): зірки та рідкість не визначають категорію, і навпаки.
+6. Невалідний `Custom` блокує `Generate` з поясненням; `Auto` ніколи не формує невалідний розподіл.
+
+**Застосування в pipeline:**
+
+- Розподіл застосовується під час **Set Planning (Stage 2), до image generation**: планувальник призначає кожен із 10 об'єктів у category slot згідно з розподілом (наприклад, [2,2,3,3] → 2 слоти Cat.1, 2 слоти Cat.2, 3 слоти Cat.3, 3 слоти Cat.4) і добирає об'єкти, придатні до композиції цієї категорії (складний об'єкт не призначається в Cat.1).
+- **Prompt Compiler** для кожної картки застосовує category-specific візуальні правила з таблиці нижче; розподіл не змінює самі правила категорій.
+- При генерації **3–5 альтернативних наборів** у всіх альтернатив зберігається **той самий запитаний розподіл**: відрізняються об'єкти та мікротеми, не кількість карток по категоріях.
+- Розподіл фіксується в request, plan, manifest і QA-report (provenance) та перевіряється `rules-validator` (HR-08).
+
+**Category prompt logic — обмеження, які мають відображатися в промптах:**
+
+| Cat | Обов'язкові обмеження в промпті |
+|---|---|
+| **1** | простий об'єкт; **без дрібних деталей**; об'єкт **висить у повітрі**; простий фон: flat / gradient / простий repeating pattern / rays (промені) |
+| **2** | простий об'єкт; об'єкт **стоїть на простій поверхні**; простий **вертикальний фон** позаду; залишається чистим і мінімальним |
+| **3** | об'єкт на **більш реалістичній поверхні**; більш **об'ємна сцена**; об'єкт усе ще по центру й читабельний |
+| **4** | об'єкт **вбудований у реалістичне середовище**; об'єкт залишається **центральним фокусом** |
+| **5** | **наративна golden-card сцена з одним-двома персонажами**; у специфікації лише як концепт майбутньої підтримки; **locked = 0 і disabled** у поточному Movie Collection pilot |
+
+«Реалістичність» у Cat.3–4 — це об'ємний, правдоподібний контекст усередині стилізованого casual game art, а не фотореалізм (див. нюанс у §3.2).
 
 ---
 
@@ -426,7 +472,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 - `Category profile` — preset `Playrix Reference Rules v1`.
 - `Categories 1–4` — **всі увімкнені за замовчуванням** у Movie test mode.
 - `Golden cards (Cat. 5)` — **вимкнено й заблоковано** в Movie demo workflow, навіть якщо універсальний майбутній генератор може підтримати Cat.5.
-- `Category quotas` — вкладка Advanced; лише після аналізу й ручного затвердження фактичних квот із референсу.
+- `Card Category Distribution` — (v1.7) розташований у Generation Settings (§6.6), не в Advanced; правила та default [2,2,3,3] — §3.4. Раніше окрема Advanced-вкладка «Category quotas» скасована цим контролом.
 - `Art style` — збережений `Style Bible / Style Profile` (напр. `Reference Match v1`), не «довільний Playrix-like» як єдине правило.
 - `Additional constraints` — напр. `no text in artwork`, `avoid cropped subjects`, `no duplicates`.
 
@@ -449,6 +495,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 | Поле | UX | Що відбувається насправді |
 |---|---|---|
 | `Planning Mode` | Dropdown | `Rules / Templates` за замовчуванням; `AI Planning` лише коли налаштовано реальний runtime TextPlanner API. Claude Code Pro не є таким API |
+| `Card Category Distribution` (v1.7) | Segmented `Auto (Balanced)` / `Custom` + компактні number-steppers Cat.1–4, Cat.5 = `0` (locked, disabled) і live-лічильник `Σ = 10` | `Auto (Balanced)`: конфігурований default [2,2,3,3] — наше припущення [D], не вимога Playrix. `Custom`: ручні значення. Валідація: Σ = 10, кожна Cat.1–4 ≥ 1, Cat.5 = 0 для Movie demo. Це один компактний рядок у Generation Settings без зміни затвердженого layout; правила й застосування — §3.4 |
 | `Image Model` | Dropdown | **Gemini / Nano Banana 2.1** default після реалізації; Gemini Nano Banana 2, 2 Lite, Pro у dropdown з availability check; **Cloudflare FLUX.2 Klein 4B** fallback; **OpenAI GPT Image** видно як `Not configured (disabled)` із `Configure later` |
 | `Provider Status` | Status label | `Live API`, `Live Local`, `Samples Only`, `Not Configured`, `Unavailable`, `Connecting`; `Generate` тільки для реально підключеного image adapter |
 | `Resolution` | Dropdown | Список допустимих розмірів **для обраної моделі**, а не довільні значення |
@@ -696,6 +743,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 - Новий користувач може пройти happy path без термінала/коду.
 - Можна отримати 3–5 **повних** варіантів у рамках одного запуску.
 - У кожному варіанті доступно рівно 10 іменованих карток.
+- Контрол `Card Category Distribution` (§3.4) дозволяє `Auto (Balanced)` та `Custom`; невалідні значення (Σ≠10, Cat.1–4 < 1) блокують Generate з поясненням; Cat.5 показано як `0`, locked.
 - Зрозуміло, що вже готово, що виконується, що зламалося і що було перегенеровано.
 - Можна повторити тільки один об'єкт.
 - Можна порівнювати generated artwork з відповідним reference у **Split Slider, Side by Side (обидва зображення одночасно) та Grid Overview (10 пар)** без втрати контексту.
@@ -810,11 +858,11 @@ Optional later:
 
 ### `set-planner`
 
-Створює 3–5 незалежних планів по 10 різних карток. **MVP: `RulesPlanner` з підготовленими жанровими object pools/категоріями й детермінованою перевіркою**. Опціональний `TextPlanner` адаптер потрібен лише для вільної семантичної генерації неочікуваних тем і творчих побажань. Claude Code не виконує planning автоматично при кожному натисканні `Generate`.
+Створює 3–5 незалежних планів по 10 різних карток. **MVP: `RulesPlanner` з підготовленими жанровими object pools/категоріями й детермінованою перевіркою**. Опціональний `TextPlanner` адаптер потрібен лише для вільної семантичної генерації неочікуваних тем і творчих побажань. Claude Code не виконує planning автоматично при кожному натисканні `Generate`. (v1.7) Планувальник призначає об'єкти в category slots згідно з обраним `Card Category Distribution` (§3.4) і тримає той самий розподіл у всіх 3–5 альтернативах.
 
 ### `rules-validator`
 
-Перевіряє 10 карток, допустимі категорії, no golden, required fields, відсутність точних дублікатів, задані category quotas (якщо вони затверджені).
+Перевіряє 10 карток, допустимі категорії, no golden, required fields, відсутність точних дублікатів, відповідність **Card Category Distribution** (§3.4): Σ=10, кожна Cat.1–4 ≥1, Cat.5=0, кількість карток у кожній категорії дорівнює запитаному розподілу.
 
 ### `semantic-reviewer`
 
@@ -866,11 +914,13 @@ Optional later:
 
 ## Stage 1 — Request validation
 
-Перевірити: тема, жанр, variants 3–5, cards 10, refs придатні, API key існує, доступна модель/розмір, estimated max budget. Заблокувати запит із золотими картками для Movie demo.
+Перевірити: тема, жанр, variants 3–5, cards 10, refs придатні, API key існує, доступна модель/розмір, estimated max budget. Заблокувати запит із золотими картками для Movie demo. (v1.7) Валідувати `Card Category Distribution`: Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 (§3.4).
 
 ## Stage 2 — Set concept planning
 
 `RulesPlanner` (MVP) використовує підготовлені жанрові object pools, category profile та обмеження з producer wishes, які реалізовано правилами. Створює **3–5 різних set variants**, по 10 карток. Не імітувати підтримку будь-яких довільних вказівок: незрозумілі побажання позначити для ручного уточнення або маршрутизувати до **фактично підключеного TextPlanner API**. Claude Code може написати цей механізм, але не є його runtime LLM.
+
+**Category slots (v1.7):** до вибору об'єктів планувальник розкладає 10 карток по category slots за `Card Category Distribution` (§3.4; `Auto (Balanced)` default [2,2,3,3] або `Custom`) і підбирає для кожного слота об'єкт, придатний до композиції цієї категорії. Усі 3–5 альтернатив мають **однаковий** розподіл.
 
 **Не можна:** створювати `Variant B` як ті самі 10 предметів із трохи зміненими кольорами. Це слабкий змістовий варіант.  
 **Можна:** різні мікротеми в межах одного жанру, напр. у Sci-Fi: `Retro Space Expedition`, `Alien City`, `Future Laboratory`, якщо всі коректно представляють жанр.
@@ -881,6 +931,7 @@ Optional later:
 - Names unique within variant.
 - Allowed categories 1–4.
 - No gold cards.
+- Кількість карток у кожній категорії дорівнює запитаному `Card Category Distribution` (Σ=10, кожна Cat.1–4 ≥1, Cat.5=0; §3.4).
 - Повний, осмислений тематичний зв'язок.
 - Категорійні описи не суперечать один одному.
 - Усі required properties є.
@@ -892,7 +943,7 @@ Optional later:
 Для кожної картки сформувати:
 
 - `style prompt` — спільний для всього набору;
-- `category prompt` — специфічна композиція 1/2/3/4;
+- `category prompt` — специфічна композиція 1/2/3/4; обов'язкові category-specific обмеження для Cat.1–4 (floating/no small details; on simple surface; realistic surface; realistic environment) беруться з таблиці §3.4 для кожної картки відповідно до її category slot;
 - `object prompt` — конкретний предмет, призначення, форма;
 - `background prompt` — фон/середовище категорії;
 - `constraints` — без написів, без текстових UI-рамок, один центральний об'єкт тощо;
@@ -1078,6 +1129,7 @@ ExportBundle
   "number_of_variants": 3,
   "include_golden": false,
   "allowed_categories": [1, 2, 3, 4],
+  "category_distribution": { "mode": "auto_balanced", "counts": { "1": 2, "2": 2, "3": 3, "4": 3, "5": 0 } },
   "category_policy": "reference_profile_v1",
   "style_profile_id": "reference-match-v1",
   "prompt_template_version": "movie-v1",
@@ -1092,7 +1144,7 @@ ExportBundle
 }
 ```
 
-**Важливе:** `category_policy` не має самостійно вигадувати розподіл; конкретні quotas живуть у StyleProfile та проходять перевірку на основі референсів.
+**Важливе:** `category_policy` не має самостійно вигадувати розподіл. (v1.7) Розподіл передається явним полем `category_distribution` (`mode`: `auto_balanced` | `custom`; `counts` для Cat.1–5): у режимі `auto_balanced` сервер підставляє конфігурований default із StyleProfile (`category_distribution_default`, початково [2,2,3,3] — наше припущення, не вимога Playrix), у `custom` — значення продюсера. Валідація на сервері: Σ(Cat.1–4)=10, кожна ≥1, Cat.5=0 для Movie demo (§3.4); невалідний запит відхиляється помилкою валідації.
 
 ### Example async response
 
@@ -1228,6 +1280,8 @@ QA = Validation Rules + selected reference + generated artwork
 }
 ```
 
+(v1.7) `category_rules` у StyleProfile має відповідати таблиці **Category prompt logic** у §3.4 (Cat.1: без дрібних деталей, висить у повітрі, простий фон flat/gradient/pattern/rays; Cat.2: проста поверхня + простий вертикальний фон; Cat.3: реалістичніша поверхня, об'ємна сцена; Cat.4: реалістичне середовище, об'єкт — центральний фокус; Cat.5: лише концепт, locked 0). StyleProfile також містить `category_distribution_default` ({1:2, 2:2, 3:3, 4:3, 5:0}).
+
 Це **starting scaffold**, не твердження, що система вже на 100% відтворює фактичний арт Playrix. Art Bible треба уточнювати на основі наданих прикладів, з візуальною аргументацією.
 
 ## 11.2 Set planning prompt — логіка, не готова магічна формула
@@ -1244,7 +1298,7 @@ For each card provide category, object, composition, background and inclusion ra
 Do not invent famous franchise logos or copyrighted characters.
 ```
 
-Вхід у planner: collection theme, set theme, wishes, normalized rules, approved used-object list, category quotas тільки якщо обґрунтовані.
+Вхід у planner: collection theme, set theme, wishes, normalized rules, approved used-object list, `Card Category Distribution` (Auto/Custom, §3.4).
 
 ## 11.3 Image prompt skeleton
 
@@ -1451,7 +1505,7 @@ cost_per_accepted_set = total_cost / accepted_sets
 | HR-05 | Кожен artwork файл читається | Так | Regenerate asset |
 | HR-06 | Export містить потрібні файли | Так | Rebuild export |
 | HR-07 | Кожна картка має category-specific rules | Так | Replan / fix spec |
-| HR-08 | Category quotas дотримані | Так, **якщо quotas підтверджено** | Replan |
+| HR-08 | Card Category Distribution дотримано (кількість карток по Cat.1–4 = запитаному; Σ=10; кожна ≥1; Cat.5=0; §3.4) | Так | Replan |
 | HR-09 | Немає exact duplicate artwork file hashes | Так | Review / regenerate |
 | HR-10 | API calls не виходять за budget/rate caps | Так | Stop/queue |
 
@@ -1709,6 +1763,7 @@ planning_validity_rate = valid_plans / proposed_plans
 - [ ] Pydantic schema для `SetVariant`, `CardSpec`.
 - [ ] Генератор 3–5 різних планів по 10 карток.
 - [ ] Category rules, unique IDs/objects, no golden.
+- [ ] Card Category Distribution (§3.4): моделі `auto_balanced`/`custom`, валідація (Σ=10, кожна Cat.1–4 ≥1, Cat.5=0), призначення об'єктів у category slots, однаковий розподіл у всіх 3–5 альтернативах.
 - [ ] Retry malformed JSON + semantic review.
 - [ ] Unit tests на invalid plans.
 
@@ -1740,6 +1795,7 @@ planning_validity_rate = valid_plans / proposed_plans
 
 **Tasks:**
 - [ ] Left form (theme/genre/variants/wishes/style refs/models/resolution).
+- [ ] `Card Category Distribution` control у Generation Settings (`Auto (Balanced)` / `Custom`, steppers Cat.1–4, Cat.5 locked 0, лічильник Σ=10, inline-валідація) без зміни затвердженого layout.
 - [ ] Upload refs та preview.
 - [ ] Generate + progress bar.
 - [ ] Right gallery with 3–5 variants and 10 card previews.
@@ -2116,6 +2172,8 @@ TEXT_PLANNER_PROVIDER=
 - Plan із 9 або 11 карток не проходить.
 - Plan із повтором ID не проходить.
 - Golden Cat. 5 у Movie demo не проходить.
+- Distribution з Σ≠10, з будь-якою Cat.1–4 = 0 або з Cat.5 > 0 не проходить; `Auto (Balanced)` дає [2,2,3,3]; 3–5 альтернатив мають однаковий розподіл.
+- Prompt Compiler додає в промпт обмеження відповідної категорії (напр. Cat.1 → floating, no small details; Cat.4 → realistic environment, object remains focus).
 - Unsupported resolution не надсилається до provider.
 - Max retries виконується.
 - Export manifest відповідає фактично збереженим PNG.
@@ -2156,7 +2214,7 @@ TEXT_PLANNER_PROVIDER=
 
 | ID | Питання | Власний default до перевірки |
 |---|---|---|
-| OQ-01 | Який точний розподіл Cat. 1–4 по 10 картках у наданих прикладах? | Увімкнути 1–4 без вигаданої фіксованої квоти |
+| OQ-01 | Який точний розподіл Cat. 1–4 по 10 картках у наданих прикладах? | (v1.7) Не зафіксований у джерелах; `Card Category Distribution`: `Auto (Balanced)` [2,2,3,3] як наше припущення [D] або `Custom` (§3.4); не подавати як вимогу Playrix |
 | OQ-02 | Чи всі референси можна передавати зовнішнім AI API? | Не публікувати й перевірити правила до cloud upload |
 | OQ-03 | Чи хоче Playrix саме 3–5 готових наборів на кожну тему, чи частково допустимі плани? | Дотримуватися суворої інтерпретації: **3–5 готових artwork groups** |
 | OQ-04 | Чи потрібен повний automation of Miro insertion? | Ні, вручну, як у ТЗ |
@@ -2189,6 +2247,7 @@ TEXT_PLANNER_PROVIDER=
 | ADR-012 | Prompt Library: view/edit/save versioned templates | Повторне використання, контроль ітерацій | MVP vs P1 detail |
 | ADR-013 | **€5 Gemini prepaid + per-job spend guard**, local Windows app; Cloudflare Free fallback; **OpenAI paid disabled** | Quality-first з контрольованими витратами; desktop GPU optional | Якщо Gemini quality, price чи quota не підійдуть |
 | ADR-014 | **OpenAI GPT Image everywhere in specification, UI and registry, runtime disabled** | Майбутнє розширення без перероблення ядра і без передчасних витрат | Лише після явної активації API та витрат |
+| ADR-015 | **Card Category Distribution: `Auto (Balanced)` [2,2,3,3] / `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 locked** | Playrix не фіксує кількість по категоріях; конфігурований розподіл дає контроль без вигаданої вимоги; застосовується на Set Planning до генерації й однаковий для всіх альтернатив | Якщо аналіз референсів покаже фактичний розподіл, або зміниться ТЗ щодо Cat.5 |
 
 ---
 
@@ -2218,6 +2277,13 @@ HARD CONSTRAINTS:
 - Keep the ORIGINAL DETAILED LIGHT UI DESIGN with dark header, left settings panel and rich right gallery.
 - Artwork-only: no in-game card UI, frames, badges or window compositor.
 - Each genre/set = 10 illustrations. A request produces 3–5 alternative full sets.
+- Card Category Distribution (spec §3.4, v1.7): Generation Settings control with `Auto (Balanced)` default
+  [2,2,3,3] (OUR design assumption, NOT a Playrix-mandated ratio) and `Custom`. Validate sum = 10 and each
+  of Cat. 1-4 >= 1; Cat. 5 locked to 0 for the Movie demo. Apply it during set planning (before image
+  generation), keep it identical across all 3-5 alternatives, and reflect each category's visual rules in
+  the prompt (Cat.1 floating/no small details/simple background; Cat.2 simple surface + vertical backdrop;
+  Cat.3 realistic surface/volumetric; Cat.4 realistic environment, object remains focus). Distribution is
+  separate from rarity/stars. Integrate into the approved layout without redesign.
 - Final demo: three different movie genres, without Golden Cards.
 - Three instruction layers: permanent Style Bible, structured settings, optional Free Wishes.
 - Independent image-provider adapter architecture; do not hardcode app logic to FLUX.
@@ -2362,6 +2428,7 @@ Show implementation/test status clearly, commit in small milestones.
 | **1.4** | **2026-11-07** | **First verified Cloudflare FLUX.2 Klein 4B REST PNG generation** (plain prompt + reference input); **model-agnostic ImageProvider registry**; Qwen/Ollama/ComfyUI no longer mandatory; Claude Code is development-time only; `RulesPlanner` with optional runtime TextPlanner; Cloudflare Free quota gate; detailed original mockup stays design reference; revise QA, stack, README, API settings, roadmap, implementation-agent prompt |
 | **1.5** | **2026-11-07** | **Provider comparison update:** Cloudflare remains verified zero-cost baseline; **Gemini (Nano Banana 2.1 / 3.1 Flash Lite Image)** becomes recommended first premium image adapter after API comparison; **OpenAI GPT Image** is validated as optional second adapter; document now explicitly recommends **one provider first**, not two paid providers at once. |
 | **1.6** | **2026-11-07** | **Real Gemini Nano Banana 2.1 external REST proof:** text-to-image + Playrix-reference-to-image PNG succeeded; €5 prepaid. **Gemini = target primary image provider; Cloudflare = verified fallback; OpenAI GPT Image = everywhere in design/architecture/UI but disabled, not paid/connected.** Correct prior 400 diagnosis; revise default model, env, cost controls, UI statuses, architecture, coding-agent instructions and roadmap. |
+| **1.7** | **2026-11-07** | **Card Category Distribution** (new §3.4): `Auto (Balanced)` default [2,2,3,3] (our assumption, not Playrix-mandated) / `Custom`; Σ=10, each Cat.1–4 ≥1, Cat.5 locked 0 for Movie demo; applied at Set Planning, identical across 3–5 alternatives; category-specific prompt logic documented. Targeted edits only (header, §0.2/0.3, §3.2, §6.4/6.6, §8.4, Stages 1–4, §10.3, §11.1, HR-08, phases, tests, OQ-01, ADR-015, handoff prompt, UX criteria); no change to providers, budget, scope or approved UI layout. |
 
 ## Final status
 

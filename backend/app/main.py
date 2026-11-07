@@ -13,6 +13,13 @@ from . import __version__
 from .config import Settings, load_settings
 from .providers.base import ProviderError
 from .providers.model_registry import ModelRegistry
+from .services.category_distribution import (
+    CategoryDistribution,
+    DistributionError,
+    assign_slots,
+    default_counts,
+    resolve_distribution,
+)
 from .services.cost_guard import CostGuard
 from .services.generation import GenerateCardRequest, GenerationFailure, GenerationService
 from .services.prompt_compiler import check_wishes
@@ -61,7 +68,11 @@ def create_app(
     def models() -> dict[str, Any]:
         return {
             "models": [asdict(m) for m in registry.models()],
-            "defaults": {"provider": s.default_provider, "model": s.default_model},
+            "defaults": {
+                "provider": s.default_provider,
+                "model": s.default_model,
+                "category_distribution": {str(k): v for k, v in default_counts().items()},
+            },
             "budget": asdict(guard.summary()),
             "availability": {
                 "checked_at": registry.availability_checked_at,
@@ -121,6 +132,21 @@ def create_app(
             return service.preview(req)
         except GenerationFailure as exc:
             raise _err(exc.status, exc.code, exc.message, **exc.extra) from exc
+
+    @app.post("/api/category-distribution/validate")
+    def validate_distribution(dist: CategoryDistribution) -> dict[str, Any]:
+        """Authoritative Card Category Distribution check (spec §3.4); free, no provider call."""
+        try:
+            counts = resolve_distribution(dist)
+        except DistributionError as exc:
+            raise _err(422, exc.code, exc.message) from exc
+        return {
+            "mode": dist.mode,
+            "counts": {str(k): v for k, v in counts.items()},
+            "slots": assign_slots(counts),
+            "note": "[2,2,3,3] is our design assumption, not a Playrix-mandated ratio."
+            if dist.mode == "auto_balanced" else "Custom producer distribution.",
+        }
 
     @app.post("/api/wishes/check")
     def wishes_check(body: dict[str, str]) -> dict[str, list[str]]:

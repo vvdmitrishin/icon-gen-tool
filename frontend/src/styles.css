@@ -124,3 +124,21 @@ pre.code { background: #14162c; color: #dfe3ff; padding: 14px; border-radius: 10
   .card-result { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr 1fr; }
 }
+
+/* Card Category Distribution (spec v1.7 §3.4) */
+.dist { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--line); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin: 4px 0 8px; }
+.seg button { background: #fff; border: 0; padding: 7px; font-weight: 600; color: var(--muted); }
+.seg button.on { background: var(--lav); color: var(--purple); }
+.steppers { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.stepper { display: grid; gap: 3px; text-align: center; font-size: 11px; color: var(--muted); }
+.stepper > div { display: flex; align-items: center; justify-content: center; gap: 3px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: #fff; }
+.stepper button { width: 18px; height: 22px; border: 0; background: var(--lav); color: var(--purple); border-radius: 5px; padding: 0; line-height: 1; }
+.stepper output { min-width: 14px; font-weight: 700; color: var(--ink); font-size: 14px; }
+.stepper.ro { opacity: .85; }
+.stepper.ro:not(.locked) button { visibility: hidden; width: 0; }
+.stepper.locked { opacity: .55; }
+.stepper.locked small { font-size: 9px; }
+.sum { margin-top: 6px; font-size: 12px; font-weight: 700; }
+.sum.ok { color: var(--ok); }
+.sum.bad { color: var(--err); }

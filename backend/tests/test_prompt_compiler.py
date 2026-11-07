@@ -14,7 +14,7 @@ def card(**kw):
 def test_compiles_three_layers_and_category_rules():
     c = compile_card_prompt(card(), "retro-futuristic, lighthearted")
     assert "Space Helmet" in c.text and "Science Fiction" in c.text
-    assert "Category 2" in c.text and "standing on a simple surface" in c.text
+    assert "Category 2" in c.text and "placed on a simple surface" in c.text
     assert "retro-futuristic" in c.layers["C_free_wishes"]
     assert "No text, no labels, no stars, no border" in c.text
     assert c.template_version == "image_base_v0"

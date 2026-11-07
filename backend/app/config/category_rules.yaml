@@ -1,20 +1,26 @@
-# Category composition rules (spec §3.2). Categories 1-4 only; Cat. 5 (golden) is not
-# generated in the Movie demo. NO per-set quotas are defined here (spec §3.2, §0.2 [A]).
-version: category_v0
+# Category composition rules (spec v1.7 §3.2 + §3.4 "Category prompt logic").
+# Categories 1-4 are the standard art categories. Category 5 (golden) is a documented future concept,
+# locked to 0 and disabled for the Movie Collection pilot. The per-category card COUNT is a separate,
+# configurable Card Category Distribution (see category_distribution.py), not defined here.
+version: category_v1
 categories:
   1:
     name: Simple floating object
-    composition: One main object with a very readable silhouette, floating in the air with no ground or surface.
-    background: Plain, gradient or simple patterned flat background. No room, no realistic ground.
+    composition: A simple object with no small details, floating in the air with no ground and no surface.
+    background: Simple background only - a flat color, a gradient, a simple repeating pattern or light rays. No room, no realistic ground.
   2:
-    name: Simple object on a surface
-    composition: One main object standing on a simple surface with a modest supporting context.
-    background: A simple vertical backdrop or plain background behind the surface. Do not turn it into a complex scene.
+    name: Simple object on a simple surface
+    composition: A simple object with no small details, placed on a simple surface.
+    background: A simple vertical background behind the surface. Keep the whole image clean and minimal; do not turn it into a complex scene.
   3:
     name: Object on a realistic surface
-    composition: The main object is placed on a volumetric, believable surface with a clear foreground.
-    background: A spatial background with depth. The object is still clearly the hero.
+    composition: The object is placed on a more realistic surface in a more volumetric scene, and stays centered and readable.
+    background: A volumetric spatial background with depth, in stylized casual-game realism (not photographic). The object is still clearly the hero.
   4:
-    name: Central object in an environment
-    composition: The main object sits at the center of a recognizable surrounding environment that tells a small local story.
-    background: A full recognizable environment. The object must not get lost in the decor.
+    name: Object in a realistic environment
+    composition: The object is embedded in a realistic environment (stylized casual-game realism) and remains the central focus of the image.
+    background: A full recognizable environment that tells a small local story. The object must not get lost in the decor.
+golden_concept:
+  # Category 5 - future support concept only. NOT generated: locked to 0 and disabled in the current pilot.
+  enabled: false
+  description: Narrative golden-card scene with one or two characters in a humorous emotional situation.
