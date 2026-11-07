@@ -18,7 +18,7 @@
 - **Cloudflare adapter** follows the documented contract but has only run against a mocked transport; its account ID is not configured.
 - **No automatic provider fallback** (switching providers is a manual, visible choice).
 - **One final variant per job**, one running job at a time, single user, Windows-oriented `start.bat`.
-- **Frontend has no automated tests** (UI was checked manually in a browser; the backend has 161 tests).
+- **Frontend has no automated tests** (UI was checked manually in a browser; the backend has 171 tests).
 
 ## Cost
 - Spend shown is a **local estimate** (≈ $0.067/image assumed from the spec); it can differ from the invoice and Google Billing may lag.

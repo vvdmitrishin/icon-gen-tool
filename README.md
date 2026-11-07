@@ -33,7 +33,7 @@ Put your `GEMINI_API_KEY` in the git-ignored `.env`. Without a key you can still
 
 | Area | Status |
 |---|---|
-| Phases 0–7 of the plan | implemented; **161 automated backend tests pass**, offline smoke test 16/16, UI build clean |
+| Phases 0–7 of the plan | implemented; **171 automated backend tests pass**, offline smoke test 16/16, UI build clean |
 | Gemini | **verified live**: text-only image, reference image, 4-card pilot (Phase 3). Everything since is tested against a mocked transport |
 | Cloudflare adapter | implemented from the documented REST contract; **mock-tested only** until `CLOUDFLARE_ACCOUNT_ID` is set for a live check |
 | OpenAI GPT Image | in registry/UI/settings, **disabled, no network code** |

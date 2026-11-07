@@ -69,6 +69,6 @@ optional settings such as ERNIE Prompt Enhancement) is part of each registry ent
 
 ## Tests
 
-`pytest` (161 tests): providers (mocked transports), planner, distribution, QA, jobs (lifecycle, budget, breaker, cancel,
+`pytest` (171 tests): providers (mocked transports), planner, distribution, QA, jobs (lifecycle, budget, breaker, cancel,
 restart, migration), review/approval/regeneration, prompt library, compare, export, collection, batch, imports, settings,
 static serving, scripts. Live paid test is gated behind `RUN_LIVE=1`.
