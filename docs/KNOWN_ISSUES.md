@@ -25,5 +25,5 @@
 - A full 3 genres × 3 variants × 10 cards run is ≈ $6, more than a €5 balance: stage it (pilot → continue) and watch the cap.
 
 ## Documentation
-- The spec's header still says “APP NOT IMPLEMENTED”; the README is the source for implementation status.
+- The spec status lines were refreshed in v1.8.1; the README "Implementation status" table stays the detailed source.
 - File layout deviates from spec §10.5 (flat artifact store + SQLite).
