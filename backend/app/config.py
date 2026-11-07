@@ -49,7 +49,7 @@ class Settings:
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     paid_image_calls_enabled: bool = True
-    job_budget_usd: float = 0.50
+    job_budget_usd: float = 0.75
     total_budget_usd: float = 4.00
     max_card_retries: int = 0
     max_parallel_generations: int = 1
@@ -74,6 +74,10 @@ class Settings:
         return self.data_root / "references"
 
     @property
+    def database_path(self) -> Path:
+        return self.data_root / "collection_studio.sqlite3"
+
+    @property
     def ledger_path(self) -> Path:
         return self.data_root / "ledger.jsonl"
 
@@ -94,7 +98,7 @@ class Settings:
             gemini_timeout_s=_float(g("GEMINI_TIMEOUT_SECONDS"), 120.0),
             gemini_est_cost_per_image_usd=_float(g("GEMINI_EST_COST_PER_IMAGE_USD"), 0.067),
             paid_image_calls_enabled=_bool(g("PAID_IMAGE_CALLS_ENABLED"), True),
-            job_budget_usd=_float(g("GEMINI_JOB_BUDGET_USD"), 0.50),
+            job_budget_usd=_float(g("GEMINI_JOB_BUDGET_USD"), 0.75),
             total_budget_usd=_float(g("GEMINI_TOTAL_BUDGET_USD"), 4.00),
             max_card_retries=_int(g("MAX_CARD_RETRIES"), 0),
             max_parallel_generations=_int(g("MAX_PARALLEL_GENERATIONS"), 1),

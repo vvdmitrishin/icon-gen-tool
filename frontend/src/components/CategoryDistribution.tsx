@@ -20,9 +20,10 @@ interface Props {
   defaults: DistCounts;
   onMode: (m: DistMode) => void;
   onCount: (cat: "1" | "2" | "3" | "4", v: number) => void;
+  appliedToSets?: boolean;
 }
 
-export function CategoryDistribution({ mode, counts, defaults, onMode, onCount }: Props) {
+export function CategoryDistribution({ mode, counts, defaults, onMode, onCount, appliedToSets }: Props) {
   const shown = mode === "auto_balanced" ? defaults : counts;
   const sum = CATS.reduce((s, c) => s + shown[c], 0);
   const errors = mode === "custom" ? distributionErrors(counts) : [];
@@ -62,7 +63,9 @@ export function CategoryDistribution({ mode, counts, defaults, onMode, onCount }
         {mode === "auto_balanced"
           ? "Default [2,2,3,3] is our design assumption, not a Playrix-mandated ratio. "
           : "Producer-defined counts. "}
-        Applied when planning full 10-card sets (Phase 3); the single-card slice uses the category chosen in section 2.
+        {appliedToSets
+          ? "Applied when the planner assigns objects to category slots (identical in every variant). "
+          : "Used by card sets; single-card mode uses the category chosen in section 2. "}
         Separate from rarity / stars.
       </p>
     </div>

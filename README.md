@@ -11,10 +11,13 @@ assignment. The source of truth is [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.7.
 | Phase 1 – single-card vertical slice (input → prompt compiler → Gemini → PNG → metadata → UI) | implemented; **unit/integration tests use a mocked Gemini transport**; a live call needs your key (see below) |
 | Reference upload + reference-based generation | implemented (validated, re-encoded, policy checkbox) |
 | Cost guard (per-call + cumulative ledger, retries OFF, no batches) | implemented – local estimate only |
-| Card Category Distribution (spec §3.4): `Auto (Balanced)` [2,2,3,3] / `Custom`, validation, slot assignment, category prompt rules, UI control | validation, slot assignment, API and UI control **implemented**; **not yet applied to planning** (the planner arrives in Phase 3). [2,2,3,3] is a design assumption, not a Playrix ratio |
+| Card Category Distribution (spec §3.4): `Auto (Balanced)` [2,2,3,3] / `Custom`, validation, slot assignment, category prompt rules, UI control | implemented and **applied by the planner** (identical in every variant). [2,2,3,3] is a design assumption, not a Playrix ratio |
 | Cloudflare FLUX.2 Klein 4B fallback | registered, **adapter pending (Phase 2)** |
 | OpenAI GPT Image | registered in registry/UI, **disabled, no network code** |
-| 10-card sets, 3–5 variants, planner, QA, regenerate, Reference Compare, export | **not implemented yet** (Phases 3–6) |
+| Phase 3 – RulesPlanner (curated pools for Sci-Fi / Detective / Fantasy, seeded, plan QA), 1–5 variants, SQLite jobs, sequential runner, pilot→full scope, Continue / Cancel, circuit breaker, restart recovery, set UI with live gallery | implemented; offline tests use a mocked Gemini transport; **live pilot run once (4 cards, 1 variant)** |
+| Technical QA, selective regeneration, approve | **not implemented yet** (Phase 4) |
+| Reference Compare (Split / Side by Side / Grid), Prompt Library, export ZIP | **not implemented yet** (Phases 5–6) |
+| Free wishes → object selection | **not implemented**: the rules planner picks objects from curated pools; wishes only steer image prompts |
 
 ## Run (Windows)
 

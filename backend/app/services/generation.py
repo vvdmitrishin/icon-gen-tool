@@ -32,6 +32,7 @@ class GenerateCardRequest(BaseModel):
     reference_policy_accepted: bool = False
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"] = "1:1"
     confirmed: bool = False  # explicit user confirmation of the shown cost estimate
+    context: dict[str, Any] = Field(default_factory=dict)  # e.g. job_id/variant_id/position (provenance)
 
     def card(self) -> CardSpec:
         return CardSpec(
@@ -209,6 +210,7 @@ class GenerationService:
                 "aspect_ratio_requested": req.aspect_ratio,
             },
             "card": req.card().model_dump(),
+            "context": req.context,
             "provider": {
                 "id": model.provider_id,
                 "model": model.model_id,

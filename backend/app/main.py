@@ -22,6 +22,8 @@ from .services.category_distribution import (
 )
 from .services.cost_guard import CostGuard
 from .services.generation import GenerateCardRequest, GenerationFailure, GenerationService
+from .services.jobs import ContinueRequest, JobCreateRequest, JobFailure, JobService, JobStore
+from .services.planning import supported_genres
 from .services.prompt_compiler import check_wishes
 from .services.reference_manager import REF_TYPES, ReferenceError_, ReferenceManager, is_valid_ref_id
 from .services.storage import ArtifactStore, is_valid_id
@@ -43,6 +45,9 @@ def create_app(
     refs = ReferenceManager(s.reference_root, s.max_upload_bytes)
     service = GenerationService(s, registry, guard, store, refs)
     registry.seed_live_from(store.list(200))
+    job_store = JobStore(s.database_path)
+    jobs = JobService(s, service, guard, refs, job_store)
+    job_store.recover_interrupted()  # never auto-resumes paid work after a restart
 
     app = FastAPI(title="AI Collection Studio", version=__version__)
     app.add_middleware(
@@ -158,6 +163,68 @@ def create_app(
             return await service.generate(req)
         except GenerationFailure as exc:
             raise _err(exc.status, exc.code, exc.message, **exc.extra) from exc
+
+    # -------------------------------------------------------------------- jobs
+    def _job_err(exc: JobFailure) -> HTTPException:
+        return _err(exc.status, exc.code, exc.message, **exc.extra)
+
+    @app.get("/api/planner/genres")
+    def planner_genres() -> list[dict[str, Any]]:
+        return supported_genres()
+
+    @app.post("/api/jobs/preview")
+    def jobs_preview(req: JobCreateRequest) -> dict[str, Any]:
+        try:
+            return jobs.preview(req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs")
+    async def jobs_create(req: JobCreateRequest) -> dict[str, Any]:
+        try:
+            return await jobs.create(req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.get("/api/jobs")
+    def jobs_list(limit: int = 30) -> list[dict[str, Any]]:
+        return jobs.list(min(max(limit, 1), 100))
+
+    @app.get("/api/jobs/{job_id}")
+    def jobs_get(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.detail(job_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.get("/api/jobs/{job_id}/variants")
+    def jobs_variants(job_id: str) -> list[dict[str, Any]]:
+        try:
+            return jobs.detail(job_id)["variants"]
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.get("/api/jobs/{job_id}/events")
+    def jobs_events(job_id: str, after: int = 0) -> list[dict[str, Any]]:
+        if job_store.get_job(job_id) is None:
+            raise _err(404, "not_found", "Job not found.")
+        return job_store.events(job_id, after)
+
+    @app.post("/api/jobs/{job_id}/continue")
+    async def jobs_continue(job_id: str, req: ContinueRequest) -> dict[str, Any]:
+        try:
+            return await jobs.continue_job(job_id, req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def jobs_cancel(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.cancel(job_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    app.state.jobs = jobs  # exposed for tests
 
     # --------------------------------------------------------------- artifacts
     @app.get("/api/artifacts")

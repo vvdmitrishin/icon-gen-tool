@@ -1,6 +1,12 @@
 import type {
   Artifact,
   GenerateRequest,
+  GenreInfo,
+  JobDetail,
+  JobEvent,
+  JobPreview,
+  JobRequestPayload,
+  JobSummary,
   ModelsResponse,
   PreviewResponse,
   RefMeta,
@@ -60,4 +66,13 @@ export const api = {
   preview: (req: GenerateRequest) => call<PreviewResponse>("/api/prompt/preview", json(req)),
   generate: (req: GenerateRequest) => call<Artifact>("/api/generate-card", json(req)),
   artifacts: () => call<Artifact[]>("/api/artifacts"),
+  genres: () => call<GenreInfo[]>("/api/planner/genres"),
+  jobsPreview: (req: JobRequestPayload) => call<JobPreview>("/api/jobs/preview", json(req)),
+  createJob: (req: JobRequestPayload) => call<JobDetail>("/api/jobs", json(req)),
+  jobs: () => call<JobSummary[]>("/api/jobs"),
+  job: (id: string) => call<JobDetail>(`/api/jobs/${id}`),
+  jobEvents: (id: string, after = 0) => call<JobEvent[]>(`/api/jobs/${id}/events?after=${after}`),
+  continueJob: (id: string, confirmed: boolean, retryFailed: boolean) =>
+    call<JobDetail>(`/api/jobs/${id}/continue`, json({ confirmed, retry_failed: retryFailed })),
+  cancelJob: (id: string) => call<JobDetail>(`/api/jobs/${id}/cancel`, { method: "POST" }),
 };

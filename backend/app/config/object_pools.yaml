@@ -1,0 +1,272 @@
+# Curated object pools for the RulesPlanner (spec §15, §15.4). Working candidates, NOT approved art plans.
+# Each micro-theme = one alternative 10-card set idea. Entry format: "Object name | short description".
+#   simple : suits Cat. 1-2 (and 3-4) - clean silhouette, no small details
+#   scene3 : suits Cat. 3 (object on a realistic surface)
+#   scene4 : suits Cat. 4 (object as the focus of a recognizable environment)
+# Default [2,2,3,3] needs 4 simple + 3 scene3 + 3 scene4 per micro-theme; 5 simple allows 5 Cat. 1-2 cards x 5 variants. No franchise names/logos, no weapons.
+version: pools_v1
+genres:
+  Science Fiction:
+    aliases: [sci-fi, scifi, science-fiction, sf]
+    microthemes:
+      - id: retro_space_discovery
+        title: Retro Space Discovery
+        concept: Friendly, bright retro-futuristic space expedition props.
+        simple:
+          - Holographic Communicator | handheld gadget projecting a glowing hologram
+          - Space Helmet | rounded retro helmet with a glossy visor
+          - Anti-Gravity Boots | chunky boots with glowing hover soles
+          - Robot Assistant | small friendly helper robot with a round head
+          - Star Map Scroll | rolled map dotted with constellations
+        scene3:
+          - Stellar Navigation Console | control panel with dials and a star-map screen
+          - Asteroid Sample Container | sealed lab canister holding a glowing rock
+          - Lunar Rover | small six-wheeled moon buggy on lunar dust
+        scene4:
+          - Orbital Telescope | large telescope inside a round space observatory
+          - Interstellar Transit Gate | glowing ring portal in a launch hall
+          - Landing Shuttle | retro shuttle on a lit landing pad
+      - id: alien_city_life
+        title: Alien City Life
+        concept: Everyday objects from a colorful alien metropolis.
+        simple:
+          - Glowing Alien Fruit | luminous fruit with a swirly peel
+          - Antenna Hat | party hat with wobbly antennae
+          - Hover Skateboard | floating board with a glowing underside
+          - Translator Gadget | pocket device with a rainbow speaker grille
+          - Alien Pet Plush | round fuzzy toy with three eyes
+        scene3:
+          - Neon Noodle Stand | cheerful street food cart with glowing signs
+          - Floating Taxi Pod | bubble-shaped sky taxi at a landing pad
+          - Crystal Street Lamp | cluster of glowing crystals on a pole
+        scene4:
+          - Alien Marketplace Plaza | busy plaza with a central glowing fountain
+          - Sky Tram Station | elevated tram platform above the clouds
+          - Rooftop Garden Dome | glass dome full of strange plants
+      - id: future_laboratory
+        title: Future Laboratory
+        concept: Playful science gear from a high-tech lab.
+        simple:
+          - Glowing Beaker | beaker with bubbling neon liquid
+          - Plasma Globe | glass orb with colorful lightning
+          - Data Crystal | faceted storage crystal with light veins
+          - Holographic Microscope | microscope projecting a tiny hologram
+          - Hover Clipboard | floating tablet with a glowing chart
+        scene3:
+          - Quantum Workbench | desk with floating gadgets and a screen
+          - Specimen Incubator | glass chamber with a glowing sprout
+          - Gravity Experiment Rig | rings suspending a floating sphere
+        scene4:
+          - Teleport Chamber | round chamber with a glowing floor pad
+          - Hydroponic Greenhouse Lab | lab full of luminous plants
+          - Lab Control Room | wall of screens around a central console
+      - id: robot_workshop
+        title: Robot Workshop
+        concept: Cozy inventor's workshop full of tiny machines.
+        simple:
+          - Wind-Up Robot Toy | tin toy robot with a big key
+          - Gear Cluster | three interlocking brass gears
+          - Tiny Drone | round hovering drone with soft propellers
+          - Oil Can | classic oil can with a long spout
+          - Robot Hand | friendly metal hand with rounded fingers
+        scene3:
+          - Robot Repair Bench | bench with an opened robot torso
+          - Spare Parts Crate | wooden crate overflowing with parts
+          - Battery Charging Dock | dock with glowing cells
+        scene4:
+          - Robot Assembly Line | conveyor with half-built robots
+          - Inventor Garage | cluttered garage with a half-finished machine
+          - Gadget Junkyard | hill of scrap with one shiny find
+      - id: deep_space_station
+        title: Deep Space Station
+        concept: Life aboard a cheerful orbiting station.
+        simple:
+          - Space Snack Pack | silver pouch with a straw floating in zero-g
+          - Satellite Dish Model | small desk dish with a blinking light
+          - Astronaut Glove | puffy glove with a glowing cuff
+          - Rocket Fuel Cell | glowing cylindrical energy cell
+          - Zero-G Water Bubble | wobbling sphere of water with a straw
+        scene3:
+          - Airlock Door Panel | round hatch with a wheel and lights
+          - Observation Window Seat | cushioned seat by a big star window
+          - Cargo Pod Bay | open cargo pod on a loading floor
+        scene4:
+          - Space Station Hub | central ring hub with docked ships
+          - Zero-G Garden Module | module with floating plants
+          - Comet Docking Port | docking arm reaching a glowing comet
+  Detective:
+    aliases: [detective & mystery, mystery, whodunit, crime]
+    microthemes:
+      - id: classic_whodunit
+        title: Classic Whodunit
+        concept: Adventurous detective story props in a friendly casual style, no violence.
+        simple:
+          - Magnifying Glass | brass magnifier with a glossy lens
+          - Coded Note | folded paper with mysterious symbols
+          - Detective Hat | felt detective hat with a ribbon
+          - Evidence Case | small case with a red tag
+          - Fingerprint Card | card with a bold inked thumbprint
+        scene3:
+          - Typewriter with Clue | vintage typewriter with a typed note
+          - Locked Antique Safe | heavy safe with a brass dial
+          - Pocket Recorder | small recorder on a wooden desk
+        scene4:
+          - Investigation Board | wall board with photos and red string
+          - Midnight Telephone Booth | red phone booth on a misty street
+          - Mysterious Manor Door | grand door of an old manor
+      - id: secret_agent_gadgets
+        title: Secret Agent Gadgets
+        concept: Harmless spy-gadget fun.
+        simple:
+          - Spy Watch | chunky watch with tiny dials
+          - Hidden Camera Pen | pen with a lens in the clip
+          - Secret Briefcase | silver case with combination locks
+          - Disguise Kit | glasses and fake mustache
+          - Secret Decoder Ring | chunky ring with a rotating dial
+        scene3:
+          - Gadget Workbench | bench with gadgets and a magnifier lamp
+          - Disguise Mirror Table | vanity with wigs and hats
+          - Hidden Wall Safe | open wall panel with a safe
+        scene4:
+          - Secret Agent Hideout | cozy hideout behind a bookcase
+          - Rooftop Surveillance Post | rooftop with a telescope at night
+          - Underground Office | office with a map table and phones
+      - id: museum_heist_mystery
+        title: Museum Heist Mystery
+        concept: Who took the exhibit? Playful museum intrigue.
+        simple:
+          - Golden Idol Statuette | small golden statuette
+          - Velvet Rope Post | brass post with a red rope
+          - Ancient Vase | decorated vase with a crack
+          - Stolen Landscape Painting | painting leaning off-center
+          - Museum Ticket Stub | ticket stub with a star stamp
+        scene3:
+          - Glass Display Case | case with an empty cushion
+          - Security Monitor Desk | desk with small camera screens
+          - Artifact Pedestal | marble pedestal with a spotlight
+        scene4:
+          - Museum Grand Hall | big hall with a dinosaur skeleton
+          - Night Museum Gallery | moonlit gallery of paintings
+          - Museum Back Office | office with crates and a map
+      - id: noir_city_nights
+        title: Noir City Nights
+        concept: Moody-but-friendly big-city mystery, bright casual palette.
+        simple:
+          - Vintage Microphone | chrome radio microphone
+          - Jazz Vinyl Record | vinyl with a colorful label
+          - Rain Umbrella | dark umbrella with a curved handle
+          - Briefcase Key | ornate brass key on a ring
+          - Pocket Watch | open pocket watch on a chain
+        scene3:
+          - Rainy Street Lamp | glowing lamp over wet cobblestones
+          - Diner Counter Coffee | steaming mug on a diner counter
+          - Newsstand Corner | small stand full of papers
+        scene4:
+          - Foggy Alley Crossing | narrow alley lit by one lamp
+          - Neon Jazz Club Stage | small stage with a neon backdrop
+          - Train Station Platform | platform with a vintage train
+      - id: seaside_mystery_cruise
+        title: Seaside Mystery Cruise
+        concept: A sunny ocean-liner mystery.
+        simple:
+          - Binoculars | brass binoculars with a strap
+          - Life Ring | red and white life ring
+          - Message in a Bottle | corked bottle with a rolled note
+          - Ship Bell | polished brass bell on a bracket
+          - Sailor Cap | white cap with a navy band
+        scene3:
+          - Deck Chair with Clue | striped chair with a dropped note
+          - Luggage Trolley | cart stacked with vintage suitcases
+          - Ship Wheel Station | wooden wheel at a bridge console
+        scene4:
+          - Grand Ballroom Stage | ocean-liner ballroom with chandeliers
+          - Lighthouse Cliff | lighthouse on a sunny cliff
+          - Cruise Ship Deck | sunny deck with railings and funnels
+  Fantasy:
+    aliases: [fantasy adventure, magic, magical]
+    microthemes:
+      - id: magical_quest
+        title: Magical Quest
+        concept: Light magical adventure with bright artifacts.
+        simple:
+          - Crystal Wand | wand with a glowing crystal tip
+          - Enchanted Compass | compass with floating runes
+          - Potion Bottle | round flask with swirling potion
+          - Spellbook on Stand | open spellbook on a wooden stand
+          - Magic Ring | gold ring with a glowing gem
+        scene3:
+          - Mystic Lantern | lantern with a floating flame
+          - Treasure Chest | open chest overflowing with gold
+          - Dragon Egg | speckled egg in a straw nest
+        scene4:
+          - Ancient Stone Altar | glowing altar in a forest clearing
+          - Castle Gate | fairy-tale castle gate with banners
+          - Enchanted Bridge | glowing stone bridge over a chasm
+      - id: wizard_workshop
+        title: Wizard Workshop
+        concept: A cozy wizard's study full of experiments.
+        simple:
+          - Wizard Hat | tall starry hat with a bent tip
+          - Crystal Ball | glass sphere with swirling mist
+          - Quill and Inkwell | feather quill in a glowing ink pot
+          - Bubbling Cauldron | small cauldron with green bubbles
+          - Spell Scroll | rolled scroll tied with a ribbon
+        scene3:
+          - Potion Shelf | shelf of colorful potion bottles
+          - Alchemy Table | table with flasks and a burner
+          - Enchanted Broom Stand | broom floating beside a stand
+        scene4:
+          - Wizard Tower Study | round room with a telescope and books
+          - Spell Library | tall shelves with floating books
+          - Alchemy Laboratory | stone lab with bubbling machines
+      - id: enchanted_forest_adventure
+        title: Enchanted Forest Adventure
+        concept: Glowing woods and friendly woodland magic.
+        simple:
+          - Glowing Mushroom | mushroom with a luminous cap
+          - Fairy Lantern | tiny lantern with a fairy light
+          - Magic Acorn | golden acorn with sparkles
+          - Mossy Rune Stone | stone with glowing carved runes
+          - Firefly Jar | jar of glowing fireflies
+        scene3:
+          - Fairy Door Tree Stump | stump with a tiny round door
+          - Hollow Log Treasure | log with a glowing chest inside
+          - Moonlit Lily Pad | lily pad with a glowing flower
+        scene4:
+          - Giant Tree House | huge tree with a lit house
+          - Hidden Fairy Glade | clearing ringed by glowing flowers
+          - Mushroom Village | cluster of mushroom homes
+      - id: dragon_mountain
+        title: Dragon Mountain
+        concept: Warm, playful dragon-country treasures, no violence.
+        simple:
+          - Dragon Scale | large shimmering teal scale
+          - Ember Crystal | crystal with a glowing red core
+          - Golden Goblet | jeweled goblet
+          - Dragon Whistle | carved horn whistle on a cord
+          - Ember Flask | small flask of swirling fire
+        scene3:
+          - Dragon Hoard Chest | chest with coins and jewels
+          - Volcano Forge Anvil | anvil by glowing lava
+          - Egg Nest Cradle | nest cradling a warm egg
+        scene4:
+          - Dragon Cave Hoard | cave with a mountain of treasure
+          - Mountain Pass Watchtower | stone tower on a high pass
+          - Lava Bridge Crossing | rope bridge over glowing lava
+      - id: fairy_market
+        title: Fairy Market
+        concept: A tiny, sparkling marketplace in the treetops.
+        simple:
+          - Fairy Dust Jar | jar of sparkling dust
+          - Rainbow Ribbon Spool | spool with a rainbow ribbon
+          - Honey Pot with Dipper | honey pot with a wooden dipper
+          - Tiny Teacup Set | miniature teapot and cups
+          - Wishing Coin | gold coin with a star
+        scene3:
+          - Berry Market Stall | stall piled with glowing berries
+          - Lantern Cart | cart hung with paper lanterns
+          - Flower Petal Boat | petal boat on a tiny stream
+        scene4:
+          - Treetop Market Square | square built on wide branches
+          - Floating Island Bazaar | market on a drifting island
+          - Moonlight Fairy Festival | glade with garlands and lanterns
