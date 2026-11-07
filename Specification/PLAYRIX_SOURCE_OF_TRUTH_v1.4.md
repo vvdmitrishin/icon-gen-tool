@@ -1,20 +1,36 @@
 # Playrix AI Producer — Collection Studio
 ## Source of Truth / Product Requirements + UX + Technical Design + Execution Plan
 
-**Версія:** 1.3 (zero-cost MVP + рішення щодо QA: technical checks та human review)  
+**Версія:** 1.4 (model-agnostic image providers; Cloudflare REST API validated; Claude Code development-only; Qwen/ComfyUI optional)  
 **Дата:** 7 листопада 2026 року (база: 04.11.2026; Reference Compare: 06.11.2026)  
-**Статус:** `PROPOSED / NOT IMPLEMENTED` (статичний HTML-мокап НЕ означає, що AI backend вже створено)  
+**Статус:** `SPECIFICATION / APP NOT IMPLEMENTED`; **окремий Cloudflare REST API smoke test успішний** (PNG за текстовим запитом і запит із графічним референсом). Повний Web UI/backend/job pipeline ще НЕ реалізовані.  
 **Власник концепції:** кандидат на роль AI Producer  
 **Мова робочого документа:** українська; назви кнопок, об'єктів та API — англійською  
 **Мета:** єдиний документ для розробки, делегування AI coding agent, перевірки scope та підготовки презентації результатів тестового завдання.
 
 > **Головне правило:** цей документ навмисно розрізняє **[P] вимогу Playrix**, **[U] побажання користувача / автора концепції**, **[D] запропоноване дизайн-рішення**, **[A] припущення, що потребує перевірки**, **[F] можливе майбутнє розширення**. Не можна подавати [D], [A] чи [F] як вимоги роботодавця.
 
-> **Обмеження достовірності:** технічна система ще не розроблена й не протестована; скетч UI — візуальна концепція, а не робочий застосунок. Наведені метрики, вартості, оцінки якості, тривалості та ілюстрації в скетчі — приклади, а не фактичні результати тесту.
+> **Обмеження достовірності:** повний застосунок ще не розроблений. Окремий **Cloudflare Workers AI REST API → FLUX.2 Klein 4B → PNG** перевірено користувачем у Windows PowerShell, у тому числі виконання запиту з `input_image_0`; це НЕ доводить придатну якість стилю, повний 10-card pipeline чи гарантовану безкоштовну квоту. Мокап UI — не робочий застосунок. Не вигадувати QA scores, API credits, кількість згенерованих карток або фінальний readiness.
 
 ---
 
-## Важливе уточнення v1.3 — Quality Assurance (07.11.2026)
+## Головне архітектурне рішення v1.4 — Актуальне, має пріоритет (07.11.2026)
+
+**Підтверджене користувачем:** Cloudflare REST API з моделлю `@cf/black-forest-labs/flux-2-klein-4b` повернув PNG після **реального** виклику з Windows PowerShell. Окремий виклик із наданим зображенням через `input_image_0` також повернув PNG. **Якість слабка**; «reference request accepted» не дорівнює «reference style accurately matched». Playground FLUX.2 Klein 9B — лише візуальний експеримент; live REST API для 9B у цьому проєкті **не верифіковано**.
+
+**Model-agnostic runtime [U]/[D]:** інструмент не залежить від FLUX, Cloudflare, Qwen чи конкретного постачальника. `ImageProvider` — універсальний контракт із можливостями моделі (`capabilities`, supported reference inputs, dimensions, status) та провайдер-специфічними адаптерами. Перший adapter для MVP — **Cloudflare Workers AI / FLUX.2 Klein 4B**, бо він перевірений через власний REST API. У майбутньому: FLUX.2 інші версії, локальний ComfyUI/SDXL, Gemini Image API, GPT Image тощо за наявності реального дозволеного доступу.
+
+**Claude Code — інструмент РОЗРОБКИ, не runtime planner.** Claude пише код, prompt templates, правила, скрипти, тести і UI. Підписка Claude Pro **не надає runtime Claude API** застосунку. **Qwen/Ollama не є обов'язковими**. Для обмеженої Movie demo перший `set-planner` може використовувати попередньо складені жанрові object pools + детерміновані правила + варіативність; це **не еквівалент повноцінного розуміння довільного творчого брифу**. Якщо потрібне справді динамічне планування будь-якої теми/побажань, передбачити **опціональний TextPlanner provider** (дозволений Cloudflare text API / інший сумісний LLM API) і чесно позначати `template_mode` vs `ai_planning_live`.
+
+**Cloudflare + бюджет [U]/[D]:** власний Cloudflare API — не «локальна модель». На ноутбуці запускається Web UI + FastAPI, а inference виконується у хмарі Cloudflare. **Додаткові платежі = 0** як суворе обмеження; перед batch необхідний preflight реального free-tier usage/quota, rate limits, умов провайдера; зупинка при вичерпанні квоти й без автоактивації платного режиму. Не робити тверджень, що free-tier вистачить на 90 зображень, доки цього не перевірено.
+
+**QA:** deterministic technical QA + human art review, без фейкових style scores та без обов'язкового Vision QA. Фінальні 3 Movie-набори мають бути створені **через реальний pipeline**, а не підставлені з ручної генерації в Gemini/GPT, яку можна використовувати лише як окреме дослідження.
+
+**Дизайн:** зберегти **перший деталізований світлий UI-мокап із темним header, багатою галереєю і щільною лівою панеллю**. Пізніший спрощений мокап не є новим дизайн-джерелом.
+
+---
+
+## Історичне уточнення v1.3 — Quality Assurance (07.11.2026; чинне у v1.4)
 
 **Це актуальне рішення має пріоритет перед усіма попередніми описами QA нижче.**
 
@@ -31,7 +47,7 @@
 
 **Collection Studio** — локальний Web UI для продюсера/геймдизайнера. Користувач задає **тему колекції**, **один жанр набору** (або три жанри для пакетного Movie demo), **необов'язкові "вільні побажання"**, додає референси й обирає наявну модель. **System Prompt / Style Bible** з обов'язковими правилами композиції та категорій визначений заздалегідь; UI-параметри і побажання не замінюють ці правила. Planner формує **3–5 альтернативних планів на кожен замовлений жанр**, а підключений image provider намагається створити **по 10 окремих artwork PNG** для кожного варіанта. Зберігаються промпти, provenance, ітерації та результати. Frontend показує gallery, імпортовані дослідницькі приклади, Reference Compare (Slider / Side by Side / Grid) і Export. **Саме artwork, не ігрові рамки/вікна, є deliverable.**
 
-**Бюджетний принцип v1.2 [U]: 0 USD/EUR додаткових платежів.** Жоден платний image/text API, нова підписка, VPS або SaaS не є умовою запуску MVP. За замовчуванням живий провайдер — локальний ComfyUI (FLUX.1 schnell/SDXL за результатами art pilot), planner — локальна Qwen/Ollama на десктопі. GPT Image/Nano Banana дозволені як **імпортовані research samples**; майбутні API-адаптери залишаються **disabled / unconfigured**, доки користувач явно не надасть дозволений API-доступ. Сторінка без серверної частини не генерує картинки. **Живе тестування Playrix на публічному URL не є прямою вимогою ТЗ.**
+**Бюджетний принцип v1.4 [U]: 0 USD/EUR додаткових платежів НА runtime/API** (наявна підписка Claude Code є окремим інструментом розробки). **Перший live image provider: Cloudflare Workers AI → FLUX.2 Klein 4B**, запит уже повертав PNG із PowerShell, включно зі сценарієм із reference input. Всі інші image providers — незалежні змінні adapters; GPT Image/Nano Banana без authorized API залишаються `Samples only`. Qwen/Ollama/ComfyUI **не є обов’язковими**. Планування в PoC: реалізований Python planner із перевірними правилами; опціонально runtime TextPlanner API для довільних тем і побажань. Застосунок працює локально на ноутбуці, **inference Cloudflare — віддалений**. Статичний HTML без backend картинки не генерує. Живе тестування Playrix на публічному URL не є прямою вимогою ТЗ.
 
 ## 0.1 Пріоритети
 
@@ -54,20 +70,24 @@
 
 ---
 
-## 0.3 Погоджені продуктово-технічні рішення v1.2 [U]/[D]
+## 0.3 Погоджені продуктово-технічні рішення v1.4 [U]/[D]
 
-| Питання | Рішення в MVP | Обґрунтування / чесне обмеження |
+| Питання | Актуальне рішення | Обмеження / пояснення |
 |---|---|---|
-| Чи потрібен SaaS / deploy? | **Ні**. Локальний вебінтерфейс у браузері, backend на ноутбуці або десктопі | У ТЗ не вимагається постійний публічний сервіс; reviewer отримує Miro + GitHub + setup/demo |
-| Чи потрібні live GPT Image / Nano Banana? | **Ні як базова залежність**. Результати можна імпортувати після ручного дослідження | Підписка ChatGPT/Gemini **не дорівнює API-ключу**; у dropdown статус `Samples only` |
-| Реальна безкоштовна генерація | ComfyUI + підтримувана локальна image-модель, після quality feasibility gate | Лише якщо локально тестова якість прийнятна; інакше документуємо gap і не прикидаємось успіхом |
-| Планування сету | Ollama/Qwen (локально) або інший **фактично підключений** text provider | Планувальник генерує ідеї/JSON; це не image generator |
-| Веб UI | Браузерний UI (React/Vite або простий HTML/JS) | Вибір стеку за швидкістю реалізації; не робити SaaS-ready backend |
-| Workflow manager | Python/FastAPI для job, планів, prompt compilation, збереження файлів | `n8n` **не є вимогою**; необов'язковий, якщо реально спростить сценарій |
-| Machine split | Лептоп: UI + Claude Code + optional FastAPI; десктоп: Qwen/Ollama + ComfyUI/GPU | Локальна мережа, адреси endpoint конфігуруються; не публікувати відкритий GPU API |
-| Card art vs frames | Генеруємо **лише арт ілюстрації**; у готові Miro-шаблони вставляємо вручну | Пряма вимога Playrix |
-| Gold cards | У загальній моделі може бути Cat.5; в Movie demo **OFF, disabled** | У трьох фінальних кінонаборах золотих немає |
-| Scope | Працездатний **PoC**, не production-ready платформа | Вказувати окремо `implemented / mock / future` |
+| Потрібен публічний SaaS? | **Ні.** Web UI + Python FastAPI запускаються локально | Доступ до Cloudflare AI API через інтернет; немає вимоги публікувати наш backend |
+| Вимога реального інструменту | **Так.** Зробити три фінальні Movie-набори через власний pipeline | Mock UI + ручні картинки НЕ закривають автоматичне виробництво |
+| Live генерація | **Cloudflare Workers AI / FLUX.2 Klein 4B (перший adapter)** | Реальний REST smoke test + reference request пройшов; art quality слабка; full batch не протестований |
+| Інші image-моделі | **Плагінні адаптери, не прив'язувати ядро до FLUX** | ComfyUI / FLUX інші / SDXL / GPT Image / Gemini після перевірки capabilities та API доступу |
+| Планування (без Qwen) | **Python rules + object pools / templated planning для Movie demo** | Це bounded planning; не заявляти про повну семантичну адаптацію до будь-якого довільного `Free Wishes` |
+| Довільний semantic planning | Опціональний **TextPlanner provider через API** | Claude Code Pro — не runtime API; Cloudflare text model можна додати після перевірки конкретного endpoint та quota |
+| Backend | **FastAPI + job manager + Prompt Compiler + ImageProvider registry** | Логіка категорій, трейсинг, зберігання, технічний QA, export |
+| Machine split | **Ноутбук: UI + FastAPI; Cloudflare: inference** | Десктоп/Ollama/ComfyUI потрібні тільки якщо додамо optional local provider |
+| Budget | **$0 додаткового API-спенду** | Cloudflare free tier необхідно перевіряти під час batch; не активувати платні витрати |
+| QA | Детерміновані technical checks + ручне artistic approval | Vision LLM не є must-have, ніяких вигаданих style-score |
+| Final image | **Тільки artwork**, без рамок гри; Miro insertion вручну | Пряма вимога Playrix |
+| Gold cards | В generic architecture optional; Movie demo **OFF** | No Category 5 у фінальних трьох наборах |
+| Дизайн | **ПЕРШИЙ детальний UI-мокап** + нові поля `Free Wishes`, provider status та compare | Пізній спрощений UI не замінює перший reference |
+| Scope | Працездатний PoC з 1 live image adapter, а не SaaS | Позначати `implemented / mock / future` |
 
 ### 0.3.1 Два рівні випробувань, які не можна підміняти один одним
 
@@ -284,7 +304,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 # 6. UX / докладний опис UI-скетчу
 
-**Актуальний скетч v1.2:** `Playrix_Collection_Studio_UI_Sketch.png` (у комплекті з MD). Додатково — `Playrix_Collection_Studio_UI_Mockup.html` як локальний клікабельний UI-only прототип без image API.  
+**Актуальна дизайн-основа v1.4:** `Playrix_Collection_Studio_UI_Original_Detailed_Reference.png` — **перший, багатий UI-дизайн**, а не пізній спрощений скетч. Потрібно додати `Producer Free Wishes`, selection/status моделей, reference compare та виправити ілюстративні `Style Score` й фіктивні витрати. `Playrix_Collection_Studio_UI_Mockup.html` — лише клікабельний UI-only прототип, не live generator.  
 **Призначення:** узгодження UX, **не production code і не доказ живої генерації**.
 
 ![Collection Studio UI concept](Playrix_Collection_Studio_UI_Sketch.png)
@@ -315,8 +335,8 @@ Collection («Кіно», «Літо», «Подорожі»...)
 │   [Upload] [Preview]       │                                               │
 │                            │                                               │
 │ 5. Model & Output          │                                               │
-│   Planner [Qwen Local]     │                                               │
-│   Image [FLUX local]       │                                               │
+│   Planner [Rules / API]   │                                               │
+│   Image [Cloudflare FLUX]  │                                               │
 │   Provider status          │                                               │
 │   Resolution [1024]        │                                               │
 │                            │                                               │
@@ -382,9 +402,9 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 | Поле | UX | Що відбувається насправді |
 |---|---|---|
-| `Planning Model` | Dropdown | Лише підключені planner providers (`Qwen3 14B / Ollama Local`; інший API — тільки якщо фактично доступний) |
-| `Image Model` | Dropdown | `ComfyUI / FLUX.1 schnell` або `ComfyUI / SDXL` для Live Local; `GPT Image / Nano Banana` мають `Samples only / API not configured` до наявності дозволених ключів |
-| `Provider Status` | Status label | `Live Local`, `Samples Only`, `Not Configured`, `Unavailable`, `Connecting` — обов'язкове явне відображення. `Generate` не активувати для Samples Only |
+| `Planning Mode` | Dropdown | `Rules / Templates` за замовчуванням; `AI Planning` лише коли налаштовано реальний runtime TextPlanner API. Claude Code Pro не є таким API |
+| `Image Model` | Dropdown | Перший live adapter: `Cloudflare / FLUX.2 Klein 4B`; ComfyUI/GPT Image/Nano Banana — `Not configured` або `Samples only`, доки не перевірено API |
+| `Provider Status` | Status label | `Live API`, `Live Local`, `Samples Only`, `Not Configured`, `Unavailable`, `Connecting`; `Generate` тільки для реально підключеного image adapter |
 | `Resolution` | Dropdown | Список допустимих розмірів **для обраної моделі**, а не довільні значення |
 | `Quality` | Dropdown | Показати лише якщо provider підтримує цю опцію |
 | `Creativity` | Advanced slider або `Conservative / Balanced / Exploratory` | Універсального «creativity API parameter» у image API може **не бути**; це наш preset формулювання промптів / генерації планів |
@@ -398,7 +418,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 ## 6.7 Кнопка `Generate Sets`
 
-**До запуску:** активна тільки якщо обов'язкові поля заповнені, **planning/image providers мають статус Live**, reference policy прийнято. Показати preflight: `Theme`, `Genre`, `Variants per genre`, `10 cards each`, `Initial images=number_of_genres × variants × 10`, `Gold OFF`, і лише реально відомі costs/limits. При Samples-only — `View / Import Samples`, не `Generate`.
+**До запуску:** активна тільки якщо обов'язкові поля заповнені, **image provider має статус Live**, а planning mode — `rules_ready` або `text_api_live`; reference policy прийнято. Показати preflight: `Theme`, `Genre`, `Variants per genre`, `10 cards each`, `Initial images=number_of_genres × variants × 10`, `Gold OFF`, і лише реально відомі costs/limits. При Samples-only — `View / Import Samples`, не `Generate`.
 
 **Після натискання:**
 
@@ -422,7 +442,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 **Важливо:** зображення рамок, зірок і UI, намальовані в попередньому скетчі, **не повинні трактуватися як output за вимогою Playrix**. Для MVP показувати artwork; overlay у рамці — необов'язковий preview. На новому мокапі теж використані **виключно ілюстративні sample images**; `Quality 0.92`, `Cost $0.34` тощо заборонено показувати як реальні метрики без вимірювання.
 
-**Gallery origin badges:** `Live · FLUX/SDXL` / `Imported · GPT Image` / `Imported · Nano Banana` / `Mock UI`. Для imported content немає фіктивного статусу `generated by pipeline`, а regenerate доступний лише для фактично підключеного image provider.
+**Gallery origin badges:** `Live API · Cloudflare FLUX.2 Klein 4B` / `Live API · [other configured provider]` / `Live Local · ComfyUI` / `Imported · GPT Image` / `Imported · Nano Banana` / `Mock UI`. Для imported content немає фіктивного статусу `generated by pipeline`, а regenerate доступний лише для фактично підключеного image provider.
 
 ## 6.8.1 Reference Compare — новий UX-модуль [U] + деталі реалізації [D]
 
@@ -525,7 +545,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 - `Planning` — AI створює set plans.
 - `Plan validation failed` — пропонуються автоматичне перепланування або ручне редагування.
 - `Generating images` — прогрес по картках.
-- `QA / retrying` — пояснити які саме картинки не пройшли.
+- `Technical QA / retrying` — пояснити які файли технічно не пройшли; художню відповідність затверджує людина.
 - `Partial success` — зберегти все успішне, не губити роботу.
 - `Complete` — результати + експорт.
 - `Cancelled` / `Failed` — з історією та можливістю відновлення.
@@ -555,7 +575,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 2. **Gold toggle:** у загальному шаблоні може бути як фіча, але в Movie preset checkbox **unchecked, disabled** (і backend validation це забезпечує). Золоті картки не слід візуально ставити увімкненими в мокапі.
 3. **Free Wishes:** є окреме textarea, яке можна лишити порожнім. Написи `System Rules` і `Prompt Library` не замінюють цього textarea.
 4. **Prompt Library:** редагувати/зберігати/версіонувати templates у Advanced без автоматичного запуску generation. `Preview compiled prompt` показує результат по конкретній картці.
-5. **Planning vs Image providers:** два dropdown зі статусами. Якщо обрано імпортовані GPT/Nano Banana samples, кнопка змінюється на `View Samples` і не запускає прихований платний API.
+5. **Planning Mode vs Image Provider:** окремі селектори, але planning mode може бути **`Rules / Template` (без LLM)** або **`AI Planning` (лише підключений runtime text provider)**; image provider — окремий dropdown. Samples-only не запускає прихований платний API.
 6. **Reference Compare:** три активні режими зі справжніми картинками — draggable Split, Side by Side та Grid. Статичний mockup позначити `UI-only demo`.
 7. **Review:** реальні результати відокремлені від sample/mock; статус artwork і provenance видно при натисканні на картку.
 8. **No card UI rendering:** у генераторі не малювати автоматично зірки, підписи й рамки — тільки artwork; в Miro вставити результат вручну.
@@ -652,81 +672,66 @@ Collection («Кіно», «Літо», «Подорожі»...)
 9. **Reproducibility by provenance:** повністю відтворити стохастичне зображення може бути неможливо; натомість ми зберігаємо всі інпути, параметри і версії.
 10. **MVP first, production-ready boundaries:** у MVP просте середовище, але чіткі модулі.
 
-## 8.2 High-level component diagram
+## 8.2 High-level component diagram — v1.4
 
 ```mermaid
 flowchart TD
-    USER[Game Designer / Producer] --> WEB[React Web UI]
-    WEB --> API[FastAPI Application]
-    API --> DB[(SQLite / Job DB)]
-    API --> FILES[(Local Artifact Store)]
-    API --> JOBS[Job Manager / Worker]
-    JOBS --> PLAN[Set Planner: Local Qwen / Ollama]
-    PLAN --> VAL[Rule Validator + Deduplicator]
-    VAL -->|valid plans| PROMPT[Image Prompt Builder]
-    VAL -->|invalid plans| PLAN
-    PROMPT --> ADAPTER[Image Provider Adapter]
-    ADAPTER --> LOCAL[ComfyUI Local: FLUX / SDXL]
-    ADAPTER -. optional future .-> GOOGLE[Gemini Image API: disabled]
-    ADAPTER -. optional future .-> OPENAI[OpenAI Image API: disabled]
-    LOCAL --> FILES
-    GOOGLE -. configured only .-> FILES
-    OPENAI -. configured only .-> FILES
-    API --> IMPORT[Manual Research Import: GPT/Nano Banana samples]
-    IMPORT --> FILES
-    FILES --> IMAGEQA[Technical + Vision QA]
-    IMAGEQA -->|retry within budget| PROMPT
-    IMAGEQA --> EXPORT[Results and Export Builder]
-    EXPORT --> FILES
-    API --> WEB
+    WEB[AI Collection Studio Web UI] --> API[FastAPI Backend]
+    API --> JOBS[Job Manager / Queue]
+    JOBS --> PLAN[Set Planner: Rules + Object Pools]
+    JOBS -. optional .-> TEXT[TextPlanner Adapter: authorized runtime text API]
+    PLAN --> PROMPT[Prompt Compiler + Style Bible + Categories]
+    TEXT --> PROMPT
+    PROMPT --> REGISTRY[Universal ImageProvider Registry]
+    REGISTRY --> CF[Cloudflare FLUX.2 Klein 4B - first verified REST API]
+    REGISTRY -. optional .-> LOCAL[ComfyUI / Local FLUX / SDXL]
+    REGISTRY -. optional .-> GOOGLE[Gemini Image API]
+    REGISTRY -. optional .-> OPENAI[OpenAI GPT Image API]
+    CF --> ART[(Local PNG + Metadata Store)]
+    LOCAL --> ART
+    GOOGLE --> ART
+    OPENAI --> ART
+    ART --> QA[Technical QA - deterministic]
+    QA --> REVIEW[Human Art Review / Reference Compare]
+    REVIEW --> EXPORT[PNG / ZIP / Manifest / Miro]
+    EXPORT --> WEB
 ```
 
-**Ключове рішення:** планування, генерація та QA — **різні модулі**. Зміна провайдера зображень не повинна змінювати правила формування тематичного набору.
+**Планувальник — окремий модуль, але його НЕ потрібно реалізовувати через Qwen.** Режим `Rules` достатній для контрольованого demo зі збереженими object pools; для довільного жанру/wishes показати чесне попередження про межі цього режиму та передбачити `TextPlanner` adapter. **Claude Code — засіб написання компонентів, НЕ runtime node на діаграмі.**
 
-## 8.3 Конкретний рекомендований MVP stack [D]
+## 8.3 Конкретний рекомендований MVP stack v1.4 [D]
 
-| Шар | Технологія | Чому саме так | Майбутня альтернатива |
-|---|---|---|---|
-| UI | React + TypeScript + Vite | Простий локальний SPA, швидкий прототип | Next.js при SSR/аккаунтах |
-| UI components | Tailwind + простий component kit | Швидке оформлення скетчу | Власна дизайн-система |
-| Backend API | Python + FastAPI | Простий API, структурні моделі, зручна інтеграція з image libraries | Django/FastAPI production |
-| Validation/data contracts | Pydantic | Перевірка JSON, schema, типів, business rules | — |
-| Persistence | SQLite | Легкий single-user MVP | PostgreSQL |
-| File storage | `data/` volumes | Проста локальна структура, backup | S3-compatible object storage |
-| Image handling | Pillow | Resize/convert/thumbnail/contact sheets, metadata | Sharp або image workers |
-| Planning LLM | **Qwen3 14B / Ollama Local** на десктопі | Немає API-платежів; JSON planning | Gemini через дозволений API лише optional |
-| Image generation | **ComfyUI + FLUX.1 schnell або SDXL Local** | Спроба real generation без API-платежів | Nano Banana / GPT Image — `Samples only` до окремого API конфігу |
-| Vision QA | Відокремлений multimodal evaluator | Фінальна перевірка не тільки файлів, а й композиції | Human review + custom rubric |
-| Worker | Окремий Python worker process + SQLite job state | Не блокує HTTP; достатньо для однієї машини | Redis Queue/Celery/RQ |
-| Packaging | Локальний `start.bat` + `.env.example` (optional Docker) | Менше інсталяцій на ноутбуці; backend може викликати desktop AI host | Docker Compose — optional later |
-| Testing | pytest + Playwright або UI tests | Перевірка API, бізнес-правил, happy path | CI pipeline |
-| Documentation | Markdown, OpenAPI, Miro | Зрозумілий handoff | — |
+| Layer | MVP | Обґрунтування |
+|---|---|---|
+| Frontend | React + TypeScript + Vite або легкий HTML/JS | Відтворити **перший детальний мокап**; не робити зайвий SaaS |
+| Backend | Python + FastAPI + Pydantic | REST API та image/job orchestration |
+| Set planning | Python `RulesPlanner` + локальні об'єктні каталоги | Без API-рахунків; працює для трьох підготовлених жанрів |
+| Dynamic planning | Опціональний `TextPlanner` adapter | Лише при реальній інтеграції дозволеної text LLM; не плутати з Claude Code Pro |
+| Image Provider | **Cloudflare Workers AI / `@cf/black-forest-labs/flux-2-klein-4b`** | Уже перевірено raw REST call і повернення PNG; reference input прийнято |
+| Image Provider interface | **Provider registry + adapter/capabilities** | Без прив'язки UI або prompt compiler до одного endpoint |
+| Optional providers | FLUX.2 variants, ComfyUI, SDXL, GPT Image, Gemini Image | `NOT CONFIGURED` до окремої перевірки та доступу |
+| QA | Deterministic technical checks + human review | Немає недоведених LLM style scores |
+| Storage | SQLite + filesystem | Простий provenance і resume |
+| Tests | pytest + базові frontend interaction tests | Core rules, API mocks і реальний smoke test |
 
-**Чому не лише HTML:** статичний HTML може відобразити UI та mock-результати, але **не містить image-модель** і не запускає ComfyUI сам по собі. Робочий MVP потребує backend/локального API, навіть якщо frontend — один `.html` файл. API-ключі тільки на backend; frontend не має прихованого платного API.
-
-**Чому не n8n у core:** n8n можна використати як зовнішній trigger/logging/notification orchestrator, але складні цикли карток, версіювання, QA та image operations простіше тестувати в Python. Якщо MVP вже працює через n8n, він може бути альтернативним адаптером, але це **не must-have**.
-
-### 8.3.1 Фізична топологія: ноутбук + AI-десктоп [U]
+**Фізична топологія:**
 
 ```text
-Laptop (development)                      Desktop (GPU / inference)
-  Browser / UI -- HTTP --> FastAPI ---LAN/Tailscale---> Ollama :11434 (Qwen)
-                         |           \----LAN/Tailscale---> ComfyUI :8188 (FLUX/SDXL)
-                         +-- SQLite/artifacts / prompt templates
+Windows laptop: Browser + Frontend + FastAPI + SQLite + local output images
+                      |
+                      | HTTPS (Cloudflare API token only server-side)
+                      v
+Cloudflare Workers AI: Image model (currently FLUX.2 Klein 4B)
+
+Optional later:
+  - second Cloudflare/other cloud image adapter
+  - desktop GPU + ComfyUI local adapter (only if needed)
+  - authorized text-model adapter for truly open-ended planning
 ```
 
-- Якщо ноутбук і десктоп в одній домашній мережі — приватні IP + allow-list/firewall; для віддаленої роботи приватний Tailscale, **не відкриті порти в інтернет**.
-- Backend endpoints — configurable (`OLLAMA_BASE_URL`, `COMFYUI_BASE_URL`); `localhost` означає **цей** комп'ютер, а не віддалений десктоп.
-- GPU-моделі можуть одночасно займати VRAM; Qwen і image model запускати послідовно / вивантажувати неактивну модель за потреби.
-- Desktop OFF ⇒ live local generation unavailable. UI, prompt library, import samples та gallery на ноутбуці продовжують працювати.
-- Комп'ютер Playrix для відтворення PoC має мати відповідні локальні моделі та GPU або явно дозволений API. **Скачаний HTML сам по собі картинки не генерує**.
+**Умови доступності:** інтернет та діюча API-авторизація. Backend має перевіряти реальні `model ID`, supported inputs і залишок квоти. Наявність Free plan не доводить безлімітне або гарантоване отримання всіх 90 зображень. Desktop із Qwen/ComfyUI **не потрібен** для першого MVP.
 
-### 8.3.2 Заборона прихованих витрат [U]
-
-- Ніяких платних ключів, cloud GPU, VPS або підписок як вимоги запуску.
-- У `.env.example`: `ENABLE_PAID_PROVIDERS=false`, `ALLOW_REMOTE_MODEL_HOSTS=false` за замовчуванням; без явного дозволу немає оплачуваних викликів.
-- FLUX.1 **schnell** і SDXL тестуються як локальні кандидати, з обов'язковою перевіркою license/model checkpoint перед релізом. FLUX.1 **dev** має інші ліцензійні умови; не трактувати його автоматично як free for all uses.
-- Corporate Gemini/ChatGPT web access — не те саме, що provider API. Не автоматизувати неофіційне захоплення browser session/cookies.
+**No extra spend:** `ALLOW_PAID_API=false` і максимум запитів/ретраїв на job; при перевищенні quota зупинити job із повідомленням, а не автоматично переходити на paid tier. Корпоративні ChatGPT/Gemini web subscriptions не дорівнюють API-ключу; жодної browser-cookie automation.
 
 ## 8.4 Logical modules / responsibility matrix
 
@@ -752,7 +757,7 @@ Laptop (development)                      Desktop (GPU / inference)
 
 ### `set-planner`
 
-Створює 3–5 незалежних семантичних **планів**, по 10 різних карток.
+Створює 3–5 незалежних планів по 10 різних карток. **MVP: `RulesPlanner` з підготовленими жанровими object pools/категоріями й детермінованою перевіркою**. Опціональний `TextPlanner` адаптер потрібен лише для вільної семантичної генерації неочікуваних тем і творчих побажань. Claude Code не виконує planning автоматично при кожному натисканні `Generate`.
 
 ### `rules-validator`
 
@@ -776,7 +781,7 @@ Laptop (development)                      Desktop (GPU / inference)
 
 ### `art-qa`
 
-Комбінує технічні правила, vision оцінку та (за потреби) ручний approval.
+**Technical QA — детермінований у Python; visual/art review — вручну через UI.** Vision оцінка — окрема майбутня експериментальна функція, за замовчуванням вимкнена і без фіктивних числових критеріїв.
 
 ### `exporter`
 
@@ -790,7 +795,7 @@ Laptop (development)                      Desktop (GPU / inference)
 
 **Що має бути жорстко в коді:** 10 карток; валідні категорії; Golden Off для Movie demo; унікальні card IDs; коректний формат зображення; файл існує й читається; export structure.
 
-**Що має оцінювати LLM/vision:** чи є предмет логічним для жанру; чи не повторює інший предмет за змістом; чи відповідає картинка категорії; наскільки узгоджений стиль.
+**Що може опціонально оцінювати Text/Vision provider (НЕ MVP):** тематична логіка та підозрілі дублікати; жодна модель сама не затверджує художню якість. У MVP Python перевіряє структуру, а людина — візуальну відповідність.
 
 **Що має залишитися за людиною (принаймні у тестовій демонстрації):** остаточне прийняття набору, тонка артова оцінка поруч із референсами, добір трьох фінальних наборів для Miro.
 
@@ -812,7 +817,7 @@ Laptop (development)                      Desktop (GPU / inference)
 
 ## Stage 2 — Set concept planning
 
-LLM отримує контекст колекції, вузький жанр, producer wishes, category profile і список уже використаних об'єктів. Створює **3–5 концептуально різних set variants**, кожен по 10 карток.
+`RulesPlanner` (MVP) використовує підготовлені жанрові object pools, category profile та обмеження з producer wishes, які реалізовано правилами. Створює **3–5 різних set variants**, по 10 карток. Не імітувати підтримку будь-яких довільних вказівок: незрозумілі побажання позначити для ручного уточнення або маршрутизувати до **фактично підключеного TextPlanner API**. Claude Code може написати цей механізм, але не є його runtime LLM.
 
 **Не можна:** створювати `Variant B` як ті самі 10 предметів із трохи зміненими кольорами. Це слабкий змістовий варіант.  
 **Можна:** різні мікротеми в межах одного жанру, напр. у Sci-Fi: `Retro Space Expedition`, `Alien City`, `Future Laboratory`, якщо всі коректно представляють жанр.
@@ -865,21 +870,13 @@ LLM отримує контекст колекції, вузький жанр, p
 - coverage потрібної кількості карток;
 - правильне зіставлення image → card ID.
 
-## Stage 7 — Art / Product QA
+## Stage 7 — Visual / Product Review (людина)
 
-Vision evaluator бачить **зображення + card spec + category rubric + reference(s)**. Має повернути JSON з окремими критеріями, поясненням, evidence, suggested fix, confidence.
-
-Особливо перевіряємо:
-
-- відповідність тематичного предмета;
-- композиція Cat. 1–4;
-- стиль, матеріали, світло;
-- чіткий силует і читабельність у thumbnail;
-- чи не з'явилися зайві предмети / текст / випадкові логотипи;
-- чи не перекривається об'єкт;
-- чи збігається арт між картками набору.
-
-**Увага:** vision model — не абсолютний суддя художнього стилю. Точки й пороги мають бути відкалібровані на ручній експертній оцінці; без калібрування показувати `Advisory AI score`, не `Pass guaranteed`.
+- Передати відображення artwork, `CardSpec`, категорії і відповідних reference images у UI.
+- Дати Split Slider / Side by Side / Grid, zoom, notes, `Approve`, `Reject`, `Regenerate`.
+- **Не** запроваджувати Vision LLM як обов'язковий QA, автоматичний style pass чи нібито точні `0.91 / 92%`.
+- Статус `Technical QA: passed` означає лише технічну валідність файлу; `Art Review: pending` — поки не затвердить людина.
+- Якщо додаткове Vision QA колись з'явиться, його висновки мають лише рекомендаційний характер.
 
 ## Stage 8 — Targeted retries
 
@@ -1032,9 +1029,10 @@ ExportBundle
   "style_profile_id": "reference-match-v1",
   "prompt_template_version": "movie-v1",
   "reference_ids": ["ref-001", "ref-002", "ref-003"],
-  "planning_provider": "ollama-qwen3-local",
-  "image_provider": "comfyui-flux1-schnell-local",
-  "resolution": "1024x1024",
+  "planning_mode": "rules",
+  "image_provider": "cloudflare",
+  "image_model": "@cf/black-forest-labs/flux-2-klein-4b",
+  "resolution": "512x512",
   "max_regenerations_per_card": 2,
   "allow_paid_api": false
 }
@@ -1125,7 +1123,7 @@ Movie_SciFi_VariantA_Approved.zip
 
 # 11. Prompt engineering і style system
 
-## 11.0 Prompt strategy — producer input vs saved engineering prompts (v1.2)
+## 11.0 Prompt strategy — producer input vs saved engineering prompts (v1.4)
 
 **Basic UI:** game designer налаштовує тільки theme/genre, варіанти, refs та `Free Wishes`; не має писати десятки низькорівневих prompt tokens.
 
@@ -1252,8 +1250,9 @@ golden_cards: false  # locked in Movie demo
 free_wishes: >-
   Lighthearted retro-futuristic atmosphere; unusual devices and cosmic exploration;
   avoid weapons, horror and recognizable franchise logos.
-planning_provider: ollama-qwen3-local
-image_provider: comfyui-flux1-schnell-local  # if art pilot succeeds
+planning_mode: rules  # Claude Code authors scripts; no runtime Claude API
+image_provider: cloudflare
+image_model: "@cf/black-forest-labs/flux-2-klein-4b"  # first tested REST endpoint
 reference_ids: [style-ref-01, category-1-ref-01, category-3-ref-01]
 ```
 
@@ -1262,30 +1261,32 @@ reference_ids: [style-ref-01, category-1-ref-01, category-3-ref-01]
 
 # 12. Image model selection / provider strategy
 
-**Рішення v1.2:** provider list поділяється на `Live Local`, `Samples Only` та `Future API`. Пріоритет — нульова додаткова вартість і реальна відтворюваність. Не заявляти, що вебпідписки на ChatGPT/Gemini є API-доступом. Model names/version IDs — довідкові й мають перевірятися перед фактичним інтегруванням.
+**Рішення v1.4:** provider list поділяється на `Live API`, `Live Local`, `Samples Only` та `Not Configured`. Пріоритет — нульова додаткова вартість і реальна відтворюваність. Не заявляти, що вебпідписки на ChatGPT/Gemini є API-доступом. Model names/version IDs — довідкові й мають перевірятися перед фактичним інтегруванням.
 
 
 ## 12.1 Принцип вибору
 
 **Модель не обираємо лише за назвою, популярністю чи ціною.** Оцінюємо на **ідентичних card specs і однаковому reference pack**. Знімаємо результати на категоріях 1–4. Рішення приймаємо за відповідністю референсам, контрольованістю композиції, стабільністю по сету та реальною вартістю прийнятої картки.
 
-## 12.2 Candidate image models — research history + zero-cost default 07.11.2026
+## 12.2 Candidate image models — validated / optional (v1.4)
 
-| Provider | Модель / model ID | План використання |
+| Provider | Модель | Фактичний статус |
 |---|---|---|
-| Google Gemini | Nano Banana (перевірити точний model ID перед інтеграцією) | **Research samples only**, або Future API після дозволу; не default zero-cost MVP |
-| Google Gemini | Nano Banana Pro (перевірити доступність) | Research comparison: складні категорії, reference adherence; не підключати без дозволеного API |
-| OpenAI | GPT Image family (точні ID підтвердити) | **Imported research samples**, майбутній API adapter |
-| Local | **FLUX.1 schnell / SDXL через ComfyUI** | **First live provider candidates** для zero-cost art feasibility pilot |
+| **Cloudflare Workers AI** | **`@cf/black-forest-labs/flux-2-klein-4b`** | **REST API smoke test successful:** user generated PNG із Windows PowerShell; reference input `input_image_0` прийнявся, output PNG повернувся. Артова відповідність стилю поки слабка. **Перший live adapter** |
+| Cloudflare Workers AI / Playground | FLUX.2 Klein 9B та інші | Playground-only експерименти; REST API, reference contract, доступ у власному акаунті **не перевірені** |
+| Local optional | ComfyUI / FLUX / SDXL / інші | **Not configured** — резерв на випадок слабкої якості або вичерпання хмарної квоти |
+| Google Gemini | Nano Banana image family | Manual benchmark via user interface; без authorized image API = `Samples only` |
+| OpenAI | GPT Image family | Manual benchmark / optional future API; web підписка ≠ image API budget |
 
-**Не припускати**, що корпоративний вебдоступ автоматично дозволяє API або витрати. Для поточного MVP активні локальні image-моделі тільки після фактичного smoke test.
+**Не фіксувати FLUX як єдиного провайдера:** однаковий request contract + різні model adapters. Не змішувати `provider` із `model ID`; за потреби в межах Cloudflare можна додати інші моделі адаптерами.
 
-**Provider URLs:**
-- Gemini image docs: https://ai.google.dev/gemini-api/docs/image-generation
-- Gemini pricing: https://ai.google.dev/gemini-api/docs/pricing
-- OpenAI image generation: https://developers.openai.com/api/docs/guides/image-generation
+**No paid costs:** для Cloudflare Free plan з'ясувати актуальний залишок quota, реальні витрати нейронів на reference-based calls і поведінку при ліміті **перед масовими job**. Повернення одного PNG не означає, що доступно 90+ викликів.
 
-Історичні назви моделей зі старої концепції можуть змінитися, тому точні model IDs перевіряти безпосередньо перед інтеграцією.  **Не гарантуємо доступ до всіх моделей у конкретному API-проєкті**: потрібні ключ, billing, регіональна доступність, квоти, іноді verification. Реалізація перевіряє доступність при запуску.
+Документація для перевірки реалізації:
+- https://developers.cloudflare.com/workers-ai/
+- https://developers.cloudflare.com/workers-ai/models/
+- https://ai.google.dev/gemini-api/docs/image-generation
+- https://developers.openai.com/api/docs/guides/image-generation
 
 ## 12.3 Provider capabilities — не приписувати те, чого немає
 
@@ -1293,19 +1294,19 @@ reference_ids: [style-ref-01, category-1-ref-01, category-3-ref-01]
 
 ```json
 {
-  "provider": "comfyui",
-  "model": "flux1-schnell-local",
+  "provider": "cloudflare-workers-ai",
+  "model": "@cf/black-forest-labs/flux-2-klein-4b",
   "supports_reference_images": true,
-  "supported_sizes": ["1024x1024"],
+  "supported_sizes": ["512x512"],
   "supports_quality_levels": false,
   "supports_seed": false,
   "supports_image_editing": false,
-  "status": "not_configured",
-  "cost_type": "local_compute"
+  "status": "api_smoke_tested",
+  "cost_type": "cloudflare_quota"
 }
 ```
 
-**Зразок вище — умовна внутрішня UX capability map, не дослівна схема ComfyUI API і не гарантія, що конкретний workflow підтримує refs/editing**. Під час інтеграції поля треба привести до реальних provider capabilities, включно з можливими aspect ratios і vendor-specific aliases. Якщо провайдер не підтримує slider/seed/negative_prompt, UI **не повинен удавати**, що змінює generation engine.
+**Зразок вище — умовна внутрішня UX capability map, НЕ дослівна схема Cloudflare API; значення 512×512 перевірялось у нашому smoke test, решту capability flags потрібно підтверджувати за конкретною моделлю/endpoint.** Під час інтеграції поля треба привести до реальних provider capabilities, включно з можливими aspect ratios і vendor-specific aliases. Якщо провайдер не підтримує slider/seed/negative_prompt, UI **не повинен удавати**, що змінює generation engine.
 
 ## 12.4 Model evaluation plan
 
@@ -1334,7 +1335,7 @@ cost_per_accepted_card = total_cost / accepted_cards
 cost_per_accepted_set = total_cost / accepted_sets
 ```
 
-**Zero-cost MVP:** API-ліміт **$0** — жоден платний API не активовано. Для локальної генерації не стягується плата за image request, але є витрати електроенергії, диска і машинного часу. Якщо API колись увімкнуть, ціни й квоти перевіряються заново, а кошти витрачаються лише після окремого дозволу. Числові тарифи попередніх концептів **не є бюджетом поточного MVP**.
+**Zero-cost MVP:** **$0 додаткових витрат**, але **Cloudflare Workers AI Free може бути активним API з лімітованою безкоштовною квотою**. Не плутати `API використовується` з `API платний`: вже є перевірений REST image call. Витрати/usage і квоту перевіряти для кожного batch; при ліміті зупиняти запуск без оплат. Локальний GPU — лише optional fallback. Числові тарифи попередніх концептів **не є бюджетом поточного MVP**.
 
 **Для MVP default:** `allow_paid_api=false`, `max_cost_usd=0`, `max_retries_per_card`, `max_parallel_generations`. Для локального GPU варто показувати `execution time / output count / retries`, а не вигадані доларові витрати. Майбутній paid adapter повинен мати explicit opt-in й hard-stop.
 
@@ -1357,54 +1358,24 @@ cost_per_accepted_set = total_cost / accepted_sets
 | HR-09 | Немає exact duplicate artwork file hashes | Так | Review / regenerate |
 | HR-10 | API calls не виходять за budget/rate caps | Так | Stop/queue |
 
-## 13.2 Soft art/product scoring
+## 13.2 Художня оцінка — human rubric, не автоматичний score
 
-Шкала за кожним критерієм: `0..4` з описаними anchors:
+Людина переглядає кожну ілюстрацію та весь набір за критеріями: (1) схожість стилю на source refs; (2) композиція категорії; (3) відповідність темі; (4) читабельність на thumbnail; (5) узгодженість набору. **Не виводити AI-generated відсотки і не встановлювати автоматичні `best match` без валідованої методики.**
 
-- **0** — явне порушення правила.
-- **1** — слабка відповідність, значні дефекти.
-- **2** — часткова відповідність, потрібна правка.
-- **3** — добра відповідність, дрібні відхилення.
-- **4** — відмінна відповідність критерію за порівнянням із референсами.
-
-| Criterion | Weight (запропонований) | Спосіб оцінки |
-|---|---:|---|
-| Art style match | 30% | Reference-based vision + human |
-| Category composition match | 25% | Category rubric + vision |
-| Theme/product relevance | 20% | LLM + human |
-| Thumbnail readability | 15% | Small preview + vision/human |
-| Cross-set visual consistency | 10% | Whole-set comparison |
-
-**Ці ваги — наша пропозиція, не Playrix scorecard.** До калібрування їх можна використовувати для внутрішнього prioritization, але не стверджувати, що score 92/100 означає production-ready artwork.
-
-### Proposed gates
-
-- Hard-rule failure → **не можна** експортувати як approved без явного override.
-- Art criterion 0 або 1 → `FAIL / RETRY`.
-- Інші soft issues → `FLAGGED / HUMAN_REVIEW`.
-- `PASS` означає «пройшло наші критерії», а не «Playrix гарантовано прийме».
-
-## 13.3 QA report для однієї картинки
+## 13.3 Приклад запису QA (схема, не реальний результат)
 
 ```json
 {
   "card_id": "sci-fi-A-01",
-  "artwork_version": 2,
-  "category": 1,
-  "technical_valid": true,
-  "art_checks": {
-    "style_match": { "rating": 3, "reason": "Volume and palette are close to refs" },
-    "category_match": { "rating": 4, "reason": "Single floating subject" },
-    "theme_relevance": { "rating": 4, "reason": "Recognizable sci-fi prop" },
-    "thumbnail_readability": { "rating": 3, "reason": "Readable at small size" }
-  },
-  "verdict": "PASS_WITH_NOTES",
-  "issues": ["Slightly oversaturated highlights"],
-  "human_reviewed": false
+  "technical_qa": "passed",
+  "checks": {"file_readable": true, "format": "PNG", "dimensions": [512, 512]},
+  "art_review": "pending",
+  "reviewer_notes": [],
+  "regeneration_requested": false
 }
 ```
 
-**Уточнення:** вище показано **демонстраційний формат звіту**, а не оцінку будь-якої реально згенерованої іконки.
+Фінальне прийняття artwork — ручне. За потреби UI фіксує зауваження, reviewer ID/label і дату.
 
 ## 13.4 Set-level checks
 
@@ -1443,9 +1414,9 @@ cost_per_accepted_set = total_cost / accepted_sets
 | Reference usage | 1 common style reference | 2–4 category-specific refs | Style match, category adherence |
 | Planning | One plan then random variations | 3–5 explicitly different concepts | Semantic novelty |
 | Generation | All images independently | Shared style manifest + prior approved examples | Cohesion |
-| QA | Single pass | Vision QA + targeted retries | Accepted rate/cost |
-| Models | FLUX.1 schnell (local) | SDXL (local) + імпортовані GPT/Gemini samples як зовнішній benchmark | Style/category quality, pipeline availability |
-| Resolution | 1K | 2K | Visual improvement vs cost |
+| QA | Technical checks + human review | Targeted regeneration after human feedback | Accepted rate / intervention count |
+| Models | Cloudflare FLUX.2 Klein 4B (REST tested) | Other authorized image model adapter / imported Gemini-GPT benchmark (not live) | Style/category fidelity, API availability, quota |
+| Resolution | 512 px verified smoke-test size | Other supported sizes only after provider-specific verification | Quality / actual quota cost |
 
 Результати фіксувати в таблиці `experiments.csv` та в Miro: **гіпотеза → inputs → outputs → спостереження → рішення**.
 
@@ -1603,9 +1574,9 @@ planning_validity_rate = valid_plans / proposed_plans
 
 ## 16.5 Реалістичний бюджет часу та stop conditions для неоплачуваного PoC [U]/[D]
 
-- Критична перевірка **до масштабування:** кілька карток у категоріях 1–4 через FLUX/SDXL на референсах; не інвестувати багато часу в масову генерацію, поки якість не підтверджена.
-- No paid API: усе має запускатися з `ALLOW_PAID_API=false` і без ключів. Import research samples працює незалежно від backend image provider.
-- Якщо local art слабкий: показати чесну порівняльну Miro-дослідницьку частину + limitation, не підміняти імпортованими GPT/Nano Banana картинками повністю автоматичний output.
+- Критична перевірка **до масштабування:** окремий Cloudflare REST smoke test уже пройдено (текстовий + з референсом), але художня якість слабка; протестувати 4 категорії, інші модельні adapters та невеликий batch із реальним quota-monitoring перед 30/90 images.
+- No paid API **charges**: live Cloudflare **Free** має працювати з токеном у backend (`ALLOW_PAID_API=false` означає заборону витрат, а не заборону безкоштовних API). Import research samples працює незалежно від providers.
+- Якщо Cloudflare art слабкий: перевірити іншу доступну image-модель або fallback local provider; задокументувати quality gap, не підміняти імпортованими GPT/Nano Banana картинками автоматичний output.
 - No public hosting, accounts, complex cloud queues, автоматичне компонування рамок, навчання власної LoRA у першому PoC.
 
 
@@ -1628,7 +1599,7 @@ planning_validity_rate = valid_plans / proposed_plans
 
 **Tasks:**
 - [ ] Перевірити API key/billing/quota і доступність моделей.
-- [ ] Зробити adapter для Gemini і 1–2 текстових reference prompts.
+- [ ] Реалізувати **Cloudflare Workers AI / FLUX.2 Klein 4B adapter** на основі вже перевіреного REST smoke test; токен лише backend.
 - [ ] Згенерувати 4–8 пробних картинок Cat. 1–4.
 - [ ] Порівняти за rubric; задокументувати failed cases.
 - [ ] За потреби порівняти challenger model.
@@ -1661,7 +1632,7 @@ planning_validity_rate = valid_plans / proposed_plans
 
 **Tasks:**
 - [ ] Technical QA.
-- [ ] Vision evaluation with schema.
+- [ ] Human art review з category rubric, без обов'язкового Vision evaluator.
 - [ ] `Regenerate failed card` з обмеженням спроб.
 - [ ] Whole-set audit + reasons.
 - [ ] Протестувати 2–3 edge cases, показати невдалі спроби.
@@ -1753,13 +1724,15 @@ playrix-collection-studio/
 │   │   │   ├── set_planner.py
 │   │   │   ├── plan_validator.py
 │   │   │   ├── prompt_compiler.py
-│   │   │   ├── art_qa.py
+│   │   │   ├── technical_qa.py
 │   │   │   ├── retry_policy.py
 │   │   │   └── exporter.py
 │   │   ├── providers/
 │   │   │   ├── base.py
-│   │   │   ├── gemini_image.py
-│   │   │   ├── openai_image.py
+│   │   │   ├── cloudflare_image.py        # MVP live adapter
+│   │   │   ├── comfyui_image.py          # optional future
+│   │   │   ├── gemini_image.py           # optional future
+│   │   │   ├── openai_image.py           # optional future
 │   │   │   └── model_registry.py
 │   │   ├── worker/
 │   │   │   ├── runner.py
@@ -1794,40 +1767,46 @@ playrix-collection-studio/
 Два варіанти запуску — **без вимоги хмарного сервера**:
 
 1. **UI-only demonstration**: відкрити `Playrix_Collection_Studio_UI_Mockup.html` у браузері. Можна подивитися налаштування й sample gallery; **не запускає генерацію**.
-2. **Working local PoC після реалізації**: у README буде `start.bat` (Windows) / аналог для іншої ОС, який запускає UI + FastAPI. Обов'язкова умова live генерації — доступний `Ollama` і `ComfyUI` з установленими checkpoints/model nodes на локальному десктопі або в приватній мережі. Не приписувати HTML можливості, яких у нього немає.
+2. **Working local PoC після реалізації**: у README буде `start.bat` (Windows) / аналог для іншої ОС, який запускає UI + FastAPI. Обов'язкова умова live генерації для актуального MVP — налаштований **Cloudflare Workers AI API token у backend** і доступна безкоштовна quota. `Ollama` та `ComfyUI` **не потрібні**, поки не активовано optional local adapter. Не приписувати HTML можливості, яких у нього немає.
 
 **Пропоновані Windows-команди** (не стверджуємо, що вони вже працюють, доки немає реалізації):
 
 ```powershell
 Copy-Item .env.example .env
-# Configure desktop IP, if AI models run on another machine.
+# Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env on your machine only.
 .\start.bat
 # Open http://127.0.0.1:3000 (or chosen dev port)
 ```
 
-Готовий repo має містити реальні інструкції встановлення ComfyUI і потрібних моделей без хибного припущення, що все вже включено до ZIP. Для дослідження models на desktop потрібно перевірити доступну GPU VRAM, ліцензії та час генерації.
+Готовий repo має містити реальну інструкцію створення Cloudflare Workers AI token/account, перевірки квоти, роботи з референсами та збереження PNG. ComfyUI і desktop GPU описувати лише в optional fallback setup, без припущення, що вони є у reviewer.
 
-## 18.2 Environment variables (proposed)
+## 18.2 Environment variables (proposed v1.4)
 
 ```dotenv
-# Optional model hosts; use private LAN/Tailscale only.
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-COMFYUI_BASE_URL=http://127.0.0.1:8188
-DEFAULT_PLANNER_PROVIDER=ollama-qwen3-local
-DEFAULT_IMAGE_PROVIDER=comfyui-flux1-schnell-local
-ENABLE_PAID_PROVIDERS=false
+# Default: Cloudflare Free inference; secrets only on the backend
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+DEFAULT_IMAGE_PROVIDER=cloudflare
+DEFAULT_IMAGE_MODEL=@cf/black-forest-labs/flux-2-klein-4b
+DEFAULT_PLANNING_MODE=rules
+
+# Explicitly prohibit paid usage and bound retries / calls
 ALLOW_PAID_API=false
 MAX_CARD_RETRIES=2
+MAX_PARALLEL_GENERATIONS=1
+MAX_IMAGES_PER_JOB=50
+
 DATABASE_URL=sqlite:///./data/collection_studio.sqlite3
 ARTIFACT_ROOT=./data/artifacts
-# Optional future providers: deliberately EMPTY, not used by zero-cost MVP.
+
+# Optional providers, disabled unless configured
+COMFYUI_BASE_URL=
 GEMINI_API_KEY=
 OPENAI_API_KEY=
+TEXT_PLANNER_PROVIDER=
 ```
 
-`.env.example` без секретів; реальні `.env`, база, outputs, локальні weights — у `.gitignore`. `127.0.0.1` у config має бути замінений на **приватну IP desktop**, якщо backend запускається на ноутбуці.
-
----
+`.env.example` містить ТІЛЬКИ назви параметрів без секретних значень. Реальні `.env`, токени, dumps, outputs — у `.gitignore`. Claude Code Pro не є текстовим runtime API. Реальні model IDs та endpoint перевіряти перед запуском. **Не копіювати API-токени із тестових чатів у публічний repo чи демо-слайди**.
 
 # 19. Security, rights, reliability
 
@@ -2095,15 +2074,15 @@ OPENAI_API_KEY=
 | ADR-002 | Планувати 10 об'єктів до image generation | Семантичний контроль | Завжди core |
 | ADR-003 | Одна картка / один primary image request | Редагування, QA, versioning | Якщо batch дає вимірювану перевагу |
 | ADR-004 | Artwork-only output | Пряма вимога тестового | Тільки якщо зміниться ТЗ |
-| ADR-005 | **Local FLUX.1 schnell / SDXL** — стартовий art pilot | No new API fees; спочатку виміряти якість | За результатами style/quality A/B; GPT/Gemini samples — benchmark |
-| ADR-006 | **Provider abstraction: Live Local / Samples Only / Future API** | Легко міняти моделі без фальшивого live access | Залишити |
+| ADR-005 | **Cloudflare FLUX.2 Klein 4B** — first live image adapter | REST image request із референсом вже працює; zero extra API spend constraint | За результатами quality / free quota pilot |
+| ADR-006 | **Model-agnostic ImageProvider registry: Live API / Live Local / Samples Only / Not Configured** | Міняти моделі без переписування Web UI / pipeline | Залишити |
 | ADR-007 | SQLite + local files для MVP | Простота й достатня надійність | Перед multi-user/cloud |
-| ADR-008 | Vision QA як advisory, hard rules у коді | Не вигадувати точність AI judge | Після calibration |
+| ADR-008 | **Technical QA у Python + human art approval**; Vision QA optional advisory only | Не вигадувати точність AI judge | Після реального калібрування |
 | ADR-009 | Зберігати всі ітерації й rejected outputs | Прозорість тестового | Залишити |
 | ADR-010 | No LoRA training у MVP | Обсяг і правила тестового | Якщо окремо доведена потреба/права |
 | ADR-011 | System Rules + UI Settings + Producer Free Wishes | Розділити policy/structure та творчі побажання | Лише якщо зміниться продуктове ТЗ |
 | ADR-012 | Prompt Library: view/edit/save versioned templates | Повторне використання, контроль ітерацій | MVP vs P1 detail |
-| ADR-013 | No extra spend, laptop UI + desktop AI host | Безкоштовне локальне тестове | Якщо з’явиться дозволений API budget |
+| ADR-013 | No extra spend, laptop-local app + Cloudflare Free inference | API smoke test працює з ноутбука; desktop GPU optional | Якщо Cloudflare quota / quality не підійде |
 
 ---
 
@@ -2122,35 +2101,38 @@ OPENAI_API_KEY=
 9. Додати model adapter №2, QA, retries, reports.
 10. Провести acceptance tests на трьох жанрах і підготувати Miro.
 
-### Prompt для Claude Code / Codex (можна копіювати)
+### Prompt для Claude Code / Codex (актуальний v1.4; можна копіювати)
 
 ```text
-Build "AI Collection Studio" as a zero-additional-cost LOCAL PoC for the Playrix AI Producer take-home.
-Read docs/SOURCE_OF_TRUTH.md fully, with v1.2 changes taking precedence over older optional ideas.
-Requirement sources: [P] Playrix, [U] user, [D] implementation proposal, [A] unverified, [F] future.
+Build "AI Collection Studio" as a ZERO-ADDITIONAL-COST LOCAL WEB APP with CLOUD IMAGE INFERENCE for the Playrix AI Producer take-home.
+Read docs/SOURCE_OF_TRUTH.md. Version 1.4 overrides previous Qwen/ComfyUI-first assumptions.
+Requirements: [P] Playrix, [U] user preference, [D] design, [A] assumption, [F] future.
 
 HARD CONSTRAINTS:
-- No required paid services, no cloud hosting, no new API subscriptions, no hidden charges.
-- Artwork-only generation. Do NOT compose collectible card windows, stars or game frames.
-- Each set/genre has exactly 10 artwork images. Each generation job requests 3-5 VARIANTS
-  OF THE SAME GENRE. For Movie demo: 3 distinct genres with no golden cards.
-- Separate three input layers: immutable style/category SYSTEM RULES; UI SETTINGS;
-  optional PRODUCER FREE WISHES. Wishes cannot override mandatory rules.
-- Provide versioned editable PROMPT LIBRARY for advanced users; prompts are not free wishes.
-- UI includes separate PLANNING model and IMAGE model dropdowns with accurate provider status.
-- LIVE LOCAL: ComfyUI + FLUX.1 schnell / SDXL, only after smoke-test verification.
-  PLANNER: Ollama/Qwen3 local, with configurable host (desktop/LAN).
-- GPT Image/Nano Banana: SAMPLES ONLY/UNCONFIGURED until real authorized API exists.
-  Support manual import, provenance tags and comparisons. Never simulate a live API.
-- Reference Compare: Split Slider, Side by Side, Grid (all 10 card/reference pairs).
-- Provide artwork PNG + JSON manifest + ZIP export and honest labels for mock/imported/live.
-- Static UI preview is a separate deliverable and must be labeled UI ONLY.
+- Keep the ORIGINAL DETAILED LIGHT UI DESIGN with dark header, left settings panel and rich right gallery.
+- Artwork-only: no in-game card UI, frames, badges or window compositor.
+- Each genre/set = 10 illustrations. A request produces 3–5 alternative full sets.
+- Final demo: three different movie genres, without Golden Cards.
+- Three instruction layers: permanent Style Bible, structured settings, optional Free Wishes.
+- Independent image-provider adapter architecture; do not hardcode app logic to FLUX.
+- First LIVE provider: Cloudflare Workers AI / @cf/black-forest-labs/flux-2-klein-4b.
+  REST API + PNG smoke test with and without reference input succeeded outside the app.
+  Full app, 10-card batch, API quota and art quality remain UNVERIFIED.
+- Keep provider credentials server-side only. Never copy tokens into examples or repo.
+- NO additional API spend, paid fallback, auto billing or unbounded retries.
+- Qwen/Ollama/ComfyUI are NOT REQUIRED for MVP.
+- Claude Code writes code and prompts but is NOT a runtime Claude API planner.
+- Set planning MVP: Python rules + prepared object pools (bounded Movie demo).
+  If broad arbitrary themes/wishes are needed, add optional real TextPlanner provider;
+  do not falsely claim Python templates understand any free-form instruction.
+- Implement technical QA and human art approval. No fake AI art scores.
+- Provide reference upload, 3–5 variants, gallery, targeted regeneration, compare
+  (Split Slider / Side by Side / Grid), prompt library, PNG/ZIP export and provenance.
+- Label imported Gemini/GPT samples honestly, separate from live-generated artwork.
 
-Start with the smallest functional end-to-end skeleton and mock provider.
-Before costly development, run a local art quality feasibility pilot for categories 1-4.
-Write tests for rules, category coverage, 10 cards, variants, gold OFF, wishes conflict,
-provider states, manual imports and provenance. Document what is implemented vs planned.
-Commit after small milestones; never expose corporate API keys or proprietary references.
+START WITH: a small functional end-to-end path using Cloudflare adapter + one reference
++ one image + saved PNG, then batch generation, then match the detailed UI.
+Show implementation/test status clearly, commit in small milestones.
 ```
 
 ## 27.1 Rules for implementation agent
@@ -2167,19 +2149,18 @@ Commit after small milestones; never expose corporate API keys or proprietary re
 
 ---
 
-# 28. Рекомендований порядок наступних практичних рішень
+# 28. Рекомендований порядок наступних практичних рішень (v1.4)
 
-**Крок 1.** Затвердити scope: «Artwork-only Collection Set Generator; 10 cards; 3–5 variants; 3 genres; no golden».  
-**Крок 2.** Створити reference analysis / Style Bible; вручну перевірити composition categories на скриншотах.  
-**Крок 3.** Провести **zero-cost local art pilot** у ComfyUI (FLUX.1 schnell / SDXL) на 4 категоріях, зберегти порівняння з імпортованими GPT Image/Gemini прикладами (research-only).  
-**Крок 4.** Перевірити 10-card full set consistency. Якщо неякісно — виправити generation strategy.  
-**Крок 5.** Реалізувати planner (локальна Qwen через Ollama) + validator + job manager + базовий QA; prompt layers A+B+C у коді.  
-**Крок 6.** Упакувати у локальний Web UI за **новим v1.2 мокапом**, додати Prompt Library, Free Wishes, model status, sample imports, Reference Compare й export.  
-**Крок 7.** Зробити три кіножанри, зібрати Miro, надати GitHub.
+1. **Already done:** Cloudflare REST smoke test з PowerShell (PNG з текстом і з reference input); зберегти output і відокремити від app demo.
+2. **Art feasibility:** перевірити ілюстрації Cat.1–4 із тією самою групою референсів; підвищити якість стилю (інша модель / prompt / refs), а не просто кількість зображень.
+3. **First backend slice:** FastAPI + `CloudflareImageProvider` + одне завдання з референсом → файл PNG і metadata. Перевірити власну quota без оплати.
+4. **Set planning:** `RulesPlanner` + object pools / category rules, версіонований Prompt Compiler; обмеження для довільного Free Wishes чесно показувати. `TextPlanner` API — за необхідності.
+5. **Batch generation:** 10 cards + 3–5 variants, прогрес, квоти, retry, resume, technical QA, provenance.
+6. **Detailed Web UI:** відтворити ПЕРШИЙ багатий мокап; додати Free Wishes, Provider selection/status, Prompt Library, Compare/Grid, human review, export.
+7. **Alternative image providers:** після art pilot — plug-in adapters для інших моделей без перероблення UI.
+8. **Submission:** три кіножанри, Miro з raw/selected images та чесними experiment logs, GitHub із working code.
 
-**Головний trade-off:** красивий UI добре демонструє product thinking, але не компенсує погану художню якість. Тому пріоритет №1 — **отримати переконливий арт у 4 категоріях**, а пріоритет №2 — зробити його генерацію автономною через зрозумілу вебсторінку.
-
----
+**Головний trade-off:** runtime зображення — єдиний обов'язковий AI inference для першого PoC; Claude Code — засіб розробки. Але кінцева автономність для *довільного* нового жанру/вільного тексту потребуватиме семантичного planner (опціонального text API) або чесного обмеження підтримуваних сценаріїв.
 
 # 29. Checklist перед здачею Playrix
 
@@ -2198,11 +2179,11 @@ Commit after small milestones; never expose corporate API keys or proprietary re
 
 - [ ] Вхід: theme + genre + optional producer wishes, **окремо від системних rules і UI settings**.
 - [ ] Вихід: 3–5 альтернативних повних наборів на запит.
-- [ ] Є реальна автоматизація через **локальний ComfyUI API** (або чесно вказане обмеження, якщо art pilot не пройшов).
+- [ ] Є реальна автоматизація через **Cloudflare Workers AI image REST API** (перший live provider), не просто PowerShell smoke test; можливі інші adapters.
 - [ ] Підтримуються style refs; `Golden Cards` у Movie preset вимкнено й заблоковано.
-- [ ] Planner/model dropdown відокремлені; GPT/Nano Banana samples не видаються за live API.
+- [ ] Planning Mode (`Rules` / авторизований `Text API`) і Image Model selector відокремлені; GPT/Nano Banana samples не видаються за live API.
 - [ ] Prompt Library дозволяє перегляд, редагування і збереження версій без виклику моделі.
-- [ ] Система запускається без платного API і публічного сервера; інструкція для desktop AI host.
+- [ ] UI/backend працює локально з безкоштовним Cloudflare image API; без платного API, без публічного сервера і без обов'язкової desktop GPU; `quota exceeded` обробляється.
 - [ ] Можна регенерувати тільки одну картку.
 - [ ] Є хоча б базовий QA та visible errors.
 - [ ] Можна працювати без автора інструмента.
@@ -2227,7 +2208,7 @@ Commit after small milestones; never expose corporate API keys or proprietary re
 - **Card frame / game window** — UI-шаблон гри; Playrix не вимагає його генерувати.
 - **Set variant** — одна з 3–5 альтернативних **груп 10 artwork**.
 - **Style Bible / Art Profile** — явні правила художнього стилю, затверджені за референсами.
-- **Planner** — LLM, що спершу генерує ідеї, назви й composition specs.
+- **Planner** — логічний модуль, який формує карткові плани; може бути Python RulesPlanner з підготовленими catalogs або опціональним runtime text LLM, а не обов'язково Qwen.
 - **Prompt Compiler** — перетворює specs у model-specific промпти.
 - **Image Provider Adapter** — нормалізує роботу різних image API.
 - **QA** — технічні й візуальні перевірки відповідності.
@@ -2259,9 +2240,11 @@ Commit after small milestones; never expose corporate API keys or proprietary re
 | 1.0 | 2026-11-04 | Перша повна Source of Truth: вакансія, тестове, правила колекцій, UX скетчу, архітектура, моделі, API/contracts, QA, backlog, ризики, Miro, acceptance criteria |
 | 1.1 | 2026-11-06 | Reference Compare: Split Slider, Side by Side (1×1), Grid Overview 10 пар; UX, reference matching, API, acceptance |
 | **1.2** | **2026-11-07** | **Three prompt layers**: System Rules + Generation Settings + Producer Free Wishes; Prompt Library editing/versioning; 3 genres vs 3–5 variants per genre; Gold OFF; separate planning/image model dropdowns and accurate Live Local vs Samples Only; 0-additional-cost local stack; laptop/desktop topology; manual GPT/Gemini sample import; revised UI sketch; honest PoC handoff. |
+| **1.3** | **2026-11-07** | Technical QA + human visual approval; Vision model optional, not required; remove ungrounded style scores |
+| **1.4** | **2026-11-07** | **First verified Cloudflare FLUX.2 Klein 4B REST PNG generation** (plain prompt + reference input); **model-agnostic ImageProvider registry**; Qwen/Ollama/ComfyUI no longer mandatory; Claude Code is development-time only; `RulesPlanner` with optional runtime TextPlanner; Cloudflare Free quota gate; detailed original mockup stays design reference; revise QA, stack, README, API settings, roadmap, implementation-agent prompt |
 
 ## Final status
 
 **Документ готовий як детальна специфікація для обговорення й старту розробки.**  
-**Система ще не створена; outputs, які показані в скетчі, не є фактичним виконаним тестом.**  
-**Перший технічний gate:** **безкоштовний локальний** image feasibility test на category rules 1–4 із реальними refs. Якщо не проходить — зберегти докази ітерацій і не представляти імпортовані cloud samples як автоматичну генерацію.
+**Повний Web-застосунок ще не створено; outputs у скетчі — макетні. Окремий PowerShell → Cloudflare FLUX.2 Klein 4B → PNG smoke test (без/із reference input) уже підтверджено.**  
+**Поточний технічний стан:** окремий Cloudflare Workers AI REST image smoke test пройдено (PNG + reference input). **Наступний gate:** перевірити якість на Cat.1–4, реальну безкоштовну квоту та end-to-end генерацію 10-card set у власному Python/Web застосунку. Якщо art pilot не проходить — шукати інший image provider і документувати обмеження, не підміняти автоматичний output імпортованими cloud samples.
