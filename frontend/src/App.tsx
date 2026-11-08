@@ -15,7 +15,7 @@ import { SettingsView } from "./components/SettingsView";
 import { SetupWizard, useFirstRun } from "./components/SetupWizard";
 import { TemplatesView } from "./components/TemplatesView";
 import type {
-  Artifact, Budget, GenerateRequest, GenreInfo, JobDetail, JobEvent, JobPreview, JobRequestPayload,
+  Artifact, Budget, GenerateRequest, JobDetail, JobEvent, JobPreview, JobRequestPayload,
   JobSummary, ModelsResponse, PreviewResponse, RefMeta,
 } from "./types/api";
 
@@ -46,14 +46,13 @@ export default function App() {
   const [selectedRefs, setSelectedRefs] = useState<string[]>([]);
   const [policy, setPolicy] = useState(false);
 
-  const [collection, setCollection] = useState("Movie Collection");
-  const [genre, setGenre] = useState("Science Fiction");
+  const [collection, setCollection] = useState("");
+  const [genre, setGenre] = useState("");
   const [numberOfCards, setNumberOfCards] = useState(DEFAULT_CARDS);
   const [gold, setGold] = useState(0);
   const [setType, setSetType] = useState<"standard" | "grand">("standard");
   const grand = setType === "grand";
   const [outputSize, setOutputSize] = useState(DEFAULT_SIZE);
-  const [genres, setGenres] = useState<GenreInfo[]>([]);
   const [objectName, setObjectName] = useState("");
   const [objectDesc, setObjectDesc] = useState("");
   const [category, setCategory] = useState<1 | 2 | 3 | 4>(2);
@@ -129,7 +128,6 @@ export default function App() {
 
   useEffect(() => {
     loadModels(); loadRefs(); loadHistory();
-    api.genres().then(setGenres).catch(() => undefined);
     api.jobs().then((js) => { setJobs(js); if (js[0]) openJob(js[0].job_id); }).catch(() => undefined); // persists across refresh
   }, [loadModels, loadRefs, loadHistory, openJob]);
 
@@ -187,10 +185,6 @@ export default function App() {
   const distBad = distErrs.length > 0;
   const model = useMemo(() => models?.models.find((m) => keyOf(m) === modelKey), [models, modelKey]);
   const refIds = useMemo(() => selectedRefs.filter((id) => refs.some((r) => r.ref_id === id)), [selectedRefs, refs]);
-  const suggestions = useMemo(() => {
-    const base = genres.length ? genres.map((g) => g.genre) : ["Science Fiction", "Detective", "Fantasy"];
-    return [...new Set([...base, "Comedy"])].slice(0, 8);
-  }, [genres]);
 
   const perImageSel = model?.est_cost_per_image_usd ?? 0;
   const perImageJob = useMemo(() => {
@@ -231,7 +225,7 @@ export default function App() {
 
   const request = useCallback(
     (confirmed: boolean, policyOverride?: boolean): GenerateRequest => ({
-      collection: collection.trim() || "Movie Collection",
+      collection: collection.trim(),
       genre: genre.trim(),
       object_name: objectName.trim(),
       object_description: objectDesc.trim(),
@@ -251,7 +245,7 @@ export default function App() {
 
   const jobRequest = useCallback(
     (confirmed: boolean, policyOverride: boolean | undefined, allowAi: boolean): JobRequestPayload => ({
-      collection: collection.trim() || "Movie Collection",
+      collection: collection.trim(),
       genre: genre.trim(),
       wishes,
       number_of_variants: variants,
@@ -306,8 +300,8 @@ export default function App() {
     setView("generate");
   }, [models]);
 
-  const singleValid = !!genre.trim() && !!objectName.trim() && !!model;
-  const setValid = !!genre.trim() && !!model;
+  const singleValid = !!collection.trim() && !!genre.trim() && !!objectName.trim() && !!model;
+  const setValid = !!collection.trim() && !!genre.trim() && !!model;
   const formValid = mode === "single" ? singleValid : setValid;
 
   // Debounced FREE previews (never call a provider).
@@ -427,11 +421,11 @@ export default function App() {
 
   /** "Test planner": the real semantic planner, never an image provider. Optional: Generate does not need it. */
   async function onPlanOnly() {
-    const form = `${collection.trim() || "Movie Collection"} · ${genre.trim()} (${grand ? "Grand Set" : "Standard Set"}, ${numberOfCards} cards)`;
+    const form = `${collection.trim()} · ${genre.trim()} (${grand ? "Grand Set" : "Standard Set"}, ${numberOfCards} cards)`;
     setPlanOnly({ busy: true, result: null, error: null, form });
     try {
       const r = await api.planTest({
-        collection: collection.trim() || "Movie Collection", genre: genre.trim(), wishes, number_of_variants: variants,
+        collection: collection.trim(), genre: genre.trim(), wishes, number_of_variants: variants,
         number_of_cards: numberOfCards, gold_cards: goldEff, set_type: setType, seed,
         category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
       });
@@ -495,14 +489,8 @@ export default function App() {
             <Section n={1} title="Set & Theme">
               <div className="row"><label className="lbl" htmlFor="coll">Collection</label>
                 <input id="coll" value={collection} placeholder="e.g. Movies, Transport, Space Travel" onChange={(e) => { setCollection(e.target.value); setSeed(null); }} maxLength={80} /></div>
-              <p className="hint rowhint">Free text. The AI planner interprets it to choose the theme.</p>
               <div className="row"><label className="lbl" htmlFor="genre">Set</label>
                 <input id="genre" value={genre} placeholder="e.g. Sci-Fi, Detective, Cars" onChange={(e) => { setGenre(e.target.value); setSeed(null); }} maxLength={80} autoComplete="off" /></div>
-              <div className="sugg" role="group" aria-label="Set suggestions">
-                <span>Suggestions:</span>
-                {suggestions.map((g) => <button type="button" key={g} onClick={() => { setGenre(g); setSeed(null); }}>{g}</button>)}
-              </div>
-              <p className="hint rowhint">Free text, any set you like. The AI planner interprets it together with the Collection; suggestions only fill the field.</p>
               <div className="row"><span className="lbl" id="settype-lbl">Set type</span>
                 <div className="seg" role="radiogroup" aria-labelledby="settype-lbl" id="settype">
                   {([["standard", "🗽 Standard Set"], ["grand", "🪙 Grand Set"]] as const).map(([v, label]) => (
