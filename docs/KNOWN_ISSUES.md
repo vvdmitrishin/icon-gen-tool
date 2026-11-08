@@ -9,6 +9,14 @@
   assumption. Prompt Library edits and better category references are the intended levers.
 - Baseline for comparisons: `benchmarks/phase3_gemini_baseline` (local, untracked).
 
+## UI vs the approved mockup (open, deferred)
+The structure and colours follow the mockup, but it is **not** pixel-close. Missing: the **Set Summary**, **Quick Actions**
+(Regenerate selected / Edit set plan / Replace a card / Generate similar set) and **Next Steps** panels, the title-row buttons
+(Compare Variants / Prompt Library / Export; they are tabs here, 7 tabs vs the mockup's 4), the variant radio with
+category-coverage chips, the user avatar, and the mockup's steppers/checkboxes in the left panel. Differences that are
+deliberate spec corrections: no style score or cost figures, no stars/frames on artwork, no creativity sliders, Cat. 5 locked.
+The actions themselves exist (card detail panel, variant header, History); only their placement differs.
+
 ## Functional limits
 - **QA is structural.** It cannot detect text, frames, wrong style or wrong object. Human review is required (spec: no fake scores).
 - **Planner is rules-based:** only Sci-Fi, Detective and Fantasy are supported; free wishes affect image prompts, not object choice.

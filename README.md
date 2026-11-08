@@ -4,7 +4,7 @@ Local web app for the Playrix AI Producer assignment. It plans and generates **c
 frames, stars or game UI) for themed 10-card sets, checks it, lets a human review and approve it, and exports it.
 
 Source of truth: [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.8.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.8.md) ·
-Docs: [User guide](docs/USER_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Known issues](docs/KNOWN_ISSUES.md)
+Docs: [Progress and handoff](docs/PROGRESS.md) · [User guide](docs/USER_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Known issues](docs/KNOWN_ISSUES.md)
 
 ## Quick start (Windows)
 
