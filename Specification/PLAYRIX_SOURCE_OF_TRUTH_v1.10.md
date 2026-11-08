@@ -51,7 +51,7 @@
 6. **API Connections — виправлення [U].** Редагування **по полях**: поле без значення завжди редаговане; збережене показується як Saved з тегом джерела (Windows Credential Manager / .env) і кнопкою Edit/Replace. Можна ввести лише Cloudflare Account ID, не замінюючи токен із `.env`. **Пріоритет: значення у Credential Manager > `.env` > нічого.** «Remove from this PC» — **локальне** видалення, **не відкликання ключа в провайдера**; якщо те саме значення лишається в `.env`, UI прямо каже, що провайдер лишається підключеним. Справжнє відкликання — у dashboard провайдера.
 7. **UI.** Variant labels = 1…5 (бекенд-ID A…E лишаються внутрішніми). Коли форма відрізняється від показаного job, права панель позначена «Previous result / Previous run». Model Selector: fixed-позиційний список без перекриття CTA; статуси Active / Connected · awaiting live verification / Not connected / Planned · local; порядок пріоритетів не змінено (Gemini Nano Banana 2.1 → Cloudflare FLUX.2 Klein 4B → Z-Image-Turbo planned; FLUX.1 Schnell — опційна). Tooltips пояснюють Cat.1–4 та Gold.
 8. **Не змінено:** бюджетні ліміти ($0.75 / $4.00), відсутність auto-retry, відсутність платних викликів без підтвердження, OpenAI disabled, Cloudflare не live до реального запиту.
-9. **Grand Set (All Golden) — `Approved — Pending Implementation` (НЕ реалізовано в коді).** Вимога описана в **§3.5**, ADR-018 і backlog §17. До окремого дозволу на реалізацію поведінка застосунку не змінюється.
+9. **Grand Set (All Golden) — `Implemented (локально, mocked-tested; live AI-планування не перевірено)`.** Вимога описана в **§3.5**, ADR-018 і backlog §17. Standard Set не змінено. Grand Set **ніколи** не входить у Movie Collection bundle (навіть при явному виборі режиму) і має власні звичайні generation / review / standalone export.
 10. **Узгоджений порядок виконання після документації [U]:** (1) тест і доопрацювання реальних виходів Gemini Nano Banana 2.1; (2) підключення й live-верифікація Cloudflare FLUX.2 Klein 4B; (3) покращення якості генерації цими двома моделями; (4) лише потім рішення про додаткові моделі. Платна генерація й нові інтеграції моделей — лише за окремим схваленням.
 
 ---
@@ -367,7 +367,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 
 ---
 
-### 3.5 Grand Set (All Golden) [P]/[D] — **Approved — Pending Implementation**
+### 3.5 Grand Set (All Golden) [P]/[D] — **Implemented (v1.10, локально)**
 
 **Походження [P]:** у завданні Playrix 16-й сет — особливий **Grand Set**, що складається лише з golden cards; його тема — кульмінація колекції (наприклад, «Summer Party»). «16-й» означає **позицію фінального сету в колекції, а не кількість карток**.
 
@@ -375,9 +375,10 @@ Collection («Кіно», «Літо», «Подорожі»...)
 - Новий контрол **`Set Type`**: `Standard Set` / `Grand Set (All Golden)`. Standard Set поводиться **без змін**.
 - У режимі Grand Set `Golden cards` автоматично = `Number of Cards`; Cat.1–4 = 0, їхні контроли розподілу вимкнені. Це **явний виняток** із вимоги покриття всіх чотирьох стандартних категорій (§3.4); compliance-прапорець для такого сету показує «Grand Set», а не «non-compliant».
 - AI Planner генерує **сюжетні сцени з персонажами**, що виражають кульмінацію теми колекції; кожна golden-картка — іронічна емоційна ситуація **не більше ніж з двома персонажами**; сцени різні між собою, але зі спільною художньою лінією (Style Bible) у всьому сеті.
-- Golden cards **лишаються виключеними з поточних deliverables Movie Collection** (`final_eligible`, §ОНОВЛЕННЯ v1.10, п. 3).
+- Golden cards **лишаються виключеними з поточних deliverables Movie Collection** (`final_eligible`, §ОНОВЛЕННЯ v1.10, п. 3). Grand Set — загальна функція для фінального сету колекції і **не входить** у поточні три-жанрові Movie Collection deliverables **навіть при явному виборі Grand Set**; він має власні звичайні generation, review і standalone export (variant ZIP).
+- **Кількість персонажів [P]:** максимум 2 на golden-картку. AI Planner повертає для кожної golden-картки поле `characters` (1 або 2); план без нього або з іншим значенням відхиляється (`ai_plan_invalid`) **до** генерації зображень. Фактична відповідність зображення перевіряється лише візуально (Art QA).
 
-**Статус реалізації:** лише документація. Реалізацію буде дозволено окремо після перегляду документації й підтвердження пріоритетів. Поточна поведінка: золоті картки доступні слайдером 0–N у Standard Set (v1.10, п. 3), окремого Set Type немає.
+**Статус реалізації:** реалізовано. `set_type` (`standard`|`grand`, default `standard`) у `JobCreateRequest`; сервер примусово ставить gold = Number of Cards і Cat.1–4 = 0; Grand Set завжди планується AI-планером (потрібен явний «Plan with AI»); compliance показує «Grand Set»; UI: селектор «Set type», слайдер Gold і Cat.1–4 заблоковані. Тести: `backend/tests/test_grand_set.py` (mocked, без платних викликів).
 
 ---
 
@@ -1981,7 +1982,7 @@ planning_validity_rate = valid_plans / proposed_plans
 
 ### Pending implementation (v1.10) — затверджено, не розпочато
 
-- [ ] **Grand Set (All Golden)** — `Approved — Pending Implementation` (§3.5): `Set Type` (Standard / Grand), авто-Gold = Number of Cards, Cat.1–4 = 0 і вимкнені контроли, planner для персонажних сцен-кульмінацій, prompt/QA/export для набору лише з Cat.5, тести. Не входить у Movie Collection deliverables.
+- [x] **Grand Set (All Golden)** — `Implemented` (§3.5): `Set Type` (Standard / Grand), авто-Gold = Number of Cards, Cat.1–4 = 0 і вимкнені контроли, planner для персонажних сцен-кульмінацій, prompt/QA/export для набору лише з Cat.5, тести. Не входить у Movie Collection deliverables.
 - [ ] Порядок якості/моделей: (1) тест і доопрацювання Gemini Nano Banana 2.1 → (2) live-верифікація Cloudflare FLUX.2 Klein 4B → (3) покращення якості цими двома → (4) рішення про додаткові моделі.
 
 ### Future integration backlog (post-MVP, v1.8) — поза фазами 0–7
@@ -2418,7 +2419,7 @@ TEXT_PLANNER_PROVIDER=
 | ADR-013 | **€5 Gemini prepaid + per-job spend guard**, local Windows app; Cloudflare Free fallback; **OpenAI paid disabled** | Quality-first з контрольованими витратами; desktop GPU optional | Якщо Gemini quality, price чи quota не підійдуть |
 | ADR-014 | **OpenAI GPT Image everywhere in specification, UI and registry, runtime disabled** | Майбутнє розширення без перероблення ядра і без передчасних витрат | Лише після явної активації API та витрат |
 | ADR-015 | **Card Category Distribution: `Auto (Balanced)` [2,2,3,3] / `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 locked** | Playrix не фіксує кількість по категоріях; конфігурований розподіл дає контроль без вигаданої вимоги; застосовується на Set Planning до генерації й однаковий для всіх альтернатив | Якщо аналіз референсів покаже фактичний розподіл, або зміниться ТЗ щодо Cat.5 |
-| ADR-018 | **Grand Set (All Golden) (v1.10): окремий тип сету лише з golden cards, `Set Type` Standard/Grand, виняток із покриття Cat.1–4** | Playrix визначає 16-й сет як фінальний golden-сет; потрібно підтримати його без зміни поведінки Standard Set і без golden у поточних Movie Collection deliverables | **Approved — Pending Implementation**; переглянути, якщо Playrix уточнить кількість карток або правила golden |
+| ADR-018 | **Grand Set (All Golden) (v1.10): окремий тип сету лише з golden cards, `Set Type` Standard/Grand, виняток із покриття Cat.1–4** | Playrix визначає 16-й сет як фінальний golden-сет; потрібно підтримати його без зміни поведінки Standard Set і без golden у поточних Movie Collection deliverables | **Implemented (локально)**; Grand Set не входить у Movie Collection bundle; ≤2 персонажів валідується в плані; переглянути, якщо Playrix уточнить кількість карток або правила golden |
 | ADR-017 | **API Connections (v1.9): credentials у Windows Credential Manager через Python backend; `.env` — dev-fallback; безкоштовні Cloudflare-моделі без auto-upgrade і без тихого fallback; whole-API loopback guard** | Не-технічний користувач підключає провайдерів сам; секрети не потрапляють у browser/SQLite/логи/Git; free-квота не вважається безкоштовним необмеженим використанням | Якщо з'явиться multi-user/хмарне розгортання (потрібне інше сховище секретів) або Cloudflare змінить схему моделей |
 | ADR-016 | **Model roadmap (v1.8): селектор за runtime; Seedream 4.5 + 7 local-моделей як visible-but-disabled backlog; capability metadata; ERNIE Prompt Enhancement — опція; Qwen-Image-Edit-2511 — editing-модель** | Видимий roadmap без розширення scope MVP; ніколи не показувати недоступне як робоче; єдина provider abstraction для cloud і local (ComfyUI API) | Після MVP: оцінка якості на Phase 3 benchmark; явне схвалення перед будь-якими платними викликами Seedream |
 

@@ -58,6 +58,7 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
                                 "category": {"type": "INTEGER"},
                                 "object_name": {"type": "STRING"},
                                 "object_description": {"type": "STRING"},
+                                "characters": {"type": "INTEGER"},  # golden cards only: 1 or 2
                             },
                             "required": ["position", "category", "object_name", "object_description"],
                         },
@@ -76,6 +77,7 @@ class _AICard(BaseModel):
     category: int
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(min_length=1)
+    characters: int | None = None  # required for golden cards (validated in _build / validate_plan)
 
 
 class _AIVariant(BaseModel):
@@ -106,7 +108,8 @@ class TextPlanner:
 
     # ------------------------------------------------------------------ prompt
     @staticmethod
-    def build_prompt(collection: str, set_name: str, variants: int, counts: dict[int, int], wishes: str) -> str:
+    def build_prompt(collection: str, set_name: str, variants: int, counts: dict[int, int], wishes: str,
+                     grand: bool = False) -> str:
         total = sum(counts.get(c, 0) for c in ALL_CATEGORIES)
         slots = assign_slots(counts)
         dist = "\n".join(f"- {CATEGORY_MEANINGS[c]}: exactly {counts.get(c, 0)} card(s)" for c in ALL_CATEGORIES
@@ -128,10 +131,20 @@ class TextPlanner:
             "Every `object_name` must be unique across ALL variants (no repeats anywhere). `object_name` max 80 chars; "
             "`object_description` one short visual sentence (max 200 chars).",
         ]
-        if counts.get(GOLDEN_CATEGORY, 0):
+        if grand:
+            lines.append(
+                "GRAND SET (All Golden): this is the FINALE of the collection - the culmination of its theme. Every card is "
+                "a GOLDEN card (Category 5) and the set has no Category 1-4 cards. Each card is a story scene with the "
+                "collection's characters expressing an ironic, emotional situation. EXACTLY 1 or 2 characters per card, "
+                "never more; set `characters` to 1 or 2 on every card. The scenes must be clearly DIFFERENT from each other (different situation, setting and "
+                "emotion) but share one consistent visual style and mood so they read as one finale set. Name = the "
+                "characters + situation, description = the visual scene. Characters must be original designs."
+            )
+        elif counts.get(GOLDEN_CATEGORY, 0):
             lines.append(
                 "GOLDEN cards (Category 5): the most valuable cards, with images of the collection's KEY CHARACTERS. "
-                "The characters play out an ironic, emotional situation. AT MOST 2 characters on one golden card. "
+                "The characters play out an ironic, emotional situation. AT MOST 2 characters on one golden card: "
+                "set `characters` to 1 or 2 on every golden card. "
                 "Name = the characters + situation, description = the visual scene. Characters must be original designs."
             )
         if wishes.strip():
@@ -142,9 +155,9 @@ class TextPlanner:
     # ------------------------------------------------------------------- cache
     @staticmethod
     def cache_key(collection: str, set_name: str, variants: int, counts: dict[int, int], seed: int | None,
-                  wishes: str) -> tuple:
+                  wishes: str, grand: bool = False) -> tuple:
         return (collection.strip().lower(), set_name.strip().lower(), variants,
-                tuple(counts.get(c, 0) for c in ALL_CATEGORIES), seed, wishes.strip())
+                tuple(counts.get(c, 0) for c in ALL_CATEGORIES), seed, wishes.strip(), grand)
 
     def _get(self, key: tuple) -> SetPlan | None:
         with self._lock:
@@ -163,10 +176,11 @@ class TextPlanner:
 
     # -------------------------------------------------------------------- plan
     def plan(self, collection: str, set_name: str, variants: int, counts: dict[int, int], *,
-             seed: int | None = None, wishes: str = "", pre_call: Callable[[], None] | None = None) -> PlannerResult:
+             seed: int | None = None, wishes: str = "", pre_call: Callable[[], None] | None = None,
+             grand: bool = False) -> PlannerResult:
         s = self.registry.effective
         model = s.gemini_text_model
-        key = self.cache_key(collection, set_name, variants, counts, seed, wishes)
+        key = self.cache_key(collection, set_name, variants, counts, seed, wishes, grand)
         hit = self._get(key)
         if hit is not None:
             return PlannerResult(hit, True, 0.0, model)
@@ -179,7 +193,7 @@ class TextPlanner:
             )
         if pre_call is not None:
             pre_call()  # e.g. budget guard; runs only when a real call is about to be made
-        data = self._call(s, model, self.build_prompt(collection, set_name, variants, counts, wishes), seed)
+        data = self._call(s, model, self.build_prompt(collection, set_name, variants, counts, wishes, grand), seed)
         plan = self._build(data, set_name, variants, counts, seed, model)
         self._put(key, plan)
         return PlannerResult(plan.model_copy(deep=True), False, PLAN_COST_ESTIMATE_USD, model)
@@ -256,6 +270,7 @@ class TextPlanner:
             cards = [
                 PlanCard(position=pos, category=c.category, object_name=c.object_name.strip(),
                          object_description=c.object_description.strip()[:300],
+                         characters=c.characters if c.category == GOLDEN_CATEGORY else None,
                          rationale=f"{v.title.strip()}: AI-planned for Cat. {c.category}")
                 for pos, c in enumerate(ordered, 1)
             ]

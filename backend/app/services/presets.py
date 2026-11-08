@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS presets (
 );
 """
 ALLOWED_KEYS = {"genre", "collection", "number_of_variants", "number_of_cards", "gold_cards", "output_size", "scope",
-                "category_distribution", "wishes", "aspect_ratio"}
+                "category_distribution", "wishes", "aspect_ratio", "set_type"}
 OUTPUT_SIZES = (24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
 
 BUILTIN = {
@@ -50,6 +50,8 @@ def validate_payload(p: dict[str, Any]) -> dict[str, Any]:
         raise PresetError("output_size must be one of " + ", ".join(str(x) for x in OUTPUT_SIZES) + ".")
     if "collection" in out and not (isinstance(out["collection"], str) and 1 <= len(out["collection"].strip()) <= 80):
         raise PresetError("collection must be text of 1-80 characters.")
+    if "set_type" in out and out["set_type"] not in ("standard", "grand"):
+        raise PresetError("set_type must be 'standard' or 'grand'.")
     if "scope" in out and out["scope"] not in ("pilot", "full"):
         raise PresetError("scope must be 'pilot' or 'full'.")
     if "wishes" in out and (not isinstance(out["wishes"], str) or len(out["wishes"]) > 500):

@@ -22,12 +22,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..config import Settings
 from ..providers.base import ProviderDisabled
 from .category_distribution import (
     CARDS_PER_SET,
+    SET_GRAND,
+    SET_STANDARD,
     CategoryDistribution,
     DistributionError,
     compliance,
@@ -77,6 +79,14 @@ class JobCreateRequest(BaseModel):
     scope: Literal["pilot", "full"] = "full"
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     confirmed: bool = False
+    set_type: Literal["standard", "grand"] = SET_STANDARD  # grand = Grand Set (All Golden), finale set
+
+    @model_validator(mode="after")
+    def _grand_set_rules(self) -> "JobCreateRequest":
+        if self.set_type == SET_GRAND:  # Gold = Number of Cards, Cat.1-4 = 0 (the server enforces it, not only the UI)
+            self.gold_cards = self.number_of_cards
+            self.category_distribution = None
+        return self
 
 
 class ContinueRequest(BaseModel):
@@ -402,7 +412,7 @@ class JobService:
                              f"Output size must be one of {', '.join(str(x) for x in ALLOWED_OUTPUT_SIZES)} px.")
         try:
             counts = resolve_distribution(req.category_distribution, number_of_cards=req.number_of_cards,
-                                          gold_cards=req.gold_cards)
+                                          gold_cards=req.gold_cards, set_type=req.set_type)
         except DistributionError as exc:
             raise JobFailure(422, exc.code, exc.message) from exc
         if len(req.reference_ids) != len(set(req.reference_ids)):
@@ -421,7 +431,8 @@ class JobService:
         if metas and model.provider_id != "mock" and not req.reference_policy_accepted:
             raise JobFailure(400, "reference_policy_required",
                              "Confirm that you may send these reference images to the external AI provider.")
-        curated = curated_genre_for(req.collection, req.genre)
+        # a Grand Set is a story finale: always planned by the AI planner (the curated pools have no finale scenes)
+        curated = None if req.set_type == SET_GRAND else curated_genre_for(req.collection, req.genre)
         cost = 0.0
         try:
             if curated:  # movies collection + a curated set -> deterministic rules planner (free)
@@ -436,7 +447,8 @@ class JobService:
                         {"plan_cost_estimate_usd": PLAN_COST_ESTIMATE_USD})
                 cost = PLAN_COST_ESTIMATE_USD
                 res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
-                                                     seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget)
+                                                     seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget,
+                                                     grand=req.set_type == SET_GRAND)
                 plan = res.plan
                 if not res.cached:  # honest accounting: a real text call was made
                     self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
@@ -489,9 +501,10 @@ class JobService:
         return {
             "plan": plan.model_dump(mode="json"),
             "distribution": {str(k): v for k, v in counts.items()},
-            "compliant": compliance(counts)[0], "compliance_note": compliance(counts)[1],
-            "final_eligible": final_eligibility(req.number_of_cards, req.gold_cards)[0],
-            "final_ineligible_reason": final_eligibility(req.number_of_cards, req.gold_cards)[1],
+            "set_type": req.set_type,
+            "compliant": compliance(counts, req.set_type)[0], "compliance_note": compliance(counts, req.set_type)[1],
+            "final_eligible": final_eligibility(req.number_of_cards, req.gold_cards, req.set_type)[0],
+            "final_ineligible_reason": final_eligibility(req.number_of_cards, req.gold_cards, req.set_type)[1],
             "scope": req.scope,
             "number_of_cards": req.number_of_cards,
             "gold_cards": req.gold_cards,
@@ -913,13 +926,15 @@ class JobService:
             "seed": job["plan"]["seed"], "distribution": job["plan"]["distribution"],
             "number_of_cards": rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
             "gold_cards": rq.get("gold_cards", distribution.get(5, 0)),
-            "compliant": compliance(distribution)[0], "compliance_note": compliance(distribution)[1],
+            "set_type": rq.get("set_type", SET_STANDARD),
+            "compliant": compliance(distribution, rq.get("set_type", SET_STANDARD))[0],
+            "compliance_note": compliance(distribution, rq.get("set_type", SET_STANDARD))[1],
             "final_eligible": final_eligibility(
                 rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
-                rq.get("gold_cards", distribution.get(5, 0)))[0],
+                rq.get("gold_cards", distribution.get(5, 0)), rq.get("set_type", SET_STANDARD))[0],
             "final_ineligible_reason": final_eligibility(
                 rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
-                rq.get("gold_cards", distribution.get(5, 0)))[1],
+                rq.get("gold_cards", distribution.get(5, 0)), rq.get("set_type", SET_STANDARD))[1],
             "output_size": rq.get("output_size", 1024),
             "planning_mode": job["plan"].get("planning_mode", "rules"),
             "notes": job["plan"]["notes"], "variants": variants,
@@ -940,7 +955,9 @@ class JobService:
             j["genre"], j["variants"], j["collection"] = rq["genre"], rq["number_of_variants"], rq["collection"]
             j["number_of_cards"] = rq.get("number_of_cards", CARDS_PER_SET)
             j["gold_cards"] = rq.get("gold_cards", 0)
-            j["final_eligible"], j["final_ineligible_reason"] = final_eligibility(j["number_of_cards"], j["gold_cards"])
+            j["set_type"] = rq.get("set_type", SET_STANDARD)
+            j["final_eligible"], j["final_ineligible_reason"] = final_eligibility(
+                j["number_of_cards"], j["gold_cards"], j["set_type"])
             j["output_size"] = rq.get("output_size", 1024)
             j["approved_variant_id"] = next(iter(self.store.approvals(j["job_id"])), None)
             out.append(j)

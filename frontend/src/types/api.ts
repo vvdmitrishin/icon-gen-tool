@@ -123,6 +123,8 @@ export interface JobRequestPayload {
   number_of_variants: number;
   number_of_cards: number;
   gold_cards: number;
+  /** 'grand' = Grand Set (All Golden): the server forces gold = cards and Cat. 1-4 = 0 */
+  set_type?: "standard" | "grand";
   output_size: number;
   /** true = the user agreed to one small AI text call to plan custom themes */
   allow_ai_plan: boolean;
@@ -147,6 +149,7 @@ export interface JobPreview {
   distribution: Record<string, number>;
   number_of_cards?: number;
   gold_cards?: number;
+  set_type?: "standard" | "grand";
   output_size?: number;
   planning_mode?: PlanningMode;
   plan_cost_estimate_usd?: number;
@@ -230,6 +233,7 @@ export interface JobDetail {
   seed: number;
   number_of_cards?: number;
   gold_cards?: number;
+  set_type?: "standard" | "grand";
   output_size?: number;
   planning_mode?: PlanningMode;
   distribution: Record<string, number>;

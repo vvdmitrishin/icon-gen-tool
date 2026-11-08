@@ -152,6 +152,8 @@ def ai_plan_json(variants, counts, prefix="Item"):
                 n += 1
                 cards.append(dict(position=n, category=cat, object_name=f"{prefix} {vi}-{n}",
                                   object_description=f"a vivid {prefix} number {vi}-{n}"))
+                if cat == 5:
+                    cards[-1]["characters"] = 1 + n % 2  # golden cards carry 1 or 2 characters
         out.append(dict(title=f"Theme {vi}", concept=f"Concept {vi}", cards=cards))
     return {"variants": out}
 

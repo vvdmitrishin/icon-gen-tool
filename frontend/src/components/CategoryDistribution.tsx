@@ -48,6 +48,8 @@ interface Props {
   /** backend flags (optional; computed locally when absent) */
   compliant?: boolean | null;
   complianceNote?: string | null;
+  /** Grand Set (All Golden): Cat. 1-4 are 0 and every control is disabled */
+  grand?: boolean;
 }
 
 /** Playrix rule of thumb mirrored client-side: at least 4 standard cards and every Cat. 1-4 has >= 1. */
@@ -61,11 +63,11 @@ export function localCompliance(counts: DistCounts, standard: number): { ok: boo
 }
 
 /** Compact "Card categories" control: cards per category 1-4 plus the ★ Gold slot driven by the golden-cards slider. */
-export function CategoryDistribution({ mode, counts, autoCounts, standard, gold, onMode, onCount, onAutoFit, compliant, complianceNote }: Props) {
-  const shown = mode === "auto_balanced" ? autoCounts : counts;
+export function CategoryDistribution({ mode, counts, autoCounts, standard, gold, onMode, onCount, onAutoFit, compliant, complianceNote, grand = false }: Props) {
+  const shown = grand ? { "1": 0, "2": 0, "3": 0, "4": 0 } as DistCounts : mode === "auto_balanced" ? autoCounts : counts;
   const sum = CATS.reduce((s, c) => s + shown[c], 0);
-  const errors = mode === "custom" ? distributionErrors(counts, standard) : [];
-  const editable = mode === "custom";
+  const errors = !grand && mode === "custom" ? distributionErrors(counts, standard) : [];
+  const editable = mode === "custom" && !grand;
   const local = localCompliance(shown, standard);
   const isOk = compliant ?? local.ok;
   const note = complianceNote || local.note || "not all 4 standard categories are covered";
@@ -79,7 +81,7 @@ export function CategoryDistribution({ mode, counts, autoCounts, standard, gold,
         <span className="lbl" title={help}>Card categories <span className="info" aria-hidden>ⓘ</span></span>
         <div className="seg sm" role="radiogroup" aria-label="Distribution mode">
           {(["auto_balanced", "custom"] as DistMode[]).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={() => onMode(m)}>
+            <button key={m} type="button" role="radio" disabled={grand} aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={() => onMode(m)}>
               {m === "auto_balanced" ? "Auto" : "Custom"}
             </button>
           ))}
@@ -109,7 +111,9 @@ export function CategoryDistribution({ mode, counts, autoCounts, standard, gold,
       {errors.map((e) => <div key={e} className="alert err" role="alert">{e}</div>)}
       {errors.length > 0 && <p className="hint">Generate is blocked until the counts add up. Nothing was changed automatically.</p>}
       <div className="compl" role="status">
-        {isOk
+        {grand
+          ? <span className="chip ok">Grand Set (All Golden): exception to the four-category rule</span>
+          : isOk
           ? <span className="chip ok">Playrix-compliant: all 4 standard categories covered</span>
           : <span className="chip warn">Custom / non-compliant set: {note}</span>}
       </div>

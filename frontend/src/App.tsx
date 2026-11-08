@@ -48,6 +48,8 @@ export default function App() {
   const [genre, setGenre] = useState("Science Fiction");
   const [numberOfCards, setNumberOfCards] = useState(DEFAULT_CARDS);
   const [gold, setGold] = useState(0);
+  const [setType, setSetType] = useState<"standard" | "grand">("standard");
+  const grand = setType === "grand";
   const [outputSize, setOutputSize] = useState(DEFAULT_SIZE);
   const [genres, setGenres] = useState<GenreInfo[]>([]);
   const [objectName, setObjectName] = useState("");
@@ -142,13 +144,14 @@ export default function App() {
   }, [job?.job_id, job?.active, loadModels, loadJobs]);
 
   // Single-card mode is driven by "Number of cards" (1 = single card, > 1 = card set).
-  const mode: "set" | "single" = numberOfCards === 1 ? "single" : "set";
-  const goldEff = mode === "set" ? Math.min(gold, numberOfCards) : 0;
+  const mode: "set" | "single" = numberOfCards === 1 && !grand ? "single" : "set";
+  // Grand Set (All Golden): gold = number of cards, Cat. 1-4 = 0
+  const goldEff = grand ? numberOfCards : mode === "set" ? Math.min(gold, numberOfCards) : 0;
   const standard = numberOfCards - goldEff;
   // everything the plan depends on; the "ai planned" flag is only valid while this is unchanged
   const planKey = useMemo(
-    () => JSON.stringify([collection.trim(), genre.trim(), variants, numberOfCards, goldEff, distMode, distMode === "custom" ? customDist : null, wishes, seed]),
-    [collection, genre, variants, numberOfCards, goldEff, distMode, customDist, wishes, seed],
+    () => JSON.stringify([collection.trim(), genre.trim(), setType, variants, numberOfCards, goldEff, distMode, distMode === "custom" ? customDist : null, wishes, seed]),
+    [collection, genre, setType, variants, numberOfCards, goldEff, distMode, customDist, wishes, seed],
   );
   const aiPlanned = aiPlanKey === planKey;
   const aiKeyRef = useRef<string | null>(null);
@@ -167,7 +170,7 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDistKey, standard]);
   // Custom counts are never changed silently: a mismatch with the standard-card total is shown and blocks Generate until fixed (Auto-fit button).
-  const distErrs = mode === "set" && distMode === "custom" ? distributionErrors(customDist ?? autoCounts, standard) : [];
+  const distErrs = mode === "set" && !grand && distMode === "custom" ? distributionErrors(customDist ?? autoCounts, standard) : [];
   const distBad = distErrs.length > 0;
   const model = useMemo(() => models?.models.find((m) => keyOf(m) === modelKey), [models, modelKey]);
   const refIds = useMemo(() => selectedRefs.filter((id) => refs.some((r) => r.ref_id === id)), [selectedRefs, refs]);
@@ -189,6 +192,7 @@ export default function App() {
     const n = clampInt(pl.number_of_cards, 1, 10, DEFAULT_CARDS);
     setNumberOfCards(n);
     setGold(clampInt(pl.gold_cards, 0, n, 0));
+    setSetType(pl.set_type === "grand" ? "grand" : "standard");
     setOutputSize(clampInt(pl.output_size, 24, 1024, DEFAULT_SIZE));
     if (typeof pl.wishes === "string") setWishes(pl.wishes);
     const d = pl.category_distribution as { mode?: string; counts?: Record<string, number> } | undefined;
@@ -239,6 +243,7 @@ export default function App() {
       number_of_variants: variants,
       number_of_cards: numberOfCards,
       gold_cards: goldEff,
+      set_type: setType,
       output_size: outputSize,
       allow_ai_plan: allowAi,
       category_distribution: distMode === "auto_balanced"
@@ -253,7 +258,7 @@ export default function App() {
       seed,
       confirmed,
     }),
-    [collection, genre, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed],
+    [collection, genre, setType, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed],
   );
 
   const onBatch = useCallback(async (confirmed: boolean) => {
@@ -271,6 +276,7 @@ export default function App() {
     const n = clampInt(j.number_of_cards ?? r.number_of_cards, 1, 10, DEFAULT_CARDS);
     const g = clampInt(j.gold_cards ?? r.gold_cards, 0, n, 0);
     setNumberOfCards(n); setGold(g);
+    setSetType((j.set_type ?? r.set_type) === "grand" ? "grand" : "standard");
     setOutputSize(clampInt(j.output_size ?? r.output_size, 24, 1024, DEFAULT_SIZE));
     setWishes(r.wishes ?? "");
     const key = `${r.provider}/${r.model}`;
@@ -464,6 +470,12 @@ export default function App() {
                 {suggestions.map((g) => <button type="button" key={g} onClick={() => { setGenre(g); setSeed(null); }}>{g}</button>)}
               </div>
               <p className="hint rowhint">Free text, any set you like. The AI planner interprets it together with the Collection; suggestions only fill the field.</p>
+              <div className="row"><label className="lbl" htmlFor="settype">Set type</label>
+                <select id="settype" value={setType} onChange={(e) => { setSetType(e.target.value as "standard" | "grand"); setSeed(null); }}>
+                  <option value="standard">Standard Set</option>
+                  <option value="grand">Grand Set (All Golden)</option>
+                </select></div>
+              {grand && <p className="hint rowhint">Finale set: every card is golden (an ironic, emotional scene with at most 2 characters), Categories 1–4 are 0. "Grand" is the final set position in the collection, not a card count. Always planned with AI; not part of the Movie Collection bundle.</p>}
               <div className="row two">
                 <div><label className="lbl" htmlFor="ncards">Number of cards</label>
                   <select id="ncards" value={numberOfCards} onChange={(e) => { const n = Number(e.target.value); setNumberOfCards(n); setGold((g) => Math.min(g, n)); setSeed(null); }}>
@@ -507,13 +519,14 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <GoldSlider value={goldEff} max={numberOfCards} onChange={(v) => { setGold(v); setSeed(null); }} />
+                  <GoldSlider value={goldEff} max={numberOfCards} disabled={grand} onChange={(v) => { setGold(v); setSeed(null); }} />
                   <CategoryDistribution
                     mode={distMode}
                     counts={customDist ?? autoCounts}
                     autoCounts={autoCounts}
                     standard={standard}
                     gold={goldEff}
+                    grand={grand}
                     onMode={(m) => { setDistMode(m); setSeed(null); if (m === "custom") setCustomDist((c) => c ?? { ...autoCounts }); }}
                     onCount={(cat: Cat, v) => setCustomDist((c) => ({ ...(c ?? autoCounts), [cat]: Math.max(0, Math.min(standard, v)) }))}
                     onAutoFit={() => setCustomDist((c) => fitCounts(c ?? autoCounts, standard))}

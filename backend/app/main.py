@@ -297,17 +297,17 @@ def create_app(
     def validate_distribution(dist: CategoryDistribution) -> dict[str, Any]:
         """Authoritative Card Category Distribution check (spec §3.4); free, no provider call."""
         try:
-            counts = resolve_distribution(dist)
+            counts = resolve_distribution(dist, set_type=dist.set_type)
         except DistributionError as exc:
             raise _err(422, exc.code, exc.message) from exc
-        compliant, comp_note = compliance(counts)
+        compliant, comp_note = compliance(counts, dist.set_type)
         return {
             "mode": dist.mode,
             "compliant": compliant, "compliance_note": comp_note,
             "counts": {str(k): v for k, v in counts.items()},
             "slots": assign_slots(counts),
             "number_of_cards": dist.number_of_cards,
-            "gold_cards": dist.gold_cards,
+            "gold_cards": counts[5], "set_type": dist.set_type,
             "note": "[2,2,3,3] (scaled for other set sizes) is our design assumption, not a Playrix-mandated ratio."
             if dist.mode == "auto_balanced" else "Custom producer distribution (Cat.1-4; golden count = gold_cards).",
         }

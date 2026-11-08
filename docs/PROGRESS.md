@@ -1,6 +1,6 @@
 # Progress log and handoff
 
-Last updated: 2026-11-09 (after UI stabilization P0-P5, committed locally). Source of Truth:
+Last updated: 2026-11-09 (after Grand Set, committed locally). Source of Truth:
 `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (v1.10 update block, section 3.5 Grand Set, ADR-018; v1.9: 6.15, 12.7.1, 19.1.1, ADR-017).
 Last commit: see `git log` (UI stabilization `2f16222`, docs commit on top). Mockup: `Specification/Mockup.png`.
 
@@ -69,10 +69,12 @@ Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 36
 4. Only then decide whether to add more models (Z-Image-Turbo local, Seedream 4.5). No new integrations or paid generation before that.
 
 ## Pending (rough order)
-- **Grand Set (All Golden): `Approved - Pending Implementation`** (spec 3.5, ADR-018; NOT implemented). `Set Type` Standard/Grand, Gold = Number of
-  Cards, Cat.1-4 = 0 with disabled controls, AI planner for character-driven culmination scenes (max 2 characters, ironic emotional
-  situations, consistent art direction). "16th set" = position of the finale, not a card count. Excluded from Movie Collection deliverables.
-  Implementation needs separate authorization.
+- **Grand Set (All Golden): IMPLEMENTED locally** (spec 3.5, ADR-018; not pushed). `set_type` standard|grand; server forces Gold = Number of
+  Cards and Cat.1-4 = 0; UI "Set type" selector with locked Gold slider / Cat. steppers; always planned by the AI planner (explicit
+  "Plan with AI", ~$0.002); AI plan must give `characters` 1 or 2 for every golden card or it is rejected before any image generation.
+  "16th set" = position of the finale, not a card count. NEVER part of the Movie Collection bundle (even when selected explicitly); it has
+  normal generation / review / standalone variant-ZIP export. Tests mocked only (`backend/tests/test_grand_set.py`); live AI planning of a
+  Grand Set and visual check of the 2-character limit (Art QA) are NOT verified. Standard Set unchanged.
 - **Art-quality work (P4):** Cat. 3 scene drift + readable text, Cat. 4 too dark, category-specific references, Style Bible validation vs
   Playrix frames; compare every round with `benchmarks/phase3_gemini_baseline` (local, untracked).
 - **Remaining assignment deliverables:** `docs/REFERENCE_ANALYSIS.md`, `docs/ART_RUBRIC.md`, `docs/EXPERIMENT_LOG.md`, product/visual

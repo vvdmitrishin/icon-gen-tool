@@ -24,6 +24,9 @@ MAX_VARIANTS = 5
 VARIANT_IDS = "ABCDE"
 
 
+MAX_GOLD_CHARACTERS = 2  # Playrix requirement: at most 2 characters per golden card
+
+
 class PlanningError(Exception):
     def __init__(self, message: str, code: str = "planning_error") -> None:
         super().__init__(message)
@@ -37,6 +40,7 @@ class PlanCard(BaseModel):
     object_name: str
     object_description: str
     rationale: str
+    characters: int | None = None  # golden cards planned by AI: number of characters in the scene (1 or 2)
     borrowed: bool = False  # object came from another micro-theme because the own pool ran short
 
 
@@ -231,6 +235,10 @@ def validate_plan(plan: SetPlan, counts: dict[int, int]) -> list[str]:
                 got[c.category] += 1
             else:
                 issues.append(f"Variant {v.variant_id}: invalid category {c.category}.")
+            if c.characters is not None and not 1 <= c.characters <= MAX_GOLD_CHARACTERS:
+                issues.append(f"Variant {v.variant_id} card {c.position}: {c.characters} characters; a golden card has 1-{MAX_GOLD_CHARACTERS}.")
+            if c.category == GOLDEN_CATEGORY and plan.planning_mode == "ai" and c.characters is None:
+                issues.append(f"Variant {v.variant_id} card {c.position}: golden card without a character count (1-{MAX_GOLD_CHARACTERS}).")
             if not (c.object_name.strip() and c.object_description.strip()):
                 issues.append(f"Variant {v.variant_id} card {c.position}: missing name or description.")
             prev = seen_global.get(c.object_name.strip().lower())

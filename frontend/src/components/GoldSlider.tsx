@@ -5,12 +5,14 @@ interface Props {
   value: number;
   max: number;
   onChange: (v: number) => void;
+  /** Grand Set: the value is fixed to the number of cards */
+  disabled?: boolean;
 }
 
 const SPARKS = 7;
 
 /** Golden-cards slider: gold track with a gentle shimmer; while dragging the thumb glows and throws a few sparks (CSS only). */
-export function GoldSlider({ value, max, onChange }: Props) {
+export function GoldSlider({ value, max, onChange, disabled = false }: Props) {
   const [drag, setDrag] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -31,7 +33,7 @@ export function GoldSlider({ value, max, onChange }: Props) {
       </div>
       <div className="gold-wrap" style={{ ["--gp" as string]: pct }}>
         <input
-          id="gold-range" type="range" min={0} max={Math.max(0, max)} step={1} value={value}
+          id="gold-range" type="range" min={0} max={Math.max(0, max)} step={1} value={value} disabled={disabled}
           aria-valuetext={`${value} golden card${value === 1 ? "" : "s"}`}
           onChange={(e) => { onChange(Number(e.target.value)); flash(); }}
           onPointerDown={() => { window.clearTimeout(timer.current); setDrag(true); }}
@@ -43,7 +45,7 @@ export function GoldSlider({ value, max, onChange }: Props) {
           {Array.from({ length: SPARKS }, (_, i) => <i key={i} style={{ ["--i" as string]: i }} />)}
         </span>
       </div>
-      <p className="hint">{MAX_GOLD_COPY}</p>
+      <p className="hint">{disabled ? "Grand Set: every card is golden, so this equals the number of cards." : MAX_GOLD_COPY}</p>
     </div>
   );
 }

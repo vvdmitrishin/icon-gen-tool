@@ -24,6 +24,11 @@ from pydantic import BaseModel, Field
 
 from .prompt_compiler import _style_bible
 
+SET_STANDARD = "standard"
+SET_GRAND = "grand"  # Grand Set (All Golden): the collection's finale set, every card is golden (Cat.5), Cat.1-4 = 0
+SetType = Literal["standard", "grand"]
+GRAND_NOTE = "Grand Set (All Golden): finale set, every card is a golden Category 5 card; an explicit exception to the four-category coverage rule."
+
 CARDS_PER_SET = 10  # default and maximum
 MIN_CARDS = 1
 STANDARD_CATEGORIES = (1, 2, 3, 4)
@@ -43,6 +48,7 @@ class CategoryDistribution(BaseModel):
     # only used by POST /api/category-distribution/validate (jobs carry these as top-level fields)
     number_of_cards: int = Field(default=CARDS_PER_SET, ge=MIN_CARDS, le=CARDS_PER_SET)
     gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)
+    set_type: Literal["standard", "grand"] = SET_STANDARD
 
 
 def default_counts() -> dict[int, int]:
@@ -115,10 +121,19 @@ def validate_counts(counts: dict[int, int], *, number_of_cards: int = CARDS_PER_
     return norm
 
 
+def grand_counts(number_of_cards: int) -> dict[int, int]:
+    """Grand Set distribution: Cat.1-4 = 0, every card golden."""
+    check_sizes(number_of_cards, number_of_cards)
+    return {**{c: 0 for c in STANDARD_CATEGORIES}, GOLDEN_CATEGORY: number_of_cards}
+
+
 def resolve_distribution(dist: CategoryDistribution | None = None, *, number_of_cards: int | None = None,
-                         gold_cards: int | None = None) -> dict[int, int]:
-    """Auto (Balanced) -> proportional split; Custom -> validated producer counts. Returns {1..5: n}."""
+                         gold_cards: int | None = None, set_type: str = SET_STANDARD) -> dict[int, int]:
+    """Auto (Balanced) -> proportional split; Custom -> validated producer counts. Returns {1..5: n}.
+    Grand Set -> Cat.1-4 = 0 and gold = number_of_cards, whatever the distribution mode says."""
     dist = dist or CategoryDistribution()
+    if set_type == SET_GRAND:
+        return grand_counts(number_of_cards if number_of_cards is not None else dist.number_of_cards)
     n = number_of_cards if number_of_cards is not None else dist.number_of_cards
     g = gold_cards if gold_cards is not None else dist.gold_cards
     standard = check_sizes(n, g)
@@ -138,9 +153,12 @@ def assign_slots(counts: dict[int, int]) -> list[int]:
     return [c for c in ALL_CATEGORIES for _ in range(norm[c])]
 
 
-def compliance(counts: dict[int, int]) -> tuple[bool, str | None]:
+def compliance(counts: dict[int, int], set_type: str = SET_STANDARD) -> tuple[bool, str | None]:
     """Playrix-style coverage: compliant == at least 4 STANDARD cards and every one of Cat.1-4 has >= 1 card.
-    Non-compliant configurations stay allowed; this only reports (never alters) them."""
+    Non-compliant configurations stay allowed; this only reports (never alters) them.
+    A Grand Set is the explicit exception: it reports compliant with a 'Grand Set' note."""
+    if set_type == SET_GRAND:
+        return True, GRAND_NOTE
     std = {c: int(counts.get(c, 0)) for c in STANDARD_CATEGORIES}
     total = sum(std.values())
     if total < 4:
@@ -152,8 +170,10 @@ def compliance(counts: dict[int, int]) -> tuple[bool, str | None]:
     return True, None
 
 
-def final_eligibility(number_of_cards: int, gold_cards: int) -> tuple[bool, str | None]:
+def final_eligibility(number_of_cards: int, gold_cards: int, set_type: str = SET_STANDARD) -> tuple[bool, str | None]:
     """Movie Collection final bundle takes only full 10-card standard sets (no golden cards)."""
+    if set_type == SET_GRAND:
+        return False, "A Grand Set (All Golden) is a separate finale set; it is not part of the Movie Collection final bundle."
     if gold_cards > 0:
         return False, "Golden cards are excluded from the Movie Collection final bundle (needs a set with 0 golden cards)."
     if number_of_cards != CARDS_PER_SET:
