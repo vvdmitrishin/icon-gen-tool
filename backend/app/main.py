@@ -468,6 +468,13 @@ def create_app(
         except JobFailure as exc:
             raise _job_err(exc) from exc
 
+    @app.delete("/api/jobs/{job_id}/variants/{variant_id}")
+    def variant_remove(job_id: str, variant_id: str) -> dict[str, Any]:
+        try:
+            return jobs.remove_variant(job_id, variant_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
     @app.post("/api/jobs/{job_id}/variants/{variant_id}/unapprove")
     def variant_unapprove(job_id: str, variant_id: str) -> dict[str, Any]:
         try:

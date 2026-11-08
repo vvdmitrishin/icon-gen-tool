@@ -507,7 +507,16 @@ function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onErr
 }) {
   const [showQA, setShowQA] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [armedRemove, setArmedRemove] = useState(false);
   const qa = v.set_qa;
+  const hasImages = v.cards.some((c) => c.image_url);
+  const removeReason = job.active ? "Wait for the running job to finish or cancel it first" : hasImages ? "This variant already has generated images, so it is kept" : job.variants.length <= 1 ? "The only variant of the job" : null;
+  async function remove() {
+    if (!armedRemove) { setArmedRemove(true); window.setTimeout(() => setArmedRemove(false), 5000); return; }
+    setBusy(true);
+    try { onJob(await api.removeVariant(job.job_id, v.variant_id)); onError(null); }
+    catch (e) { onError(msg(e, "Could not remove the variant")); } finally { setBusy(false); setArmedRemove(false); }
+  }
   const total = qa.total || v.cards.length;
   const canApprove = !job.active && qa.generated === total && qa.status !== "failed" && qa.art_review.rejected === 0;
   const cardQA = (s: string) => v.cards.filter((c) => c.image_url && c.qa_status === s).length;
@@ -527,6 +536,12 @@ function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onErr
           <strong>Variant {vlabel(v.variant_id)}</strong>
           {v.approved && <span className="chip ok" title="This variant is the approved final set">★ final set</span>}
         </label>
+        {!hasImages && (
+          <button type="button" className={`vremove ${armedRemove ? "armed" : ""}`} disabled={busy || !!removeReason} onClick={remove}
+            title={removeReason ?? "Skip this variant: it is removed from the job and will not be generated or charged"}>
+            {armedRemove ? "Click again to remove" : "✕ Remove variant"}
+          </button>
+        )}
         <p className="vconcept" title={`${v.title} — ${v.concept}`}><em>{v.title}</em> · {v.concept}</p>
         <ul className="vstat">
           <li className={complete ? "ok" : "warn"}><i aria-hidden>{complete ? "✓" : "◔"}</i>{qa.generated} / {qa.total} cards generated</li>

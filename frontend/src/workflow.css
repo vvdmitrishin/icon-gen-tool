@@ -161,3 +161,10 @@ main[hidden] { display: none; }
 .pv-rows li.open .pv-row { border-color: var(--purple); }
 .pv-body { padding: 6px 4px 2px; }
 .pv-row .cat { position: static; }
+
+/* remove (skip) a variant that has no generated images */
+.vmeta { position: relative; }
+.vremove { position: absolute; top: 0; right: 0; background: #fff; color: #c62828; border: 1px solid #e57373; border-radius: var(--r-md); padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.vremove:hover:not(:disabled) { background: #fdecea; }
+.vremove.armed { background: #c62828; color: #fff; border-color: #c62828; }
+.vremove:disabled { opacity: .5; cursor: not-allowed; }

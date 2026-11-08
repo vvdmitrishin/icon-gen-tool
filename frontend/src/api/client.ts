@@ -115,6 +115,7 @@ export const api = {
     call<JobDetail>(`/api/jobs/${job}/cards/${card}`, send("PATCH", { object_name, object_description })),
   approveVariant: (job: string, variant: string) =>
     call<JobDetail>(`/api/jobs/${job}/variants/${variant}/approve`, json({ mark_cards_approved: true })),
+  removeVariant: (job: string, variant: string) => call<JobDetail>(`/api/jobs/${job}/variants/${variant}`, { method: "DELETE" }),
   unapproveVariant: (job: string, variant: string) =>
     call<JobDetail>(`/api/jobs/${job}/variants/${variant}/unapprove`, { method: "POST" }),
 

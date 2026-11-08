@@ -311,6 +311,12 @@ class JobStore:
         self._exec("INSERT INTO variant_approvals(job_id,variant_id,approved_at,approved_by) VALUES(?,?,?,?)",
                    (job_id, variant_id, now(), by))
 
+    def remove_variant(self, job_id: str, variant_id: str, plan: dict[str, Any], request: dict[str, Any]) -> None:
+        """Drop an ungenerated variant: its card rows go, the stored plan/request no longer list it. Nothing else is touched."""
+        self._exec("DELETE FROM cards WHERE job_id=? AND variant_id=?", (job_id, variant_id))
+        self._exec("UPDATE jobs SET plan_json=?, request_json=?, updated_at=? WHERE job_id=?",
+                   (json.dumps(plan), json.dumps(request), now(), job_id))
+
     def clear_approval(self, job_id: str, variant_id: str | None = None) -> bool:
         had = bool(self._all("SELECT 1 FROM variant_approvals WHERE job_id=?" + (" AND variant_id=?" if variant_id else ""),
                              (job_id, variant_id) if variant_id else (job_id,)))
@@ -848,6 +854,26 @@ class JobService:
                     self.store.set_version_review(cur["version_id"], "approved", cur["review_note"] or "")
         self.store.approve_variant(job_id, variant_id, "Local User")
         self.store.add_event(job_id, f"Variant {variant_id} approved as the final set for {d['genre']}.")
+        return self.detail(job_id)
+
+    def remove_variant(self, job_id: str, variant_id: str) -> dict[str, Any]:
+        """Skip/delete a variant that has NO generated image yet (so Continue no longer spends on it). A variant with images is never removed."""
+        job = self._job_for_edit(job_id)
+        plan, rq = job["plan"], job["request"]
+        if variant_id not in [v["variant_id"] for v in plan["variants"]]:
+            raise JobFailure(404, "not_found", "Variant not found.")
+        if len(plan["variants"]) <= 1:
+            raise JobFailure(409, "last_variant", "This is the only variant of the job; it cannot be removed.")
+        cards = [c for c in self.store.cards(job_id) if c["variant_id"] == variant_id]
+        if any(c["artifact_id"] for c in cards):
+            raise JobFailure(409, "variant_has_images", "This variant already has generated images, so it is kept (nothing generated is ever deleted).")
+        plan["variants"] = [v for v in plan["variants"] if v["variant_id"] != variant_id]
+        rq["number_of_variants"] = len(plan["variants"])
+        self.store.remove_variant(job_id, variant_id, plan, rq)
+        self.store.add_event(job_id, f"Variant {variant_id} removed before generation ({len(cards)} planned card(s) dropped; nothing was spent on it).", "warn")
+        rest = self.store.cards(job_id)
+        if job["status"] in ("cancelled", "partial_success", "failed") and rest and all(c["status"] == "done" for c in rest):
+            self.store.set_status(job_id, "ready_for_review")  # nothing left to continue
         return self.detail(job_id)
 
     def unapprove_variant(self, job_id: str, variant_id: str) -> dict[str, Any]:
