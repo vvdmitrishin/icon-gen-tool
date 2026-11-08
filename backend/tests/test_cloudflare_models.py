@@ -182,7 +182,8 @@ def test_plain_rate_limits_stay_retryable_and_tokens_are_redacted():
 
 # ------------------------------------------------------------------------------------ pipeline
 def settings(tmp_path, **kw):
-    return Settings(data_root=tmp_path / "d", artifact_root=tmp_path / "d" / "a",
+    # a Gemini key is present only so the (fixture) text planner can run: the image provider under test is Cloudflare
+    return Settings(data_root=tmp_path / "d", artifact_root=tmp_path / "d" / "a", gemini_api_key="fake-planner-key",
                     cloudflare_api_token=TOKEN, cloudflare_account_id="acct", **kw)
 
 
@@ -216,7 +217,8 @@ def test_pilot_job_on_free_plan_end_to_end(tmp_path):
         assert r.status_code == 200, r.text
         d = wait(c, r.json()["job_id"])
         assert d["status"] == "ready_for_review" and d["counts"]["done"] == 4
-        assert d["spent_estimated_usd"] == 0 and c.get("/api/models").json()["budget"]["spent_estimated_usd"] == 0
+        # images on the free plan cost nothing; only the tiny AI planning text call (~$0.002) is in the ledger
+        assert d["spent_estimated_usd"] == 0 and c.get("/api/models").json()["budget"]["spent_estimated_usd"] <= 0.002
         card = next(k for k in d["variants"][0]["cards"] if k["artifact_id"])
         assert card["qa_status"] in ("passed", "flagged")
         meta = c.get(f"/api/artifacts/{card['artifact_id']}").json()
@@ -229,7 +231,7 @@ def test_pilot_job_on_free_plan_end_to_end(tmp_path):
 def test_paid_plan_requires_confirmation_and_hits_ledger(tmp_path):
     rec = CfArt()
     with TestClient(create_app(settings(tmp_path, cloudflare_plan="paid"), cloudflare_transport=rec.transport)) as c:
-        pv = c.post("/api/jobs/preview", json=job_body()).json()
+        pv = c.post("/api/jobs/preview", json=job_body(allow_ai_plan=True)).json()
         assert pv["estimated_cost_usd"] > 0
         r = c.post("/api/jobs", json=job_body())
         assert r.status_code == 400 and r.json()["detail"]["code"] == "confirmation_required" and rec.requests == []

@@ -21,6 +21,8 @@ const TYPE_LABEL: Record<string, string> = {
   category_2: "Category 2",
   category_3: "Category 3",
   category_4: "Category 4",
+  category_5: "Category 5 (golden)",
+  character: "Character (golden cards)",
   composition: "Composition",
   negative: "Negative example",
 };

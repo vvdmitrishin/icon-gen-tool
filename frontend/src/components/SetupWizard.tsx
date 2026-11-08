@@ -83,12 +83,12 @@ export function SetupWizard({ open, onClose, onConnected }: Props) {
           <>
             <h2 id="wz-title">Welcome to AI Collection Studio</h2>
             <p>Create a whole set of matching game-card images from one plan, review them, and export the ones you like.</p>
-            <p>To make real images you connect an image provider. Or try the demo first, no key needed.</p>
+            <p>Connect Gemini once: it plans the cards (a tiny text call) and can make the images. Cloudflare FLUX is an optional free image fallback.</p>
             <div className="wz-actions">
               <button type="button" className="primary cn-btn" onClick={() => setStep(1)}>Connect a provider</button>
               <button type="button" className="ghost" onClick={close}>Try the demo without a key</button>
             </div>
-            <p className="hint">The demo uses the free Mock provider, which makes simple placeholder images.</p>
+            <p className="hint">The Mock image provider makes free placeholder images for testing the interface. Planning the cards always uses the AI text planner, so it still needs a Gemini key.</p>
           </>
         )}
 

@@ -38,9 +38,11 @@ from .category_distribution import (
 )
 from .cost_guard import BudgetExceeded, CostGuard
 from .generation import GenerateCardRequest, GenerationFailure, GenerationService
-from .planning import PlanningError, SetPlan, curated_genre_for, plan_set, validate_plan
+from .planning import PlanningError, SetPlan, validate_plan
 from .qa import qa_card, qa_variant
 from .reference_manager import ReferenceError_, ReferenceManager
+from .prompt_compiler import check_overrides
+from .prompt_library import LibraryError
 from .semantic_planning import history_summary, theme_key
 from .text_planner import PLAN_COST_ESTIMATE_USD, TextPlanner
 
@@ -81,9 +83,9 @@ class JobCreateRequest(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     confirmed: bool = False
     set_type: Literal["standard", "grand"] = SET_STANDARD  # grand = Grand Set (All Golden), finale set
-    # auto = curated pools for the Movie presets (Sci-Fi / Detective / Fantasy), semantic AI planner for everything else;
-    # ai = always the semantic AI planner, even for the Movie presets
-    planner: Literal["auto", "ai"] = "auto"
+    # Session-only prompt overrides from the browser tab (template name -> text). Resolved ONCE at job creation into an
+    # immutable server-side snapshot (request["prompt_bundle"]); nothing is written to the permanent Prompt Library.
+    prompt_overrides: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _grand_set_rules(self) -> "JobCreateRequest":
@@ -103,7 +105,6 @@ class PlanOnlyRequest(BaseModel):
     gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)
     category_distribution: CategoryDistribution | None = None
     set_type: Literal["standard", "grand"] = SET_STANDARD
-    planner: Literal["auto", "ai"] = "ai"  # a test of the semantic planner defaults to the AI planner
     allow_ai_plan: bool = True  # the Producer pressed the explicit "Plan only" button
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
 
@@ -368,15 +369,24 @@ def pilot_card_ids(cards: list[dict[str, Any]]) -> set[str]:
 
 
 def select_references(metas: list[dict[str, Any]], category: int, cap: int) -> tuple[list[str], str]:
-    """Category-typed refs for this card + universal (style/composition/negative) refs; if nothing
-    matches, fall back to every selected ref so the card is still style-guided."""
-    matched = [m for m in metas if m["ref_type"] == f"category_{category}" or m["ref_type"] in UNIVERSAL_REF_TYPES]
-    mode = "category_match"
-    if not matched and metas:
-        matched, mode = list(metas), "fallback_all"
+    """Pick ONLY the references that apply to this card (no 'send everything' fallback):
+      - category_N reference -> only cards of category N;
+      - character reference  -> only golden (category 5) cards;
+      - style / composition / negative -> every card of the set (negative ones are labelled NEGATIVE in the prompt).
+    Under the provider cap the most specific come first. Nothing applicable -> no images (text rules only).
+    -> (ref_ids, mode) with mode: none | none_applicable | global_only | category_match."""
+    def of(*types: str) -> list[dict[str, Any]]:
+        return [m for m in metas if m["ref_type"] in types]
+    own = of(f"category_{category}")
+    character = of("character") if category == 5 else []
+    ordered = own + character + of("style") + of("composition") + of("negative")
     if not metas:
         mode = "none"
-    return [m["ref_id"] for m in matched][:cap], mode
+    elif not ordered:
+        mode = "none_applicable"
+    else:
+        mode = "category_match" if (own or character) else "global_only"
+    return [m["ref_id"] for m in ordered][:cap], mode
 
 
 # ----------------------------------------------------------------------------------------- service
@@ -419,7 +429,9 @@ class JobService:
 
     # -- planning ------------------------------------------------------------------------------
     def _plan(self, req: JobCreateRequest) -> tuple[SetPlan, dict[int, int], Any, list[dict[str, Any]]]:
-        plan, counts, model, metas, _ = self._plan_ex(req)
+        # Creating a job IS the Producer's Generate action: it authorises the (tiny) automatic AI planning call. Only the free
+        # preview needs an explicit allow_ai_plan. Image-generation cost confirmation (_gate) is unchanged.
+        plan, counts, model, metas, _ = self._plan_ex(req.model_copy(update={"allow_ai_plan": True}))
         return plan, counts, model, metas
 
     def _check_plan_budget(self) -> None:
@@ -438,6 +450,7 @@ class JobService:
         if req.output_size not in ALLOWED_OUTPUT_SIZES:
             raise JobFailure(422, "bad_output_size",
                              f"Output size must be one of {', '.join(str(x) for x in ALLOWED_OUTPUT_SIZES)} px.")
+        self._resolve_bundle(req.prompt_overrides)  # reject malformed session overrides before anything is planned or spent
         try:
             counts = resolve_distribution(req.category_distribution, number_of_cards=req.number_of_cards,
                                           gold_cards=req.gold_cards, set_type=req.set_type)
@@ -465,6 +478,106 @@ class JobService:
             raise JobFailure(422, "plan_invalid", "; ".join(issues))
         return plan, counts, model, metas, cost
 
+    # -- prompt bundle / card requests ----------------------------------------------------------
+    def _resolve_bundle(self, overrides: dict[str, str] | None) -> dict[str, dict[str, Any]]:
+        lib = self.gen.prompts
+        if lib is None:
+            return {}
+        try:
+            return lib.resolve_bundle(overrides)
+        except LibraryError as exc:
+            raise JobFailure(422, exc.code, exc.message) from exc
+
+    @staticmethod
+    def _plan_context(plan: dict[str, Any], variant_id: str, position: int) -> dict[str, str]:
+        """Variant title / concept and the card's short rationale from the stored plan (shared Set context)."""
+        v = next((x for x in plan.get("variants", []) if x.get("variant_id") == variant_id), {})
+        c = next((x for x in v.get("cards", []) if x.get("position") == position), {})
+        return {"variant_title": v.get("title", ""), "variant_concept": v.get("concept", ""), "rationale": c.get("rationale", "")}
+
+    def _card_request(self, rq: dict[str, Any], plan: dict[str, Any], card: dict[str, Any], ref_ids: list[str],
+                      ref_mode: str, bundle: dict[str, Any] | None, *, note: str = "", is_regen: bool = False,
+                      job_id: str = "") -> GenerateCardRequest:
+        """THE one way a card becomes a generation request. Real generation and 'Preview Prompts' both use it, so the
+        previewed prompt is compiled by the same code path with the same inputs as the real one."""
+        ctx = self._plan_context(plan, card["variant_id"], card["position"])
+        return GenerateCardRequest(
+            collection=rq["collection"], genre=plan["genre"], object_name=card["object_name"],
+            object_description=card["object_description"], category=card["category"],
+            wishes=rq["wishes"], provider=rq["provider"], model=rq["model"], reference_ids=ref_ids,
+            reference_policy_accepted=rq["reference_policy_accepted"], aspect_ratio=rq["aspect_ratio"],
+            output_size=rq.get("output_size", 1024), confirmed=True, repair_note=note,
+            prompt_bundle=bundle, **ctx,
+            context={"job_id": job_id, "variant_id": card["variant_id"], "position": card["position"],
+                     "card_id": card.get("card_id", ""), "reference_selection": ref_mode,
+                     "regeneration": is_regen, "spec_version": card.get("spec_version", 1)},
+        )
+
+    def _prompt_row(self, req: GenerateCardRequest, card: dict[str, Any], ref_mode: str) -> dict[str, Any]:
+        model, compiled, refs = self.gen.render_prompt(req)
+        return {"position": card["position"], "category": card["category"], "variant_id": card["variant_id"],
+                "object_name": card["object_name"], "card_id": card.get("card_id"), "source": "compiled",
+                "prompt": compiled.text, "warnings": compiled.warnings, "model": model.model_id, "provider": model.provider_id,
+                "references": [{"ref_id": r.ref_id, "role": r.role} for r in refs], "reference_selection": ref_mode,
+                "bundle": {n: {k: v for k, v in b.items() if k != "text"} for n, b in compiled.bundle.items()},
+                "session_overrides": sorted(n for n, b in compiled.bundle.items() if b["source"] == "session_override")}
+
+    def preview_prompts(self, req: JobCreateRequest) -> dict[str, Any]:
+        """Compiled prompts of every card of the PLANNED set (cached plan), before any image is generated. Free: no image
+        provider is called. Uses the same card-request builder and compiler as real generation."""
+        plan, counts, model, metas, _cost = self._plan_ex(req)
+        bundle = self._resolve_bundle(req.prompt_overrides)
+        cap = min(model.capabilities.get("max_reference_images", 0), self.s.max_refs_per_request)
+        plan_json = plan.model_dump(mode="json")
+        rq = req.model_dump(mode="json")
+        variants: dict[str, list[dict[str, Any]]] = {}
+        for v in plan.variants:
+            rows = []
+            for c in v.cards:
+                card = {"variant_id": v.variant_id, "position": c.position, "category": c.category, "object_name": c.object_name,
+                        "object_description": c.object_description}
+                ref_ids, mode = select_references(metas, c.category, cap)
+                if metas and cap == 0:
+                    ref_ids, mode = [], "unsupported_by_model"
+                rows.append(self._prompt_row(self._card_request(rq, plan_json, card, ref_ids, mode, bundle), card, mode))
+            variants[v.variant_id] = rows
+        return {"variants": variants, "planning_mode": plan.planning_mode, "set_type": req.set_type,
+                "session_overrides": sorted(n for n, b in bundle.items() if b["source"] == "session_override"),
+                "warnings": check_overrides({n: b["text"] for n, b in bundle.items() if b["source"] == "session_override"})}
+
+    def job_prompts(self, job_id: str, variant_id: str | None = None) -> dict[str, Any]:
+        """Prompts of an existing job: the exact stored prompt for generated images (immutable), the compiled preview (from the
+        job's snapshot) for cards that are still planned. Never calls an image provider."""
+        job = self.store.get_job(job_id)
+        if job is None:
+            raise JobFailure(404, "not_found", "Job not found.")
+        rq = job["request"]
+        bundle = rq.get("prompt_bundle") or None
+        model = self.gen.registry.resolve(rq["provider"], rq["model"])
+        cap = min(model.capabilities.get("max_reference_images", 0), self.s.max_refs_per_request)
+        metas = [m for m in (self.refs.get(r) for r in rq["reference_ids"]) if m]
+        out: list[dict[str, Any]] = []
+        for card in self.store.cards(job_id):
+            if variant_id and card["variant_id"] != variant_id:
+                continue
+            meta = self.gen.store.metadata(card["artifact_id"]) if card["artifact_id"] else None
+            if meta:
+                p = meta["prompt"]
+                out.append({"position": card["position"], "category": card["category"], "variant_id": card["variant_id"],
+                            "object_name": card["object_name"], "card_id": card["card_id"], "source": "generated",
+                            "artifact_id": card["artifact_id"], "prompt": p["effective"], "warnings": p.get("warnings", []),
+                            "model": meta["provider"]["model"], "provider": meta["provider"]["id"],
+                            "references": [{"ref_id": r["ref_id"], "role": r["role"]} for r in meta.get("references", [])],
+                            "reference_selection": meta.get("context", {}).get("reference_selection"),
+                            "bundle": p.get("bundle", {}), "session_overrides": p.get("session_overrides", [])})
+                continue
+            ref_ids, mode = select_references(metas, card["category"], cap)
+            if metas and cap == 0:
+                ref_ids, mode = [], "unsupported_by_model"
+            out.append(self._prompt_row(self._card_request(rq, job["plan"], card, ref_ids, mode, bundle, job_id=job_id), card, mode))
+        return {"job_id": job_id, "prompts": out, "snapshot": bool(bundle),
+                "bundle": {n: {k: v for k, v in b.items() if k != "text"} for n, b in (bundle or {}).items()}}
+
     # -- semantic planning ---------------------------------------------------------------------
     def previous_subjects(self, collection: str, genre: str, set_type: str = SET_STANDARD) -> list[str]:
         """Compact summary of subjects planned in earlier batches of the SAME Collection + Set + Set type (never of other
@@ -480,35 +593,28 @@ class JobService:
         return history_summary(entries)
 
     def _run_planner(self, req: Any, counts: dict[int, int]) -> tuple[SetPlan, float, list[str]]:
-        """Curated rules planner for the Movie presets (planner='auto'), semantic AI planner for everything else.
-        Returns (plan, text_cost_estimate_usd, history_lines_passed_to_the_planner)."""
-        # a Grand Set is a story finale: always planned by the AI planner (the curated pools have no finale scenes)
-        curated = None if (req.set_type == SET_GRAND or req.planner == "ai") else curated_genre_for(req.collection, req.genre)
-        cost = 0.0
-        history: list[str] = []
+        """The ONE planning path: the semantic AI planner for every Collection / Set (Movie presets included).
+        No curated pools and no silent fallback: if the text planner cannot run, the error is raised BEFORE any image job
+        exists. Returns (plan, text_cost_estimate_usd, history_lines_passed_to_the_planner)."""
+        if not req.allow_ai_plan:
+            raise JobFailure(
+                422, "ai_plan_required",
+                f"'{req.collection}' / '{req.genre}' is planned by AI (a Gemini text model, tiny cost, about $0.002 "
+                "per plan). Generate does this automatically; a free preview needs allow_ai_plan=true.",
+                {"plan_cost_estimate_usd": PLAN_COST_ESTIMATE_USD})
+        cost = PLAN_COST_ESTIMATE_USD
         try:
-            if curated:  # movies collection + a curated set -> deterministic rules planner (free)
-                plan = plan_set(curated, req.number_of_variants, counts, req.seed)
-            else:
-                if not req.allow_ai_plan:
-                    raise JobFailure(
-                        422, "ai_plan_required",
-                        f"'{req.collection}' / '{req.genre}' is planned by AI (a Gemini text model, tiny cost, about $0.002 "
-                        "per plan). Generate does this automatically; a free preview needs allow_ai_plan=true.",
-                        {"plan_cost_estimate_usd": PLAN_COST_ESTIMATE_USD})
-                cost = PLAN_COST_ESTIMATE_USD
-                history = self.previous_subjects(req.collection, req.genre, req.set_type)
-                res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
-                                             seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget,
-                                             grand=req.set_type == SET_GRAND, history=history)
-                plan = res.plan
-                if not res.cached:  # honest accounting: a real text call was made
-                    self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
-                                      est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan")
-                self._last_text_model, self._last_cached = res.model, res.cached
+            history = self.previous_subjects(req.collection, req.genre, req.set_type)
+            res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
+                                         seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget,
+                                         grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
-        return plan, cost, history
+        if not res.cached:  # honest accounting: a real text call was made
+            self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
+                              est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan")
+        self._last_text_model, self._last_cached = res.model, res.cached
+        return res.plan, cost, history
 
     def plan_only(self, req: PlanOnlyRequest) -> dict[str, Any]:
         """Planner-only test: runs the real planner and returns the plan. Never resolves or calls an image model,
@@ -611,12 +717,22 @@ class JobService:
 
         for c in flat:
             c["status"] = "queued" if c["card_id"] in scope_ids else "planned"
-        self.store.create_job(job_id, "created", req.model_dump(mode="json"),
-                              plan.model_dump(mode="json"), req.scope, flat)
+        # Immutable prompt snapshot: permanent library versions + the browser's session overrides, resolved NOW and bound to
+        # the job. Every card of every variant (and later regenerations) uses exactly these texts, even if the library or the
+        # browser session changes while the job runs, and the snapshot survives a browser restart (it lives in the database).
+        bundle = self._resolve_bundle(req.prompt_overrides)
+        request_json = req.model_dump(mode="json")
+        request_json["prompt_overrides"] = sorted(req.prompt_overrides)  # names only; the texts live in the snapshot
+        request_json["prompt_bundle"] = bundle
+        self.store.create_job(job_id, "created", request_json, plan.model_dump(mode="json"), req.scope, flat)
         self.store.add_event(job_id, f"Job created: {req.genre}, {req.number_of_variants} variant(s), "
                                      f"scope={req.scope} ({len(scope_ids)} images, est ${est:.3f}).")
         self.store.set_status(job_id, "planning")
-        planner = "AI planner (Gemini text)" if plan.planning_mode == "ai" else "rules planner"
+        planner = "AI planner (Gemini text)" if plan.planning_mode == "ai" else "legacy planner"
+        session_names = sorted(n for n, b in bundle.items() if b["source"] == "session_override")
+        if session_names:
+            self.store.add_event(job_id, "Prompt snapshot uses SESSION overrides for: " + ", ".join(session_names)
+                                 + " (the permanent Prompt Library is unchanged).", "warn")
         self.store.add_event(job_id, f"Planned with {planner} (seed {plan.seed}, distribution "
                                      f"{[counts[c] for c in (1, 2, 3, 4, 5)]} = Cat.1-4 + golden).")
         self.store.set_status(job_id, "plan_qa")
@@ -876,16 +992,8 @@ class JobService:
                 ref_ids, ref_mode = [], "unsupported_by_model"
             store.update_card(card["card_id"], status="generating", attempts=card["attempts"] + 1,
                               reference_selection=ref_mode, error=None)
-            req = GenerateCardRequest(
-                collection=rq["collection"], genre=job["plan"]["genre"], object_name=card["object_name"],
-                object_description=card["object_description"], category=card["category"],
-                wishes=rq["wishes"], provider=rq["provider"], model=rq["model"], reference_ids=ref_ids,
-                reference_policy_accepted=rq["reference_policy_accepted"], aspect_ratio=rq["aspect_ratio"],
-                output_size=rq.get("output_size", 1024), confirmed=True, repair_note=note,
-                context={"job_id": job_id, "variant_id": card["variant_id"], "position": card["position"],
-                         "card_id": card["card_id"], "reference_selection": ref_mode,
-                         "regeneration": is_regen, "spec_version": card["spec_version"]},
-            )
+            req = self._card_request(rq, job["plan"], card, ref_ids, ref_mode, rq.get("prompt_bundle") or None,
+                                     note=note, is_regen=is_regen, job_id=job_id)
             try:
                 meta = await self.gen.generate(req, allow_golden=True)
             except GenerationFailure as exc:
@@ -1000,7 +1108,10 @@ class JobService:
         return {
             "job_id": job_id, "status": job["status"], "error": job["error"], "scope": job["scope"],
             "created_at": job["created_at"], "updated_at": job["updated_at"],
-            "genre": job["plan"]["genre"], "collection": job["request"]["collection"], "request": job["request"],
+            "genre": job["plan"]["genre"], "collection": job["request"]["collection"],
+            "request": {k: v for k, v in job["request"].items() if k != "prompt_bundle"},
+            "prompt_bundle": {n: {k: v for k, v in b.items() if k != "text"} for n, b in (job["request"].get("prompt_bundle") or {}).items()},
+            "prompt_overrides": sorted(n for n, b in (job["request"].get("prompt_bundle") or {}).items() if b.get("source") == "session_override"),
             "seed": job["plan"]["seed"], "distribution": job["plan"]["distribution"],
             "number_of_cards": rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
             "gold_cards": rq.get("gold_cards", distribution.get(5, 0)),

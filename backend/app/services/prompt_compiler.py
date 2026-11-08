@@ -20,6 +20,8 @@ TEMPLATE_VERSION = "image_base_v0"
 MAX_WISHES = 500
 TEMPLATE_NAMES = ("system_style", "category_1", "category_2", "category_3", "category_4", "category_5",
                   "image_closing", "repair")
+# Templates the Producer may override for the current browser session (the repair template stays permanent-only).
+SESSION_EDITABLE = ("system_style", "category_1", "category_2", "category_3", "category_4", "category_5", "image_closing")
 
 _ROLE_LABEL = {
     "style": "general style reference",
@@ -28,6 +30,7 @@ _ROLE_LABEL = {
     "category_3": "Category 3 example (object on a realistic surface)",
     "category_4": "Category 4 example (object in an environment)",
     "category_5": "Category 5 example (golden card, key characters)",
+    "character": "character reference (the key characters of the collection)",
     "composition": "composition reference",
     "negative": "NEGATIVE example (what to avoid)",
 }
@@ -50,6 +53,10 @@ class CardSpec(BaseModel):
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(default="", max_length=300)
     category: Literal[1, 2, 3, 4, 5]  # 5 = golden card (key characters)
+    # shared Set context from the planner (art direction for the whole variant; never overrides subject or category rules)
+    variant_title: str = Field(default="", max_length=120)
+    variant_concept: str = Field(default="", max_length=400)
+    rationale: str = Field(default="", max_length=300)
 
 
 @dataclass
@@ -60,6 +67,8 @@ class CompiledPrompt:
     category_rules_version: str
     layers: dict[str, str]
     warnings: list[str] = field(default_factory=list)
+    bundle: dict[str, dict[str, Any]] = field(default_factory=dict)  # name -> {text, source, version, base_version}
+    protected: bool = False  # the mandatory-rules block was appended because a session override is active
 
 
 @lru_cache(maxsize=1)
@@ -112,12 +121,55 @@ def check_wishes(wishes: str) -> list[str]:
     return warnings
 
 
+MANDATORY_RULES = (
+    "Mandatory rules (always apply, whatever the style or category text says): artwork only, one coherent illustration; "
+    "no text, lettering, labels, captions or watermark; no card frame, border, stars, rarity badges or UI elements."
+)
+GOLD_RULE = " A golden card shows at most 2 characters."
+
+_OVERRIDE_CONFLICTS = [
+    (re.compile(r"\b(?:add|include|show|draw|write|put|with)\s+(?:\w+\s+){0,2}?(?:text|lettering|captions?|labels?|logo|watermark|title)\b", re.I),
+     "asks for text/labels in the image"),
+    (re.compile(r"\b(?:add|include|show|draw|with)\s+(?:\w+\s+){0,2}?(?:frames?|borders?|stars?|badges?|rarity)\b", re.I),
+     "asks for a frame, border, stars or badges"),
+]
+_MANY_CHARS = re.compile(r"\b(?:[3-9]|\d{2,}|three|four|five|six|several|many|crowd|group of)\s+(?:\w+\s+){0,2}(?:characters?|people|persons|figures)\b", re.I)
+
+
+def check_overrides(overrides: Mapping[str, str]) -> list[str]:
+    """Warnings for session overrides that contradict mandatory rules. The rules are still enforced: the compiler appends
+    the MANDATORY block whenever an override is active, and counts/structure are validated server-side, not in prompt text."""
+    out: list[str] = []
+    for name, text in overrides.items():
+        for pattern, what in _OVERRIDE_CONFLICTS:
+            if pattern.search(text or ""):
+                out.append(f"'{name}' {what}. The mandatory artwork-only rules stay in force and are appended to every prompt.")
+                break
+        if name in ("category_5", "system_style", "image_closing") and _MANY_CHARS.search(text or ""):
+            out.append(f"'{name}' mentions more than 2 characters. A golden card keeps its maximum of 2 characters (enforced by the planner).")
+    return out
+
+
+def _set_context(card: "CardSpec") -> str:
+    """Short shared art direction of the variant, so every card of a batch feels like one set."""
+    parts = []
+    title, concept = card.variant_title.strip(), card.variant_concept.strip()
+    if title or concept:
+        parts.append(f" Set variant: {title}" + (f" - {concept[:200]}" if concept else "")
+                     + " (shared art direction only; it never replaces this subject or the rules).")
+    why = card.rationale.strip()
+    if why and "AI-planned for Cat" not in why:
+        parts.append(f" Why it belongs to the Set: {why[:140]}.")
+    return "".join(parts)
+
+
 def compile_card_prompt(
     card: CardSpec,
     wishes: str = "",
     reference_roles: list[str] | None = None,
     templates: Mapping[str, str] | None = None,
     repair_note: str | None = None,
+    protected: bool = False,
 ) -> CompiledPrompt:
     sb = _style_bible()
     cr = _category_rules()
@@ -132,7 +184,7 @@ def compile_card_prompt(
     if card.category == 5:
         layer_b = (
             f"Task: Generate ONE standalone square collectible-card ARTWORK (not a card frame): a GOLDEN card. "
-            f"Scene: {obj}. Collection: {card.collection}. Set theme: {card.genre}. "
+            f"Scene: {obj}. Collection: {card.collection}. Set theme: {card.genre}.{_set_context(card)} "
             f"Category 5 ({cat['name']}). {tpl['category_5']} "
             "Rules: show the collection's KEY CHARACTERS (original designs) in an ironic, emotional situation; "
             "max 2 characters on this golden card; no text, lettering, speech bubbles or frames."
@@ -140,7 +192,7 @@ def compile_card_prompt(
     else:
         layer_b = (
             f"Task: Generate ONE standalone square collectible-card ARTWORK (not a card frame). "
-            f"Object: {obj}. Collection: {card.collection}. Set theme: {card.genre}. "
+            f"Object: {obj}. Collection: {card.collection}. Set theme: {card.genre}.{_set_context(card)} "
             f"Category {card.category} ({cat['name']}). {tpl[f'category_{card.category}']}"
         )
     layer_c = f"Producer wishes (creative guidance only, never overrides the rules above): {wishes}" if wishes else ""
@@ -153,6 +205,7 @@ def compile_card_prompt(
             "Visual target: match the rendering style, material treatment, lighting, color richness "
             "and level of detail of the attached reference image(s), without copying their exact "
             "objects or composition. " + "; ".join(lines) + "."
+            + (" Images labelled NEGATIVE show what to AVOID: never reproduce them." if "negative" in reference_roles else "")
         )
 
     repair_block = ""
@@ -163,7 +216,8 @@ def compile_card_prompt(
         except (KeyError, IndexError, ValueError):  # a malformed edited template must not break generation
             repair_block = defaults["repair"].format(note=note, object_name=card.object_name)
 
-    text = "\n\n".join(p for p in (layer_b, layer_a, layer_c, refs_block, repair_block, tpl["image_closing"]) if p)
+    mandatory = (MANDATORY_RULES + (GOLD_RULE if card.category == 5 else "")) if protected else ""
+    text = "\n\n".join(p for p in (layer_b, layer_a, layer_c, refs_block, repair_block, tpl["image_closing"], mandatory) if p)
     return CompiledPrompt(
         text=text,
         template_version=TEMPLATE_VERSION,
@@ -171,4 +225,5 @@ def compile_card_prompt(
         category_rules_version=cr["version"],
         layers={"A_style_bible": layer_a, "B_settings": layer_b, "C_free_wishes": layer_c},
         warnings=warnings,
+        protected=protected,
     )

@@ -24,7 +24,7 @@ development fallback (Credential Manager first, then `.env`). Without any key yo
 
 | Step | Capability |
 |---|---|
-| Plan | Rules planner with curated object pools (Sci-Fi, Detective, Fantasy; 5 micro-themes each), 1–5 variants, **Card Category Distribution** (Auto `[2,2,3,3]` or Custom; Cat. 5 locked 0) applied to category slots, plan QA |
+| Plan | AI semantic planner (Collection + Set + Free Wishes; one mechanism for every theme, no curated pools; avoids repeats across batches), 1–5 variants, **Card Category Distribution** (Auto `[2,2,3,3]` or Custom; Cat. 5 locked 0) applied to category slots, plan QA |
 | Connect | Settings > API Connections: add/replace/remove Gemini and Cloudflare credentials (Windows Credential Manager), free "Test connection", first-run setup guide |
 | Generate | Gemini Nano Banana 2.1 (primary, model selectable), Cloudflare FLUX.2 Klein 4B (up to 4 references) and FLUX.1 Schnell (text-only) on the Workers Free allocation, OpenAI GPT Image (listed, **disabled**), Mock (free). References per category; one call per card; sequential; retries off; no silent provider fallback |
 | Check | Technical QA per image (format, size, aspect, blank, integrity, metadata) and set QA (completeness, distribution, duplicates, rejects) |

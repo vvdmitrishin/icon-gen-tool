@@ -43,7 +43,8 @@ def client(settings, rec):
 # ----------------------------------------------------------------------------- lifecycle
 def test_preview_is_free_and_describes_scope(settings, rec):
     with client(settings, rec) as c:
-        r = c.post("/api/jobs/preview", json=body())
+        assert c.post("/api/jobs/preview", json=body()).json()["detail"]["code"] == "ai_plan_required"  # free preview never calls the AI
+        r = c.post("/api/jobs/preview", json=body(allow_ai_plan=True))
         assert r.status_code == 200
         d = r.json()
         assert len(d["plan"]["variants"]) == 1 and len(d["plan"]["variants"][0]["cards"]) == 10
@@ -105,7 +106,7 @@ def test_mock_provider_full_set_is_free(settings, rec):
 
 def test_job_validation_errors(settings, rec):
     with client(settings, rec) as c:
-        assert c.post("/api/jobs", json=body(genre="Western")).json()["detail"]["code"] == "ai_plan_required"
+        assert c.post("/api/jobs/preview", json=body(genre="Western")).json()["detail"]["code"] == "ai_plan_required"
         r = c.post("/api/jobs", json=body(provider="openai", model="gpt-image-2.5-flare"))
         assert r.status_code == 400 and r.json()["detail"]["code"] == "model_unavailable"
         r = c.post("/api/jobs", json=body(category_distribution={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 0, "4": 0}}))
@@ -224,13 +225,25 @@ def test_select_references_unit():
     metas = [{"ref_id": "r1", "ref_type": "category_1"}, {"ref_id": "r2", "ref_type": "style"},
              {"ref_id": "r3", "ref_type": "category_3"}]
     assert select_references(metas, 1, 5) == (["r1", "r2"], "category_match")
-    assert select_references(metas, 3, 5) == (["r2", "r3"], "category_match")
-    assert select_references([metas[0]], 4, 5) == (["r1"], "fallback_all")
+    assert select_references(metas, 3, 5) == (["r3", "r2"], "category_match")  # the matching category comes first
+    assert select_references(metas, 4, 5) == (["r2"], "global_only")  # NOT the category 1 / 3 references
+    assert select_references([metas[0]], 4, 5) == ([], "none_applicable")  # nothing applies: text rules only, no images
     assert select_references([], 2, 5) == ([], "none")
     assert select_references(metas, 1, 1) == (["r1"], "category_match")
 
 
-def test_reference_guided_job_sends_refs_per_card_and_requires_policy(settings, rec):
+def test_select_references_scopes_character_composition_negative():
+    metas = [{"ref_id": "st", "ref_type": "style"}, {"ref_id": "ch", "ref_type": "character"},
+             {"ref_id": "co", "ref_type": "composition"}, {"ref_id": "ng", "ref_type": "negative"},
+             {"ref_id": "g5", "ref_type": "category_5"}, {"ref_id": "c2", "ref_type": "category_2"}]
+    assert select_references(metas, 2, 9) == (["c2", "st", "co", "ng"], "category_match")  # no character / golden refs
+    assert select_references(metas, 5, 9) == (["g5", "ch", "st", "co", "ng"], "category_match")  # characters only on golden cards
+    assert select_references(metas, 5, 2) == (["g5", "ch"], "category_match")  # provider cap keeps the most specific first
+    assert select_references([metas[1]], 3, 5) == ([], "none_applicable")  # a character-only upload never reaches a normal card
+    assert select_references([metas[3]], 3, 5) == (["ng"], "global_only")
+
+
+def test_reference_guided_job_sends_only_applicable_refs_per_card_and_requires_policy(settings, rec):
     with client(settings, rec) as c:
         up = c.post("/api/references", files={"file": ("r.png", png_bytes(), "image/png")},
                     data={"ref_type": "category_1"}).json()
@@ -243,11 +256,16 @@ def test_reference_guided_job_sends_refs_per_card_and_requires_policy(settings, 
         d = wait(c, job_id)
         assert d["status"] == "ready_for_review"
         import json
-        for req in rec.requests:
-            parts = json.loads(req.content)["contents"][0]["parts"]
-            assert len(parts) == 2 and "inlineData" in parts[1]  # every card is reference-guided
-        modes = {k["category"]: k["reference_selection"] for k in d["variants"][0]["cards"] if k["status"] == "done"}
-        assert modes[1] == "category_match" and modes[3] == "fallback_all"
+        sent = [len(json.loads(req.content)["contents"][0]["parts"]) for req in rec.requests]
+        cards = [k for k in d["variants"][0]["cards"] if k["status"] == "done"]
+        assert len(sent) == len(cards)
+        for k in cards:
+            meta = c.get(f"/api/artifacts/{k['artifact_id']}").json()
+            if k["category"] == 1:
+                assert k["reference_selection"] == "category_match" and [r["ref_id"] for r in meta["references"]] == [rid]
+            else:  # the category 1 reference is NEVER sent to other categories any more
+                assert k["reference_selection"] == "none_applicable" and meta["references"] == []
+        assert sorted(sent) == sorted([2 if k["category"] == 1 else 1 for k in cards])  # 1 part = text only
 
 
 def test_planner_genres_endpoint(settings, rec):

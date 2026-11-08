@@ -40,8 +40,9 @@ class CfServer:
 
 
 def configured(tmp_path, **kw):
+    # the Gemini key only lets the (fixture) text planner run; the image provider under test is Cloudflare
     return Settings(data_root=tmp_path / "d", artifact_root=tmp_path / "d" / "a", cloudflare_account_id="acct",
-                    cloudflare_api_token=FAKE_TOKEN, **kw)
+                    gemini_api_key="fake-planner-key", cloudflare_api_token=FAKE_TOKEN, **kw)
 
 
 def wait(c, job_id, timeout=60):

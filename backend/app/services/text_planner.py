@@ -62,6 +62,7 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
                                 "object_name": {"type": "STRING"},
                                 "object_description": {"type": "STRING"},
                                 "characters": {"type": "INTEGER"},  # golden cards only: 1 or 2
+                                "rationale": {"type": "STRING"},  # one short phrase: why it belongs to THIS Set
                             },
                             "required": ["position", "category", "object_name", "object_description"],
                         },
@@ -81,6 +82,7 @@ class _AICard(BaseModel):
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(min_length=1)
     characters: int | None = None  # required for golden cards (validated in _build / validate_plan)
+    rationale: str = ""  # optional short "why it belongs to this Set" (passed concisely into the image prompt)
 
 
 class _AIVariant(BaseModel):
@@ -143,7 +145,8 @@ class TextPlanner:
             dist,
             f"Card order inside a variant: positions 1..{total} follow these category slots: {slots}.",
             "Every `object_name` must be unique across ALL variants (no repeats anywhere). `object_name` max 80 chars; "
-            "`object_description` one short visual sentence (max 200 chars).",
+            "`object_description` one short visual sentence (max 200 chars); `rationale` a short phrase (max 100 chars) saying "
+            "why this subject belongs to THIS Set.",
         ]
         if history:
             lines.append(
@@ -297,7 +300,7 @@ class TextPlanner:
                 PlanCard(position=pos, category=c.category, object_name=c.object_name.strip(),
                          object_description=c.object_description.strip()[:300],
                          characters=c.characters if c.category == GOLDEN_CATEGORY else None,
-                         rationale=f"{v.title.strip()}: AI-planned for Cat. {c.category}")
+                         rationale=(c.rationale.strip()[:140] or f"{v.title.strip()}: AI-planned for Cat. {c.category}"))
                 for pos, c in enumerate(ordered, 1)
             ]
             built.append(PlanVariant(variant_id=VARIANT_IDS[vi], index=vi, title=v.title.strip()[:80],

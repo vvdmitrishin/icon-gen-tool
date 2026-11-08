@@ -33,6 +33,25 @@ MOCK = {"provider": "mock", "model": "mock-placeholder-v1"}
 results: list[tuple[bool, str]] = []
 
 
+def offline_planner(settings, model, prompt, seed):
+    """Stand-in for the AI text planner so that this smoke test never needs a network or a paid call.
+    (Production has one planner: the AI semantic planner. There are no curated pools.)"""
+    import re
+    variants = int(re.search(r"Create (\d+) DISTINCT", prompt).group(1))
+    slots = [int(x) for x in re.search(r"category slots: \[([0-9, ]+)\]", prompt).group(1).split(",")]
+    nouns = "lantern anchor compass kettle violin telescope saddle thimble bucket feather mirror harp pendulum satchel trowel".split()
+    out, k = [], 0
+    for vi in range(variants):
+        cards = []
+        for pos, cat in enumerate(slots, 1):
+            name = f"Offline {nouns[k % len(nouns)].capitalize()} {k // len(nouns) + 1}"
+            k += 1
+            cards.append(dict(position=pos, category=cat, object_name=name, object_description=f"a {name.lower()}", rationale="offline smoke",
+                              **({"characters": 2} if cat == 5 else {})))
+        out.append(dict(title=f"Offline angle {vi + 1}", concept="offline smoke concept", cards=cards))
+    return {"variants": out}
+
+
 def step(ok: bool, label: str, detail: str = "") -> None:
     results.append((ok, label))
     print(f"[{'PASS' if ok else 'FAIL'}] {label}{(' - ' + detail) if detail else ''}")
@@ -51,8 +70,11 @@ def wait(c: TestClient, job_id: str, timeout: float = 90) -> dict:
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data"
-        s = Settings(data_root=data, artifact_root=data / "artifacts")
-        with TestClient(create_app(s)) as c:
+        s = Settings(data_root=data, artifact_root=data / "artifacts", gemini_api_key="offline-smoke-key")  # key is never sent
+        app = create_app(s)
+        from app.services.text_planner import TextPlanner  # noqa: E402
+        app.state.jobs.text_planner = TextPlanner(app.state.jobs.gen.registry, backend=offline_planner)
+        with TestClient(app) as c:
             step(c.get("/api/health").json()["status"] == "ok", "backend health")
             step(len(c.get("/api/prompts").json()) == 8, "prompt library seeded (8 templates)")
 

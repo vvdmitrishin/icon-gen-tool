@@ -302,7 +302,7 @@ export function ConnectionsPanel({ onChange }: { onChange?: () => void }) {
   return (
     <section className="card-box" aria-labelledby="cn-panel-title">
       <h3 id="cn-panel-title">Connect your image providers</h3>
-      <p className="hint">Add at least one to create real images. Until then you can try the free demo (Mock) provider.</p>
+      <p className="hint">Connect Gemini to plan and generate sets (the AI planner needs it, even when you pick the free Mock image provider). Cloudflare is an optional free image fallback.</p>
       <PrivacyNote />
       <ProviderCards conn={{ ...conn, replaceProvider: update }} />
     </section>

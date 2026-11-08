@@ -2,7 +2,7 @@
 
 ```
 React UI (Vite, TS) ──/api──▶ FastAPI ──▶ JobService (sequential runner, one lock)
-                                   │            ├─ RulesPlanner + object pools + Card Category Distribution
+                                   │            ├─ AI TextPlanner (semantic, one planner) + Card Category Distribution
                                    │            ├─ GenerationService ─▶ PromptCompiler (+ Prompt Library templates)
                                    │            │                        └▶ ModelRegistry ─▶ Gemini | Cloudflare | OpenAI(disabled) | Mock
                                    │            ├─ CostGuard (estimate, caps, ledger)   └▶ ArtifactStore (PNG + JSON sidecar)
@@ -28,7 +28,7 @@ Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (sections 6.15, 12.7.1, 1
 | `services/prompt_compiler.py` | Layer A (style) + B (CardSpec/category rules) + C (free wishes) + references + repair note + closing; library templates override editable blocks |
 | `services/prompt_library.py` | versioned templates (7), save/restore create new immutable versions |
 | `services/category_distribution.py` | Auto `[2,2,3,3]`/Custom, Σ=10, each Cat. 1–4 ≥ 1, Cat. 5 = 0, slot assignment |
-| `services/planning.py` | seeded rules planner, plan QA (HR rules), distinct micro-theme per variant |
+| `services/planning.py` | plan data model + plan QA (HR rules); `services/text_planner.py` the AI semantic planner; `services/semantic_planning.py` duplicates / wish exclusions / batch history; no curated pools |
 | `services/generation.py` | one card: validate → compile → confirm/cap → provider → PNG + provenance JSON |
 | `services/jobs.py` | store + state machine + runner; versions, review, approval, regenerate, replace card, QA orchestration, restart recovery |
 | `services/qa.py` | deterministic checks TQ-01..09 and SQ-01..08 (structure only) |

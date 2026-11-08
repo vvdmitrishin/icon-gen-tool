@@ -15,7 +15,7 @@ from app.services.category_distribution import (
     final_eligibility,
     resolve_distribution,
 )
-from app.services.planning import PlanningError, plan_set
+from tests.conftest import make_plan
 from tests.test_free_text_sets import MOCK, TextRecorder, ai_plan_json, job_body, wait
 
 SUMMER = ["Beach Ball", "Surfboard", "Sun Hat", "Swim Goggles", "Sand Volleyball Net", "Paddle Board",
@@ -26,7 +26,6 @@ SUMMER = ["Beach Ball", "Surfboard", "Sun Hat", "Swim Goggles", "Sand Volleyball
 # ------------------------------------------------------------------ B2 matrix
 @pytest.mark.parametrize("n", range(1, 11))
 def test_distribution_matrix_all_n_g(n):
-    exhausted = []
     for g in range(0, n + 1):
         d = resolve_distribution(None, number_of_cards=n, gold_cards=g)
         std = n - g
@@ -47,14 +46,9 @@ def test_distribution_matrix_all_n_g(n):
             assert compliance(got)[0] is False
         with pytest.raises(DistributionError):  # wrong sums are rejected, never silently fixed
             resolve_distribution(CategoryDistribution(mode="custom", counts={1: 20, 2: 1, 3: 1, 4: 1}, number_of_cards=n, gold_cards=g))
-        try:  # planning: exactly N cards or a loud pool_exhausted
-            plan = plan_set("Science Fiction", 1, d, seed=3)
-            cards = plan.variants[0].cards
-            assert len(cards) == n and sum(1 for c in cards if c.category == 5) == g
-        except PlanningError as exc:
-            assert exc.code == "pool_exhausted"
-            exhausted.append((n, g))
-    assert exhausted == [] or all(g > 0 for _, g in exhausted)
+        plan = make_plan(1, d)  # planning: exactly N cards, the requested number of them golden
+        cards = plan.variants[0].cards
+        assert len(cards) == n and sum(1 for c in cards if c.category == 5) == g
 
 
 def test_compliance_notes_and_eligibility():
@@ -74,7 +68,7 @@ def test_api_exposes_compliance_and_echoes_counts(settings):
         r = c.post("/api/category-distribution/validate",
                    json=dict(mode="custom", counts={"1": 7, "2": 1, "3": 1, "4": 1}, number_of_cards=10)).json()
         assert r["compliant"] is True and r["compliance_note"] is None and r["counts"]["1"] == 7
-        p = c.post("/api/jobs/preview", json=dict(genre="Detective", number_of_cards=5, gold_cards=2, **MOCK)).json()
+        p = c.post("/api/jobs/preview", json=dict(genre="Detective", number_of_cards=5, gold_cards=2, allow_ai_plan=True, **MOCK)).json()
         assert p["compliant"] is False and p["distribution"]["5"] == 2 and p["final_eligible"] is False
         assert p["final_ineligible_reason"]
         jid = c.post("/api/jobs", json=dict(genre="Detective", number_of_variants=1, number_of_cards=4,
@@ -154,10 +148,12 @@ def test_ai_request_body_and_summer_sports_objects(settings):
 def test_never_falls_back_to_curated_pool(settings, coll, st):
     rec = TextRecorder({})
     with TestClient(create_app(settings, gemini_transport=rec.transport)) as c:
-        for path in ("/api/jobs/preview", "/api/jobs"):
-            r = c.post(path, json=job_body(collection=coll, genre=st, allow_ai_plan=False))
-            assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_required", (path, r.text)
+        r = c.post("/api/jobs/preview", json=job_body(collection=coll, genre=st, allow_ai_plan=False))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_required"  # the free preview never calls the AI
         assert rec.requests == []
+        # Generate plans with the AI; when the plan is unusable no job and no image is created, and nothing curated replaces it
+        r = c.post("/api/jobs", json=job_body(collection=coll, genre=st, allow_ai_plan=False))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_invalid"
         assert c.get("/api/jobs").json() == []
 
 

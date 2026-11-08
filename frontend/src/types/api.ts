@@ -84,6 +84,8 @@ export interface GenerateRequest {
   /** Target icon size in px (square). Models render natively; smaller sizes are downscaled. */
   output_size?: number;
   confirmed: boolean;
+  /** Session-only prompt overrides (template name -> text); never stored permanently. */
+  prompt_overrides?: Record<string, string>;
 }
 
 export interface PreviewResponse {
@@ -105,7 +107,14 @@ export interface Artifact {
   image: { url: string; width: number; height: number; bytes: number; sha256: string };
   card: { object_name: string; genre: string; category: number };
   provider: { id: string; model: string; label: string; model_status: string; model_notes: string[] };
-  prompt: { effective: string; warnings: string[] };
+  prompt: {
+    effective: string;
+    warnings: string[];
+    bundle?: Record<string, { source: string; version: number | null; base_version?: number | null }>;
+    session_overrides?: string[];
+    template_versions?: Record<string, number | null>;
+    planning_context?: { collection?: string; set?: string; variant_title?: string; variant_concept?: string; rationale?: string };
+  };
   references: { ref_id: string; role: string }[];
   cost: { estimated_usd: number; usage_metadata: Record<string, number> };
   timing: { latency_ms: number; attempts: number };
@@ -113,7 +122,7 @@ export interface Artifact {
 }
 
 // ---- sets / jobs ----------------------------------------------------------------------------
-export interface GenreInfo { genre: string; microthemes: string[]; max_variants: number }
+export interface GenreInfo { genre: string; max_variants: number }
 
 export type DistributionPayload =
   | { mode: "auto_balanced" }
@@ -131,8 +140,8 @@ export interface JobRequestPayload {
   output_size: number;
   /** true = the user agreed to one small AI text call to plan custom themes */
   allow_ai_plan: boolean;
-  /** auto = curated pools for the Movie presets, AI for everything else; ai = always the semantic AI planner */
-  planner?: "auto" | "ai";
+  /** Session-only prompt overrides; the server snapshots them per job (nothing is stored in the permanent library). */
+  prompt_overrides?: Record<string, string>;
   category_distribution: DistributionPayload;
   provider: string;
   model: string;
@@ -385,6 +394,29 @@ export interface ExportRecord {
   standard_ten_card_set?: boolean | null;
 }
 
+export interface PromptRow {
+  position: number;
+  category: number;
+  variant_id: string;
+  object_name: string;
+  card_id?: string | null;
+  /** generated = the immutable prompt stored with the image; compiled = preview from the same compiler */
+  source: "generated" | "compiled";
+  artifact_id?: string;
+  prompt: string;
+  warnings: string[];
+  model: string;
+  provider: string;
+  references: { ref_id: string; role: string }[];
+  reference_selection?: string | null;
+  bundle: Record<string, { source: string; version: number | null; base_version?: number | null }>;
+  session_overrides: string[];
+}
+
+export interface JobPromptsResponse { job_id: string; prompts: PromptRow[]; snapshot: boolean }
+export interface PromptsPreviewResponse { variants: Record<string, PromptRow[]>; planning_mode: PlanningMode; session_overrides: string[]; warnings: string[] }
+export interface SessionCheckResponse { ok: boolean; warnings: string[] }
+
 export interface SelectionExportItem { job_id: string; card_id: string; artifact_id: string }
 
 export interface PlanOnlyRequest {
@@ -396,7 +428,6 @@ export interface PlanOnlyRequest {
   gold_cards: number;
   set_type: "standard" | "grand";
   category_distribution?: unknown;
-  planner: "auto" | "ai";
   seed: number | null;
 }
 

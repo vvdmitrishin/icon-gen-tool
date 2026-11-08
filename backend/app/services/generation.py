@@ -16,8 +16,8 @@ from ..config import Settings
 from ..providers.base import GenerationRequest, ProviderDisabled, ProviderError
 from ..providers.model_registry import ModelInfo, ModelRegistry
 from .cost_guard import BudgetExceeded, CostGuard
-from .prompt_compiler import CardSpec, CompiledPrompt, compile_card_prompt
-from .prompt_library import PromptLibrary
+from .prompt_compiler import CardSpec, CompiledPrompt, check_overrides, compile_card_prompt
+from .prompt_library import LibraryError, PromptLibrary
 from .reference_manager import ReferenceError_, ReferenceManager
 from .storage import ArtifactStore, new_artifact_id
 
@@ -38,6 +38,14 @@ class GenerateCardRequest(BaseModel):
     confirmed: bool = False  # explicit user confirmation of the shown cost estimate
     context: dict[str, Any] = Field(default_factory=dict)  # e.g. job_id/variant_id/position (provenance)
     repair_note: str = Field(default="", max_length=300)  # regeneration corrections (spec §11.4)
+    # Session-only prompt overrides (template name -> text) sent by the browser for single-card calls and previews.
+    prompt_overrides: dict[str, str] = Field(default_factory=dict)
+    # The job's immutable prompt snapshot (set by the job runner only): name -> {text, source, version, base_version}.
+    prompt_bundle: dict[str, Any] | None = None
+    # Shared Set context from the plan (variant art direction); never overrides the subject or the category rules.
+    variant_title: str = Field(default="", max_length=120)
+    variant_concept: str = Field(default="", max_length=400)
+    rationale: str = Field(default="", max_length=300)
 
     def card(self) -> CardSpec:
         return CardSpec(
@@ -46,6 +54,9 @@ class GenerateCardRequest(BaseModel):
             object_name=self.object_name,
             object_description=self.object_description,
             category=self.category,
+            variant_title=self.variant_title,
+            variant_concept=self.variant_concept,
+            rationale=self.rationale,
         )
 
 
@@ -149,14 +160,34 @@ class GenerationService:
                 "AI provider before generating (spec §6.5).",
             )
         try:
-            texts, versions = self.prompts.active_texts() if self.prompts else ({}, {})
+            bundle = self._bundle_for(req)
+            texts = {n: b["text"] for n, b in bundle.items()}
+            session = {n: b["text"] for n, b in bundle.items() if b["source"] == "session_override"}
             compiled = compile_card_prompt(req.card(), req.wishes, [r.role for r in refs], texts,
-                                           req.repair_note or None)
-            compiled.template_versions = versions  # type: ignore[attr-defined]
+                                           req.repair_note or None, protected=bool(session))
+            compiled.bundle = bundle
+            compiled.warnings = [*compiled.warnings, *check_overrides(session)]
+            compiled.template_versions = {n: b.get("version") for n, b in bundle.items()}  # type: ignore[attr-defined]
+        except LibraryError as exc:
+            raise GenerationFailure(422, exc.code, exc.message) from exc
         except ValueError as exc:
             raise GenerationFailure(422, "invalid_card", str(exc)) from exc
         estimate = self.guard.estimate_usd(model.provider_id, 1, model.model_id)
         return model, compiled, refs, estimate
+
+    def _bundle_for(self, req: GenerateCardRequest) -> dict[str, dict[str, Any]]:
+        """The effective prompt bundle of one request: the job's immutable snapshot when it has one, otherwise the permanent
+        library plus the request's session overrides. Without a library (unit tests) the built-in defaults apply."""
+        if self.prompts is None:
+            return {}
+        if req.prompt_bundle:
+            return self.prompts.normalize_bundle(req.prompt_bundle)
+        return self.prompts.resolve_bundle(req.prompt_overrides)
+
+    def render_prompt(self, req: GenerateCardRequest) -> tuple[ModelInfo, CompiledPrompt, list]:
+        """Compile the final prompt exactly as generation would, WITHOUT calling any provider (free)."""
+        model, compiled, refs, _ = self._prepare(req)
+        return model, compiled, refs
 
     def preview(self, req: GenerateCardRequest) -> dict[str, Any]:
         """Effective-prompt + cost preview. Free, never calls a provider."""
@@ -171,6 +202,8 @@ class GenerationService:
             "layers": compiled.layers,
             "warnings": compiled.warnings,
             "template_version": compiled.template_version,
+            "bundle": {n: {k: v for k, v in b.items() if k != "text"} for n, b in compiled.bundle.items()},
+            "session_overrides": sorted(n for n, b in compiled.bundle.items() if b["source"] == "session_override"),
             "reference_count": len(refs),
             "estimated_cost_usd": estimate,
             "cost_is_estimate": True,
@@ -291,6 +324,17 @@ class GenerationService:
                 "style_bible_version": compiled.style_bible_version,
                 "category_rules_version": compiled.category_rules_version,
                 "template_versions": getattr(compiled, "template_versions", {}),
+                # exact bundle used for this image: origin (permanent library vs session override) and permanent versions
+                "bundle": {n: {k: v for k, v in b.items() if k != "text"} for n, b in compiled.bundle.items()},
+                "session_overrides": sorted(n for n, b in compiled.bundle.items() if b["source"] == "session_override"),
+                "mandatory_block_appended": compiled.protected,
+                "effective_texts": ({
+                    "system_style": compiled.bundle["system_style"]["text"],
+                    "category_rule": compiled.bundle[f"category_{req.category}"]["text"],
+                    "image_closing": compiled.bundle["image_closing"]["text"],
+                } if compiled.bundle else {}),
+                "planning_context": {"collection": req.collection, "set": req.genre, "variant_title": req.variant_title,
+                                     "variant_concept": req.variant_concept, "rationale": req.rationale},
                 "repair_note": req.repair_note,
                 "free_wishes": req.wishes,
                 "warnings": compiled.warnings,

@@ -113,6 +113,9 @@ class Exporter:
                 "provider": meta["provider"]["id"], "model": meta["provider"]["model"],
                 "model_status": meta["provider"]["model_status"], "origin": meta["origin"], "is_mock": meta.get("is_mock", False),
                 "prompt": {"effective": meta["prompt"]["effective"], "template_versions": meta["prompt"].get("template_versions", {}),
+                           "prompt_bundle": meta["prompt"].get("bundle", {}),
+                           "session_overrides": meta["prompt"].get("session_overrides", []),
+                           "planning_context": meta["prompt"].get("planning_context", {}),
                            "style_bible_version": meta["prompt"]["style_bible_version"],
                            "category_rules_version": meta["prompt"]["category_rules_version"],
                            "free_wishes": meta["prompt"]["free_wishes"], "repair_note": meta["prompt"].get("repair_note", "")},
@@ -243,6 +246,7 @@ class Exporter:
                 "native_pixel_size": f"{meta['image'].get('native_width')}x{meta['image'].get('native_height')}",
                 "provider": meta["provider"]["id"], "model": meta["provider"]["model"], "is_mock": meta.get("is_mock", False),
                 "prompt": meta["prompt"]["effective"], "free_wishes": meta["prompt"]["free_wishes"],
+                "prompt_bundle": meta["prompt"].get("bundle", {}), "session_overrides": meta["prompt"].get("session_overrides", []),
                 "references": meta["references"], "created_at": meta["created_at"],
                 "technical_qa": c["qa_status"] if "qa_status" in c else None, "art_review": c.get("art_review"),
             })

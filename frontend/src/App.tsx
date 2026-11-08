@@ -4,6 +4,7 @@ import { CategoryDistribution, distributionErrors, type DistMode } from "./compo
 import { GoldSlider } from "./components/GoldSlider";
 import { PlanNotice, type PlanError } from "./components/PlanNotice";
 import type { PlanOnlyState } from "./components/PlanOnlyPanel";
+import { useSessionPrompts } from "./lib/sessionPrompts";
 import { ModelSettings, ProviderAvailability, keyOf } from "./components/ModelSettings";
 import { DEFAULT_CARDS, DEFAULT_SIZE, balancedSplit, fitCounts, type Cat, type DistCounts } from "./lib/cards";
 import { ReferenceUploader } from "./components/ReferenceUploader";
@@ -89,6 +90,8 @@ export default function App() {
 
   const [armed, setArmed] = useState(false);
   const [planOnly, setPlanOnly] = useState<PlanOnlyState | null>(null);
+  const sessionPrompts = useSessionPrompts(); // session-only prompt overrides (sessionStorage), sent with every generation
+  const promptOverrides = sessionPrompts.overrides;
   const [checking, setChecking] = useState(false);
   const armTimer = useRef<number | undefined>(undefined);
   const contTimer = useRef<number | undefined>(undefined);
@@ -243,8 +246,9 @@ export default function App() {
       aspect_ratio: aspect,
       output_size: outputSize,
       confirmed,
+      ...(Object.keys(promptOverrides).length ? { prompt_overrides: promptOverrides } : {}),
     }),
-    [collection, genre, objectName, objectDesc, category, wishes, model, refIds, policy, aspect, outputSize],
+    [collection, genre, objectName, objectDesc, category, wishes, model, refIds, policy, aspect, outputSize, promptOverrides],
   );
 
   const jobRequest = useCallback(
@@ -269,8 +273,9 @@ export default function App() {
       scope: "full",
       seed,
       confirmed,
+      ...(Object.keys(promptOverrides).length ? { prompt_overrides: promptOverrides } : {}),
     }),
-    [collection, genre, setType, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed],
+    [collection, genre, setType, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed, promptOverrides],
   );
 
   const onBatch = useCallback(async (confirmed: boolean) => {
@@ -339,7 +344,7 @@ export default function App() {
     return () => { live = false; window.clearTimeout(t); };
   }, [mode, setValid, distBad, jobRequest, planKey, models?.budget.spent_estimated_usd]);
 
-  /** "Plan with AI": one small text call for custom themes; the result is reused while the inputs stay unchanged. */
+  /** "Preview plan (optional)": one small AI text call; the plan is reused by Generate while the inputs stay unchanged. */
   async function planWithAi() {
     setPlanningAi(true);
     const key = planKey;
@@ -429,7 +434,7 @@ export default function App() {
     try {
       const r = await api.planTest({
         collection: collection.trim() || "Movie Collection", genre: genre.trim(), wishes, number_of_variants: variants,
-        number_of_cards: numberOfCards, gold_cards: goldEff, set_type: setType, planner: "ai", seed,
+        number_of_cards: numberOfCards, gold_cards: goldEff, set_type: setType, seed,
         category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
       });
       setPlanOnly({ busy: false, result: r, error: null, form });
@@ -605,6 +610,12 @@ export default function App() {
               ? <PlanNotice error={jobPreviewError} planning={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)} compact />
               : blockedReason && formValid && <div className="alert warn compact">{blockedReason}</div>}
             {mode === "set" && jobPreview?.warnings.map((w) => <div key={w} className="alert warn compact">{w}</div>)}
+            {sessionPrompts.count > 0 && (
+              <div className="alert warn compact session-chip" role="status">
+                <strong>Session Override Active</strong> ({sessionPrompts.names.map((n) => n.replace("_", " ")).join(", ")}): Generate uses these temporary prompts.
+                <button type="button" className="ghost sm" onClick={sessionPrompts.resetAll}>Reset all</button>
+              </div>
+            )}
             <div className="cta-row">
               <button type="button" className={`primary big ${armed ? "armed" : ""}`} onClick={onGenerate} disabled={!canGenerate}>
                 <span>{buttonLabel.main}</span>{buttonLabel.sub && <small>{buttonLabel.sub}</small>}{buttonLabel.sub2 && <small className="cost2">{buttonLabel.sub2}</small>}
@@ -630,7 +641,8 @@ export default function App() {
             planningAi={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)}
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
             onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")}
-            planOnly={planOnly} onClosePlanOnly={() => setPlanOnly(null)} />
+            planOnly={planOnly} onClosePlanOnly={() => setPlanOnly(null)}
+            onPreviewPrompts={() => api.previewPrompts(jobRequest(false, undefined, true))} />
         ) : (
           <ResultPanel artifact={artifact} history={history} onPick={setArtifact} preview={preview} generating={generating} error={genError} />
         )}

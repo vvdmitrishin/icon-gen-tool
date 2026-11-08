@@ -4,7 +4,10 @@ import type {
   CollectionOverview,
   ComparisonGrid,
   ExportRecord,
+  JobPromptsResponse,
   PlanOnlyRequest,
+  PromptsPreviewResponse,
+  SessionCheckResponse,
   PlanOnlyResult,
   SelectionExportItem,
   GenerateRequest,
@@ -138,6 +141,10 @@ export const api = {
     call<ExportRecord>("/api/exports", json({ job_id, variant_id, ...flags })),
   exportSelection: (body: { collection: string; genre: string; set_type: "standard" | "grand"; items: SelectionExportItem[] }) =>
     call<ExportRecord>("/api/exports/selection", json(body)),
+  previewPrompts: (req: JobRequestPayload) => call<PromptsPreviewResponse>("/api/jobs/preview-prompts", json(req)),
+  jobPrompts: (jobId: string, variantId?: string) =>
+    call<JobPromptsResponse>(`/api/jobs/${jobId}/prompts${variantId ? `?variant_id=${encodeURIComponent(variantId)}` : ""}`),
+  sessionCheck: (overrides: Record<string, string>) => call<SessionCheckResponse>("/api/prompts/session-check", json({ overrides })),
   planTest: (req: PlanOnlyRequest) => call<PlanOnlyResult>("/api/plan/test", json(req)),
   exportCollection: (flags: { include_unapproved?: boolean; allow_mock?: boolean; allow_partial?: boolean } = {}) =>
     call<ExportRecord>("/api/collection/export", json({ collection: "Movie Collection", ...flags })),

@@ -24,6 +24,15 @@ Open the app (`start.bat` → http://127.0.0.1:8000). Header: **Generate · Hist
    each of Cat. 1–4 ≥ 1; Cat. 5 is locked to 0).
 4. **Advanced settings** (collapsed): single-card diagnostic mode, plan shuffle/seed, retries info, provider availability.
 
+### Prompts: try ideas without changing the defaults
+- **Prompt Library > Session (this tab only):** Edit > Apply to Session changes the System Style, a Category rule or the Closing Constraints for this browser
+  tab only (kept on refresh, gone in a new session). "Session Override Active" shows while it is on; Reset to Default / Reset All undo it.
+  A job takes a snapshot of its prompts when you press Generate, so later edits never change a running batch. Permanent versions are a separate mode.
+- **See the exact prompt:** open a card > **View Prompt** (exact text stored with the image). **Preview Prompts** (optional) shows the prompts of a
+  planned set before any image is made. Nothing needs approval.
+- **References apply per card:** a Category N reference only goes to Category N cards, a Character reference only to golden cards, Style / Composition /
+  Negative references to every card. If none applies, the card is made from the text rules alone.
+
 ### Choosing the Cloudflare free models
 - After you connect Cloudflare, two models appear as **Configured**: **FLUX.2 Klein 4B** (text + up to 4 references; each is
   downscaled to fit under 512x512) and **FLUX.1 Schnell** (text only). They show **Live in app** only after a real request has
@@ -39,7 +48,7 @@ Open the app (`start.bat` → http://127.0.0.1:8000). Header: **Generate · Hist
 ## 2. Generate a set
 1. Title row / Set & Theme: choose Genre, Variants (final deliverable needs 3–5; use fewer while the budget is small), Run scope:
    **Pilot** (4 cards per variant, one per category) or **Full** (10 per variant). Optional *Producer's free wishes*
-   steer the image prompts only (the planner picks objects from curated pools).
+   steer subject choice (e.g. “no buildings”) and the mood; the AI planner chooses the cards for your Collection and Set.
 2. Review the **plan preview** and the cost estimate, then press the button. Paid runs need a second click to confirm.
    Free-plan Cloudflare runs show no cost and need no confirmation.
 3. Watch the gallery fill in. **Cancel** stops after the in-flight call. After a pilot, **Continue** generates the rest.

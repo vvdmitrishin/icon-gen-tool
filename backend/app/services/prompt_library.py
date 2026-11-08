@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .db import Db
-from .prompt_compiler import TEMPLATE_NAMES, default_templates
+from .prompt_compiler import SESSION_EDITABLE, TEMPLATE_NAMES, default_templates
 
 MAX_TEXT = 3000
 
@@ -74,6 +74,45 @@ class PromptLibrary:
     def active_texts(self) -> tuple[dict[str, str], dict[str, int]]:
         a = self.active()
         return {n: r["text"] for n, r in a.items()}, {n: r["version"] for n, r in a.items()}
+
+    # ---- prompt bundle (permanent library versions + optional session overrides) -------------------------------------
+    def resolve_bundle(self, overrides: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+        """The complete effective bundle: every template with its text, origin and permanent version.
+        A session override replaces the TEXT of a template for this bundle only; nothing is written to the library."""
+        overrides = overrides or {}
+        clean: dict[str, str] = {}
+        for name, text in overrides.items():
+            if name not in SESSION_EDITABLE:
+                raise LibraryError(f"'{name}' cannot be overridden for a session.", "unknown_template")
+            text = (text or "").strip()
+            if not text:
+                raise LibraryError(f"The session override of '{name}' is empty.", "empty_override")
+            if len(text) > MAX_TEXT:
+                raise LibraryError(f"The session override of '{name}' is limited to {MAX_TEXT} characters.", "override_too_long")
+            clean[name] = text
+        active = self.active()
+        bundle: dict[str, dict[str, Any]] = {}
+        for name in TEMPLATE_NAMES:
+            row = active[name]
+            if name in clean:
+                bundle[name] = {"text": clean[name], "source": "session_override", "version": None, "base_version": row["version"]}
+            else:
+                bundle[name] = {"text": row["text"], "source": "library", "version": row["version"], "base_version": row["version"]}
+        return bundle
+
+    @staticmethod
+    def normalize_bundle(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Validate a stored job snapshot before it is used for generation (names, text type and size)."""
+        out: dict[str, dict[str, Any]] = {}
+        for name, b in (raw or {}).items():
+            if name not in TEMPLATE_NAMES or not isinstance(b, dict) or not isinstance(b.get("text"), str):
+                raise LibraryError("The stored prompt bundle is malformed.", "bad_bundle")
+            text = b["text"].strip()
+            if not text or len(text) > MAX_TEXT:
+                raise LibraryError("The stored prompt bundle is malformed.", "bad_bundle")
+            out[name] = {"text": text, "source": "session_override" if b.get("source") == "session_override" else "library",
+                         "version": b.get("version"), "base_version": b.get("base_version", b.get("version"))}
+        return out
 
     def versions(self, name: str) -> list[dict[str, Any]]:
         if name not in TEMPLATE_NAMES:

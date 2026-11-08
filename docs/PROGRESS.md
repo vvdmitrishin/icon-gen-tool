@@ -1,16 +1,41 @@
 # Progress log and handoff
 
-Last updated: 2026-11-09 (after Semantic Set Planner / Session Favorites / Plan Only, committed locally). Source of Truth:
-`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (v1.11 update block / ADR-019: semantic planner, My Selection, Plan Only; v1.10 update block, section 3.5 Grand Set, ADR-018; v1.9: 6.15, 12.7.1, 19.1.1, ADR-017).
+Last updated: 2026-11-09 (after Unified AI Planning & Session Prompt System, committed locally). Source of Truth:
+`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (v1.12 update block / ADR-020: unified AI planner, session prompts, snapshots, prompt transparency; v1.11 / ADR-019: semantic planner, My Selection, Plan Only; v1.10 update block, section 3.5 Grand Set, ADR-018; v1.9: 6.15, 12.7.1, 19.1.1, ADR-017).
 Last commit: see `git log` (UI stabilization `2f16222`, docs commit on top). Mockup: `Specification/Mockup.png`.
 
 ## Status in one paragraph
-Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 413 tests collected, all pass except 1 skipped (paid live Gemini test,
+Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 427 tests collected, all pass except 1 skipped (paid live Gemini test,
 `RUN_LIVE=1`). Frontend: typecheck + build only (no unit tests). Clean-checkout verification passed (`scripts/verify_clean_checkout.py`).
 `origin/main` is at `a101067`; local-only (NOT pushed): `1493ffb` (UI feedback round 1), `2f16222` (stabilization P0-P5) and the documentation commit. Push only when asked.
 
+## Completed: Unified AI Planning & Session Prompt System (v1.12, ADR-020; local commit, not pushed)
+- **One planner:** curated pools / rules planner / `planner` option removed from production (`object_pools.yaml`, `plan_set`, `curated_genre_for` deleted;
+  old jobs and exports still load). Movies / Sci-Fi, Detective, Fantasy use the same AI semantic planner as any theme. No silent fallback: if the text
+  planner is unavailable the job is refused with an actionable error before any image is generated. Deterministic plans exist only as test fixtures
+  (`tests/conftest.py`) and in `scripts/run_smoke_test.py`. Mock *image* provider unchanged (clearly labelled); planning still needs a Gemini key.
+- **Session prompt overrides:** Prompt Library > "Session (this tab only)": Edit > Apply to Session > Reset to Default / Reset All (System Style, Category 1-5,
+  Closing). `sessionStorage` only (kept on refresh, empty in a new tab); permanent library untouched ("Permanent versions" is a separate mode).
+  "Session Override Active" indicator in the Prompt Library and next to Generate; sent with every request.
+- **Immutable per-job snapshot:** the full prompt bundle (texts + origin + permanent version) is resolved ONCE at job creation and stored in the job
+  request; all cards and regenerations use it (library/session edits mid-job have no effect); old jobs without a snapshot still load.
+- **Mandatory rules:** while an override is active the server appends a MANDATORY block (artwork only / no text, frames, stars; golden <= 2 characters)
+  and warns about contradicting text (`POST /api/prompts/session-check`).
+- **Set context in prompts:** Collection, Set, variant title + concept and the planner's short `rationale` go into every card prompt (shared art direction
+  only). **References:** only applicable ones (category-N -> category N only, new `character` type -> golden cards only, style/composition/negative -> all);
+  the "send everything" fallback is gone (`none_applicable` -> text rules only). Provider adapters unchanged.
+- **Transparency:** "View Prompt" in card detail (exact stored prompt, model, refs, template versions, SESSION markers, Copy); optional "Preview Prompts"
+  (stored prompts for generated images + compiled previews for planned ones; same compiler as real generation; no image API, no approval step).
+- **Verified:** backend tests incl. `test_prompt_system.py` (snapshot immutability, session override, preview == real prompt, no-fallback, references);
+  frontend typecheck + build; real browser on the real UI/code (isolated data folder + stub text planner + Mock images): Movies/Sci-Fi and Winter/Forest via
+  the AI planner, override indicator, Mock jobs with override, edit again (old images keep their prompt), reset, refresh keeps overrides, new tab = defaults,
+  View Prompt, Preview Prompts, My Selection + export; launcher cold start.
+- **Not verified:** real LLM plan quality (no paid text calls), effect of prompt changes on real artwork, Cloudflare Klein references live.
+- Note: this machine shows rare random interpreter crashes (Python/Node segfaults, flaky pytest assertion rewriting); full suites pass on re-run
+  (`pytest --assert=plain` avoids the rewrite path).
+
 ## Completed: Semantic Set Planner, Session Favorites, Plan Only (v1.11, ADR-019; local commit, not pushed)
-- **Planner:** AI is the default for any Collection/Set (curated pools only for the Movie presets with `planner="auto"`; `planner="ai"` forces AI).
+- **Planner:** AI semantic planner for any Collection/Set (the curated Movie-preset branch of this step was removed in v1.12).
   Prompt treats the Set as the semantic boundary, no subject quotas. Plans are rejected before any image if they contain near-duplicate
   subjects, subjects the Free Wishes excluded ("no buildings" -> house/cabin/hut...), or golden cards without 1-2 characters.
 - **Cross-batch history:** subjects of earlier jobs of the same Collection + Set + Set type (<= 48, name + <= 48-char hint, deduplicated) go into the
@@ -45,8 +70,8 @@ Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 41
   could not be typed). Saving only the Account ID keeps the `.env` token. Precedence: Credential Manager > `.env`. "Remove from this PC"
   is local only (not provider-side revocation) and says so when `.env` still provides the value. Verified in a real browser on the isolated
   harness with fake values; the real vault and keys were not touched.
-- **Set** is free text (chips only suggest). Collection + Set go to the AI planner; the curated rules planner is used only for movie
-  collections with Sci-Fi/Detective/Fantasy. Custom themes need an explicit "Plan with AI" (~$0.002 text call; not yet run live).
+- **Set** is free text (chips only suggest). Collection + Set go to the AI planner (v1.12: no curated planner any more; Generate plans automatically,
+  ~$0.002 text call, "Preview plan (optional)" is the only explicit AI step; not yet run live).
 - **Output Resolution** (24-1024, default 1024) is the only size setting; the final PNG has exactly that size (original kept as
   `<id>.original.png`, QA check TQ-10, manifest `output_pixel_size`).
 - **Cards/gold:** N = 1..10, gold 0..N, Σ always = N, no silent count changes, compliance flag; golden/short jobs are not
@@ -73,8 +98,8 @@ Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 41
 - Deliberate deviations from the mockup: no style score / best match / sliders / fake cost-time figures; Cat. 1-4 steppers with
   Auto/Custom (Cat. 5 = gold slider 0..N; golden excluded from Movie deliverables); Collection is plain text; single draft Style Bible; Image model and Planning stacked; simple glyph icons.
 - QA is structural only (cannot detect text, frames or wrong style): human review required.
-- Planner: curated rules planner only for the Movie presets (Sci-Fi/Detective/Fantasy, `planner="auto"`); every other Collection/Set uses the semantic AI
-  TextPlanner automatically on Generate (mocked-tested only, not yet run live; use "Test planner" first). Max 5 variants.
+- Planner: ONE planner, the semantic AI TextPlanner, for every Collection/Set (no curated pools), run automatically on Generate
+  (mocked-tested only, not yet run live; use "Test planner" first). Max 5 variants.
 - Credential storage is Windows-only; one final variant per job; one running job at a time; single user.
 - Multi-variant layout verified structurally only; Continue/Cancel/Approve/real export not re-exercised in the last UI pass.
 - Full list: `docs/KNOWN_ISSUES.md`.

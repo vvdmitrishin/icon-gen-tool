@@ -46,7 +46,8 @@ def near_duplicates(names: Iterable[str]) -> list[tuple[str, str]]:
             (a, ta), (b, tb) = items[i], items[j]
             if ta and ta == tb:
                 out.append((a, b))
-            elif SequenceMatcher(None, " ".join(ta), " ".join(tb)).ratio() >= 0.92:
+            elif (not any(ch.isdigit() for ch in " ".join(ta + tb))
+                  and SequenceMatcher(None, " ".join(ta), " ".join(tb)).ratio() >= 0.92):
                 out.append((a, b))
     return out
 

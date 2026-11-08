@@ -40,7 +40,7 @@ from .services.jobs import (
 from .services.prompt_library import LibraryError, PromptLibrary
 from .services.presets import PresetError, PresetStore
 from .services.planning import supported_genres
-from .services.prompt_compiler import check_wishes
+from .services.prompt_compiler import check_overrides, check_wishes
 from .services.security import RateLimiter, install_log_redaction, is_allowed_host, is_allowed_origin, new_session_token, token_matches
 from .services.reference_manager import REF_TYPES, ReferenceError_, ReferenceManager, is_valid_ref_id
 from .services.storage import ArtifactStore, is_valid_id
@@ -56,6 +56,10 @@ class PromptSaveRequest(BaseModel):
 class PromptRestoreRequest(BaseModel):
     version: int
     author: str = "Local User"
+
+
+class SessionCheckRequest(BaseModel):
+    overrides: dict[str, str] = Field(default_factory=dict)
 
 
 class TemplateCreateRequest(BaseModel):
@@ -345,6 +349,24 @@ def create_app(
     def planner_genres() -> list[dict[str, Any]]:
         return supported_genres()
 
+    @app.post("/api/jobs/preview-prompts")
+    def jobs_preview_prompts(req: JobCreateRequest) -> dict[str, Any]:
+        """Compiled prompts of every planned card (same compiler as real generation); never calls an image provider."""
+        try:
+            return jobs.preview_prompts(req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.get("/api/jobs/{job_id}/prompts")
+    def job_prompts(job_id: str, variant_id: str | None = None) -> dict[str, Any]:
+        """Stored prompts of generated images + compiled previews of planned ones, from the job's immutable snapshot."""
+        try:
+            return jobs.job_prompts(job_id, variant_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+        except ProviderDisabled as exc:
+            raise _err(400, "model_unavailable", exc.message) from exc
+
     @app.post("/api/jobs/preview")
     def jobs_preview(req: JobCreateRequest) -> dict[str, Any]:
         try:
@@ -451,6 +473,16 @@ def create_app(
     @app.get("/api/prompts")
     def prompts_list() -> list[dict[str, Any]]:
         return library.listing()
+
+    @app.post("/api/prompts/session-check")
+    def prompts_session_check(req: SessionCheckRequest) -> dict[str, Any]:
+        """Validate session-only overrides (never stored): returns warnings for texts that contradict mandatory rules."""
+        try:
+            bundle = library.resolve_bundle(req.overrides)
+        except LibraryError as exc:
+            raise _err(422, exc.code, exc.message) from exc
+        return {"ok": True, "warnings": check_overrides(req.overrides),
+                "bundle": {n: {k: v for k, v in b.items() if k != "text"} for n, b in bundle.items()}}
 
     @app.get("/api/prompts/{name}/versions")
     def prompts_versions(name: str) -> list[dict[str, Any]]:

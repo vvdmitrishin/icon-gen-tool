@@ -18,7 +18,7 @@ from app.services.category_distribution import (
     resolve_distribution,
     validate_counts,
 )
-from app.services.planning import PlanningError, curated_genre_for, plan_set, validate_plan
+from app.services.planning import PlanningError, validate_plan
 from app.services.prompt_compiler import CardSpec, compile_card_prompt
 from tests.conftest import FAKE_KEY
 
@@ -100,38 +100,6 @@ def test_single_card_endpoint_still_refuses_cat5(settings):
     assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_card"
 
 
-# ------------------------------------------------------------------------------------ rules planner
-@pytest.mark.parametrize("cards,gold", [(1, 0), (3, 0), (10, 0), (10, 2), (4, 4), (10, 10)])
-def test_rules_planner_variable_size_and_gold(cards, gold):
-    counts = resolve_distribution(None, number_of_cards=cards, gold_cards=gold)
-    plan = plan_set("Detective", 1, counts)
-    assert len(plan.variants[0].cards) == cards
-    assert sum(1 for c in plan.variants[0].cards if c.category == 5) == gold
-    assert validate_plan(plan, counts) == []
-    assert [c.category for c in plan.variants[0].cards][-gold:] == [5] * gold if gold else True
-
-
-def test_rules_planner_gold_unique_across_variants_and_pool_exhausted():
-    counts = resolve_distribution(None, number_of_cards=10, gold_cards=4)
-    plan = plan_set("Fantasy", 3, counts)
-    names = [c.object_name for v in plan.variants for c in v.cards if c.category == 5]
-    assert len(names) == 12 and len(set(names)) == 12
-    assert validate_plan(plan, counts) == []
-    all_gold = resolve_distribution(None, number_of_cards=10, gold_cards=10)
-    with pytest.raises(PlanningError) as e:
-        plan_set("Science Fiction", 2, all_gold)  # 20 gold scenes needed, 16 in the pool
-    assert e.value.code == "pool_exhausted" and "golden" in e.value.message
-
-
-def test_curated_routing_helper():
-    assert curated_genre_for("Movie Collection", "Science Fiction") == "Science Fiction"
-    assert curated_genre_for("Movies", "Sci-Fi") == "Science Fiction"
-    assert curated_genre_for("Кіно", "noir") == "Detective"
-    assert curated_genre_for("Cinema classics", "dark fantasy") == "Fantasy"
-    assert curated_genre_for("Transport", "Sci-Fi") is None
-    assert curated_genre_for("Movies", "Western") is None
-
-
 # ------------------------------------------------------------------------------------- API plumbing
 def wait(c, job_id, timeout=30):
     end = time.time() + timeout
@@ -165,6 +133,7 @@ class TextRecorder:
         self.requests: list[httpx.Request] = []
         self.plan_body, self.text, self.status = plan_body, text, status
         self.transport = httpx.MockTransport(self._handle)
+        self.transport.serves_text_plans = True  # tells the conftest planner fixture to use the real text call
 
     def _handle(self, request):
         self.requests.append(request)
@@ -188,17 +157,21 @@ def test_custom_theme_requires_explicit_ai_permission(settings):
         assert rec.requests == []
 
 
-def test_movie_scifi_uses_rules_planner_for_free(settings):
-    rec = TextRecorder({})
+@pytest.mark.parametrize("genre", ["Science Fiction", "Detective", "Fantasy", "Sci-Fi"])
+def test_movie_presets_use_the_same_ai_planner_as_any_theme(settings, genre):
+    counts = resolve_distribution(None, number_of_cards=10, gold_cards=2)
+    rec = TextRecorder(ai_plan_json(1, counts))
     with TestClient(create_app(settings, gemini_transport=rec.transport)) as c:
-        r = c.post("/api/jobs/preview", json=job_body(collection="Movies", genre="Sci-Fi", allow_ai_plan=False,
+        r = c.post("/api/jobs/preview", json=job_body(collection="Movies", genre=genre, allow_ai_plan=False,
+                                                      number_of_cards=10, gold_cards=2, number_of_variants=1))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_required" and rec.requests == []
+        r = c.post("/api/jobs/preview", json=job_body(collection="Movies", genre=genre,
                                                       number_of_cards=10, gold_cards=2, number_of_variants=1))
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["planning_mode"] == "rules" and d["plan_cost_estimate_usd"] == 0
+        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == 0.002 and len(rec.requests) == 1
         assert d["number_of_cards"] == 10 and d["gold_cards"] == 2 and d["output_size"] == 1024
         assert d["images_total"] == 10 and d["distribution"]["5"] == 2
-        assert rec.requests == []
 
 
 def test_ai_plan_preview_and_create_make_one_call(settings):
@@ -296,14 +269,14 @@ def test_batch_with_three_curated_genres_and_new_fields(settings):
         assert len(jobs) == 3 and all(j["number_of_cards"] == 5 and j["gold_cards"] == 1 for j in jobs)
         for j in jobs:
             d = wait(c, j["job_id"])
-            assert d["counts"]["done"] == 5 and d["output_size"] == 128 and d["planning_mode"] == "rules"
+            assert d["counts"]["done"] == 5 and d["output_size"] == 128 and d["planning_mode"] == "ai"
 
 
 def test_job_detail_defaults_for_old_jobs(settings):
     with TestClient(create_app(settings)) as c:
         jid = c.post("/api/jobs", json=dict(genre="Fantasy", number_of_variants=1, confirmed=True, **MOCK)).json()["job_id"]
         d = wait(c, jid)
-        assert (d["number_of_cards"], d["gold_cards"], d["output_size"], d["planning_mode"]) == (10, 0, 1024, "rules")
+        assert (d["number_of_cards"], d["gold_cards"], d["output_size"], d["planning_mode"]) == (10, 0, 1024, "ai")
         assert d["scope"] == "full" and d["counts"]["done"] == 10
         row = [j for j in c.get("/api/jobs").json() if j["job_id"] == jid][0]
         assert row["number_of_cards"] == 10 and row["output_size"] == 1024

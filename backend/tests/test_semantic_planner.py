@@ -126,15 +126,15 @@ def test_D_summer_music_festival(settings):
         assert len({x["object_name"] for x in r.json()["plan"]["variants"][0]["cards"]}) == 10
 
 
-def test_E_movies_scifi_curated_by_default_ai_on_request_and_custom_movie_theme(settings):
+@pytest.mark.parametrize("genre", ["Science Fiction", "Detective", "Fantasy", "Western"])
+def test_E_every_movie_set_uses_the_same_ai_planner(settings, genre):
     rec = TextRecorder(plan_body(SCIFI))
     with TestClient(create_app(settings, gemini_transport=rec.transport)) as c:
-        r = c.post("/api/jobs/preview", json=body("Movies", "Science Fiction", allow_ai_plan=False))
-        assert r.status_code == 200 and r.json()["planning_mode"] == "rules" and rec.requests == []  # free, curated preset
-        r = c.post("/api/jobs/preview", json=body("Movies", "Science Fiction", planner="ai"))
+        r = c.post("/api/jobs/preview", json=body("Movies", genre, allow_ai_plan=False))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_required" and rec.requests == []
+        r = c.post("/api/jobs/preview", json=body("Movies", genre))
         assert r.status_code == 200 and r.json()["planning_mode"] == "ai" and len(rec.requests) == 1
-        r = c.post("/api/jobs/preview", json=body("Movies", "Western", allow_ai_plan=False))
-        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_required"  # custom theme is never silently curated
+        assert f"'{genre}'" in prompt_of(rec.requests[0])  # the Set reaches the semantic planner, whatever its name
 
 
 # ------------------------------------------------------------------------------ cross-batch history

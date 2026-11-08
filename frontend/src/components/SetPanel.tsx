@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type {
-  ExportRecord, JobCard, JobDetail, JobEvent, JobPreview, JobSummary, JobVariant, ModelInfo, QAReport,
+  ExportRecord, JobCard, JobDetail, JobEvent, JobPreview, JobSummary, JobVariant, ModelInfo, PromptsPreviewResponse, QAReport,
 } from "../types/api";
 import { CheckList, QABadge, ReviewBadge } from "./badges";
 import { CompareView } from "./CompareView";
@@ -10,12 +10,15 @@ import { PlanNotice, type PlanError } from "./PlanNotice";
 import { STATUS_LABEL } from "./ModelSettings";
 import { PipelineStrip, type PipeStep } from "./Pipeline";
 import { PromptLibrary } from "./PromptLibrary";
+import { PromptsView } from "./PromptsView";
+import { ImagePrompt } from "./PromptViewer";
+import { useSessionPrompts } from "../lib/sessionPrompts";
 import { MySelection } from "./MySelection";
 import { PlanOnlyPanel, type PlanOnlyState } from "./PlanOnlyPanel";
 import { themeKey, useFavorites, type FavItem } from "../lib/favorites";
 
 /** Tabs shown in the tab bar; "variants", "compare" and "library" are opened from the title-row buttons / quick actions. */
-type View = "results" | "plans" | "qa" | "log" | "variants" | "compare" | "library";
+type View = "results" | "plans" | "qa" | "log" | "variants" | "compare" | "library" | "prompts";
 
 /** Settings of the Generate form, used for the plan preview (no job yet). */
 export interface FormSummary {
@@ -56,6 +59,8 @@ interface Props {
   onError: (m: string | null) => void;
   planOnly?: PlanOnlyState | null;
   onClosePlanOnly?: () => void;
+  /** compiled prompts of the current plan (same backend compiler as real generation); optional inspection */
+  onPreviewPrompts?: () => Promise<PromptsPreviewResponse>;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -102,6 +107,7 @@ export function SetPanel(p: Props) {
   const variantsRef = useRef<HTMLDivElement>(null);
   const job = p.job;
   const [keepKey, setKeepKey] = useState<string | null>(null);
+  const sessionPrompts = useSessionPrompts();
 
   // ---- My Selection (session favorites), scoped to Collection + Set + Set type of the set that is shown
   const shownSetType: "standard" | "grand" = job ? ((job.set_type ?? job.request.set_type) === "grand" ? "grand" : "standard") : p.form.setType;
@@ -203,7 +209,7 @@ export function SetPanel(p: Props) {
   const qaFailed = allCards.filter((c) => c.qa_status === "failed").length;
   const finished = !!job && !job.active && job.counts.done > 0;
   const steps: PipeStep[] = [
-    { key: "plan", title: "Plan", sub: job ? `${job.variants.length} variant(s) · ${planMode === "ai" ? "AI planner" : "rules planner"}` : p.preview ? "Preview ready, nothing spent" : "Fill in the form",
+    { key: "plan", title: "Plan", sub: job ? `${job.variants.length} variant(s) · ${planMode === "ai" ? "AI planner" : "legacy plan"}` : p.preview ? "Preview ready, nothing spent" : "Fill in the form",
       done: !!job || !!p.preview, current: view === "plans", onClick: () => setView("plans"), hint: "Open the set plans" },
     { key: "gen", title: "Generate", sub: job ? `${job.counts.done}/${job.counts.total} images${job.active ? " · running" : ""}` : "Not started",
       active: !!job?.active, done: finished, current: view === "results", onClick: () => setView("results"), hint: "Back to the results grid" },
@@ -218,7 +224,7 @@ export function SetPanel(p: Props) {
   ];
 
   const TABS: [View, string][] = [["results", "Results"], ["plans", "Set Plans (JSON)"], ["qa", "QA Report"], ["log", "Generation Log"]];
-  const inExtra = view === "variants" || view === "compare" || view === "library";
+  const inExtra = view === "variants" || view === "compare" || view === "library" || view === "prompts";
   const heading = job ? `${stale ? "Previous result" : "Generated Sets"} — ${job.collection}: ${job.genre}` : p.preview ? `Plan Preview — ${p.form.collection}: ${p.form.genre}` : `Generated Sets — ${p.form.collection}: ${p.form.genre}`;
   const nVariants = job ? job.variants.length : p.preview ? p.preview.plan.variants.length : p.form.variants;
   const exportItems: MenuItem[] = [
@@ -271,7 +277,10 @@ export function SetPanel(p: Props) {
         <div className="titlebtns">
           <button type="button" className={`btn outline ${view === "variants" || view === "compare" ? "on" : ""}`} disabled={!job} onClick={() => setView("variants")}
             title={job ? "Compare the variants side by side, or check cards against references" : "Generate a set first"}><span aria-hidden>◫</span> Compare Variants</button>
-          <button type="button" className={`btn outline ${view === "library" ? "on" : ""}`} onClick={() => setView("library")} title="View and edit the prompt templates"><span aria-hidden>❝</span> Prompt Library</button>
+          <button type="button" className={`btn outline ${view === "prompts" ? "on" : ""}`} disabled={!job && !p.preview} onClick={() => setView("prompts")}
+            title={job || p.preview ? "Optional: see the exact prompts of this set (no image is generated)" : "Plan or generate a set first"}><span aria-hidden>⌕</span> Preview Prompts</button>
+          <button type="button" className={`btn outline ${view === "library" ? "on" : ""}`} onClick={() => setView("library")} title="View and edit the prompt templates (session-only or permanent)">
+            <span aria-hidden>❝</span> Prompt Library{sessionPrompts.count > 0 && <span className="chip warn tiny sess-badge">Session Override Active</span>}</button>
           <ExportMenu open={exportOpen} setOpen={setExportOpen} items={exportItems} busy={expBusy} />
         </div>
       </div>
@@ -361,7 +370,7 @@ export function SetPanel(p: Props) {
             {!job && p.preview && (
               <>
                 <p className="hint plan-hint">Plan preview (nothing generated yet) — {p.preview.images_in_scope} image(s).{" "}
-                  <span className={`chip tiny plan-${planMode}`}>{planMode === "ai" ? "Planned by AI" : "Planned by rules"}</span>
+                  <span className={`chip tiny plan-${planMode}`}>{planMode === "ai" ? "Planned by AI" : "Legacy plan"}</span>
                   {(p.preview.plan_cost_estimate_usd ?? 0) > 0 && <> · AI plan ≈ {money(p.preview.plan_cost_estimate_usd ?? 0)}</>}</p>
                 {p.preview.plan.variants.map((v) => (
                   <PlanRow key={v.variant_id} id={vlabel(v.variant_id)} title={v.title} concept={v.concept} cards={v.cards.map((c) => ({ key: `${v.variant_id}${c.position}`, cat: c.category, name: c.object_name }))} />
@@ -422,10 +431,12 @@ export function SetPanel(p: Props) {
               <button type="button" className="ghost sm" onClick={() => setView("results")}>← Back to results</button>
             </div>
           )}
+          {view === "prompts" && <div className="subnav"><strong>Preview Prompts</strong><button type="button" className="ghost sm" onClick={() => setView("results")}>← Back to results</button></div>}
           {view === "library" && <div className="subnav"><strong>Prompt Library</strong><button type="button" className="ghost sm" onClick={() => setView("results")}>← Back to results</button></div>}
           {view === "variants" && (job ? <CompareVariants job={job} onPick={pickCard} /> : <div className="empty">Generate a set first.</div>)}
           {view === "compare" && (job ? <CompareView job={job} focusCardId={pickedId} /> : <div className="empty">Generate a set first.</div>)}
           {view === "library" && <PromptLibrary />}
+          {view === "prompts" && <PromptsView job={job} variantId={selV?.variant_id} hasPlan={!!p.preview && !!p.onPreviewPrompts} onPreview={() => p.onPreviewPrompts!()} />}
         </div>
       )}
 
@@ -766,6 +777,7 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
   const [rName, setRName] = useState(card.object_name);
   const [rDesc, setRDesc] = useState(card.object_description);
   const [viewV, setViewV] = useState<number | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   const paid = job.request.provider !== "mock" && perImage > 0;
@@ -824,12 +836,18 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
           <QABadge status={card.qa_status} /><ReviewBadge review={card.art_review} />
           <span className="chip">refs: {card.reference_selection ?? "none"}</span>
           {starTarget && (
+            <button type="button" className={`chip viewprompt ${showPrompt ? "on" : ""}`} aria-expanded={showPrompt} onClick={() => setShowPrompt(!showPrompt)}>
+              {showPrompt ? "Hide prompt" : "View Prompt"}
+            </button>
+          )}
+          {starTarget && (
             <button type="button" className={`chip starchip ${isFav(starTarget.artifact_id) ? "on" : ""}`} aria-pressed={isFav(starTarget.artifact_id)}
               onClick={() => onStarVersion(card, variant.variant_id, starTarget)}>
               {isFav(starTarget.artifact_id) ? "★ In My Selection" : "☆ Add this image to My Selection"}
             </button>
           )}
         </div>
+        {showPrompt && starTarget && <ImagePrompt artifactId={starTarget.artifact_id} />}
         {card.error && <div className="alert warn">{card.error}</div>}
         {shownVersion?.note && <p className="hint">Version note: {shownVersion.note}</p>}
         {card.qa && <details><summary>Technical QA checks ({card.qa.checks.filter((c) => c.status !== "pass").length} issue(s))</summary><CheckList checks={card.qa.checks} /></details>}
