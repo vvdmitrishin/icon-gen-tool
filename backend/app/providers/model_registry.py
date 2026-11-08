@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -55,6 +55,8 @@ class ModelInfo:
     est_cost_per_image_usd: float | None
     origin_badge: str
     availability_checked: bool = False
+    connection_status: str | None = None  # last free connection test: connected | invalid | unreachable | unverified
+    connection_message: str | None = None
     notes: list[str] = field(default_factory=list)
     # --- model-selector contract (spec v1.8 §12.7): runtime grouping, requirements, options, price
     runtime: str = "cloud_api"  # cloud_api | local | test
@@ -99,6 +101,9 @@ class ModelRegistry:
         self.availability_checked_at: str | None = None
         self.availability_error: str | None = None
         self._providers: dict[str, ImageProvider] = {}
+        # set by ConnectionService: provider -> (status, message) of the last free connection test (None = unknown).
+        # This is the single source of truth for provider connection state; the registry never keeps its own copy.
+        self.connection_state: Callable[[str], tuple[str, str] | None] | None = None
 
     # ------------------------------------------------------ effective credentials
     @property
@@ -157,8 +162,14 @@ class ModelRegistry:
             if prov.get("id") and prov.get("id") not in ("mock", "imported") and prov.get("model"):
                 self.mark_live(prov["id"], prov["model"])
 
+    def _conn(self, provider_id: str) -> tuple[str | None, str | None]:
+        """Last free connection test of a CONFIGURED provider, from the connection service (one source of truth)."""
+        state = self.connection_state(provider_id) if self.connection_state else None
+        return state if state else (None, None)
+
     def _gemini_info(self) -> list[ModelInfo]:
         s = self._s
+        conn_status, conn_msg = self._conn("gemini") if s.gemini_configured else (None, None)
         out = []
         for model_id, label, base_status in GEMINI_MODELS:
             reason = None
@@ -187,6 +198,8 @@ class ModelRegistry:
                     )
                 if ("gemini", model_id) in self._live and selectable:
                     status = ModelStatus.APP_LIVE
+                if conn_status == "invalid":  # the provider rejected the credentials: say so, do not offer the model
+                    status, selectable, reason = ModelStatus.CONNECTION_FAILED, False, conn_msg
             out.append(
                 ModelInfo(
                     provider_id="gemini",
@@ -203,6 +216,7 @@ class ModelRegistry:
                     est_cost_per_image_usd=s.gemini_est_cost_per_image_usd,
                     origin_badge=f"Live API · Gemini {label}",
                     availability_checked=model_id in self._availability,
+                    connection_status=conn_status, connection_message=conn_msg,
                 )
             )
         return out
@@ -211,12 +225,15 @@ class ModelRegistry:
         s = self._s
         out = self._gemini_info()
         cf_ok = s.cloudflare_configured
+        cf_conn, cf_msg = self._conn("cloudflare") if cf_ok else (None, None)
         missing = [n for n, v in (("Account ID (CLOUDFLARE_ACCOUNT_ID)", s.cloudflare_account_id), ("API token (CLOUDFLARE_API_TOKEN)", s.cloudflare_api_token)) if not v.strip()]
         for spec in CLOUDFLARE_MODELS:
             if cf_ok:
                 # "Live in app" only after a real generation succeeded; until then it is merely configured.
                 status = ModelStatus.APP_LIVE if ("cloudflare", spec.model_id) in self._live else ModelStatus.CONFIGURED_APP
                 reason = None
+                if cf_conn == "invalid":  # credentials rejected by Cloudflare in the last free test
+                    status, reason = ModelStatus.CONNECTION_FAILED, cf_msg
             else:
                 status = ModelStatus.DISABLED_NO_KEY
                 reason = f"Connect Cloudflare in Settings > API Connections (missing: {' and '.join(missing)})."
@@ -228,7 +245,7 @@ class ModelRegistry:
                     label=spec.label,
                     role="fallback",
                     status=status.value,
-                    selectable=cf_ok,
+                    selectable=cf_ok and cf_conn != "invalid",
                     disabled_reason=reason,
                     capabilities={**spec.capabilities, "aspect_ratios": list(spec.aspect_ratios)},
                     runtime_requirements="Cloudflare Account ID and an API token with Workers AI permission "
@@ -236,6 +253,7 @@ class ModelRegistry:
                     est_cost_per_image_usd=cf_estimate(spec.model_id, s),
                     origin_badge=f"Live API · Cloudflare {spec.label}",
                     price_note=f"{spec.price_note} Plan assumed by this app: {s.cloudflare_plan} (CLOUDFLARE_PLAN).",
+                    connection_status=cf_conn, connection_message=cf_msg,
                 )
             )
         out.append(planned_info(SEEDREAM_45))

@@ -11,6 +11,9 @@ export interface ModelInfo {
   est_cost_per_image_usd: number | null;
   origin_badge: string;
   availability_checked: boolean;
+  /** Last free connection test of this model's provider (backend is the single source of truth). */
+  connection_status?: string | null;
+  connection_message?: string | null;
   /** Provider/runtime grouping (optional: older backends omit it). */
   runtime?: "cloud_api" | "local" | "test";
   runtime_label?: string;

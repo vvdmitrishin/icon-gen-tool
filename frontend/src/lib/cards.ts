@@ -9,8 +9,12 @@ export function vlabel(id: string | null | undefined): string {
 
 export const DEFAULT_CARDS = 10;
 export const DEFAULT_SIZE = 1024;
-export const MAX_GOLD_COPY =
-  "Golden cards are the most valuable cards: key characters of the collection in an ironic, emotional situation. Max 2 characters per card.";
+
+
+export const GOLD_TIP =
+  "Golden cards are the most valuable cards, featuring images of the collection's key characters. The characters play out an ironic, emotional situation. No more than 2 characters on a single golden card.";
+
+export const MAX_GOLD_COPY = GOLD_TIP;
 
 export const OUTPUT_SIZES = [24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024] as const;
 

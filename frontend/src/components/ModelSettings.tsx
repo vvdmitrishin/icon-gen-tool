@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { KeyboardEvent } from "react";
 import { connectionsApi, ConnError } from "../api/connections";
 import { OUTPUT_SIZES } from "../lib/cards";
+import { modelLogo } from "../lib/logos";
 import type { ProviderId } from "../types/connections";
 import type { ModelCapabilities, ModelInfo } from "../types/api";
 import { STILL_ENV, useConnections } from "./ConnectionsPanel";
@@ -17,6 +18,7 @@ export const STATUS_LABEL: Record<string, string> = {
   disabled_by_flag: "Disabled",
   mock: "Mock",
   configured_app: "Configured",
+  connection_failed: "Connection failed",
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -127,13 +129,15 @@ export function statusText(m: ModelInfo): string {
   if (m.selectable && (m.status === "app_live" || m.status === "external_rest_verified" || m.status === "available_in_account")) return "Active";
   if (m.status === "app_live") return "Active";
   if (m.status === "planned" || m.status === "adapter_pending") return "Planned";
-  if (!m.selectable && (m.status === "documented" || m.status === "disabled_no_key")) return "Not connected";
+  if (!m.selectable && m.status === "disabled_no_key") return "Not connected";
   return STATUS_LABEL[m.status] ?? m.status;
 }
 
 function badgeText(m: ModelInfo): string {
   if (runtimeOf(m) === "local") return "Planned · local";
   if (m.status === "planned" || m.status === "adapter_pending") return "Planned";
+  if (m.status === "connection_failed") return "Connection failed";
+  if (m.status === "documented") return "Docs only"; // provider is connected; the model just has not been confirmed for this key
   return "Not connected";
 }
 
@@ -149,6 +153,13 @@ function modelGroups(models: ModelInfo[]) {
       groups.set(label, g);
     });
   return [...groups.entries()];
+}
+
+/** Brand logo (purely decorative: the provider name is always in the text next to it). */
+function LogoMark({ m }: { m: ModelInfo }) {
+  const l = modelLogo(m);
+  if (!l) return null;
+  return <span className="plogo" aria-hidden style={{ background: l.color, WebkitMaskImage: `url(${JSON.stringify(l.url)})`, maskImage: `url(${JSON.stringify(l.url)})` }} />;
 }
 
 const optId = (k: string) => `mopt-${k.replace(/[^a-z0-9_-]/gi, "_")}`;
@@ -238,6 +249,7 @@ function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: 
         {current ? (
           <>
             <i className={`mdot ${current.selectable ? "on" : ""}`} aria-hidden />
+            <LogoMark m={current} />
             <span className="mpick-label">{current.label}</span>
             {!current.selectable && <span className="mbadge">{badgeText(current)}</span>}
           </>
@@ -249,7 +261,7 @@ function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: 
           style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: "hidden" }}>
           {groups.map(([label, g]) => (
             <li key={label} role="presentation" className="mgroup">
-              <span className="mgroup-h" role="presentation">{label}</span>
+              <span className="mgroup-h" role="presentation">{g.items[0] && <LogoMark m={g.items[0]} />}{label}</span>
               <ul role="group" aria-label={label}>
                 {g.items.map((m) => {
                   const k = keyOf(m);
@@ -260,6 +272,7 @@ function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: 
                       title={!m.selectable ? (m.disabled_reason ?? statusText(m)) : undefined}
                       onMouseEnter={() => { if (m.selectable) setActive(k); }} onClick={() => { if (m.selectable) choose(k); }}>
                       <i className={`mdot ${m.selectable ? "on" : ""}`} aria-hidden />
+                      <LogoMark m={m} />
                       <span className="mopt-main">
                         <span className="mopt-name">{m.label}</span>
                         <small>{statusText(m)}{m.role && ROLE_LABEL[m.role] && ROLE_LABEL[m.role] !== statusText(m) && ROLE_LABEL[m.role] !== "Planned" ? ` · ${ROLE_LABEL[m.role]}` : ""}</small>
@@ -292,6 +305,7 @@ function ModelConnection({ model, refreshKey, onManage, onChanged }: { model: Mo
   const hasVault = !!pc?.fields.some((f) => f.stored);
   const [note, setNote] = useState<string | null>(null);
   const connected = model.selectable;
+  const failed = model.status === "connection_failed";
   const label = model.provider_label;
 
   async function removeLocal() {
@@ -310,13 +324,14 @@ function ModelConnection({ model, refreshKey, onManage, onChanged }: { model: Mo
 
   return (
     <div className="connline" aria-label={`Connection for ${label}`}>
-      <span className={`cn-chip ${connected ? "cn-ok" : "cn-none"}`}><span aria-hidden>{connected ? "✓" : "○"}</span> {label}: {connected ? "Connected" : "Not connected"}</span>
+      <span className={`cn-chip ${connected ? "cn-ok" : "cn-none"}`}><span aria-hidden>{connected ? "✓" : "○"}</span> {label}: {connected ? "Connected" : failed ? "Connection failed" : "Not connected"}</span>
       {managed && (
         <>
           <button type="button" className="ghost sm" onClick={onManage}>Manage connection</button>
           {hasVault && <button type="button" className="ghost sm cn-danger" disabled={busy} onClick={() => void removeLocal()}>{busy ? "Removing…" : "Remove from this PC"}</button>}
         </>
       )}
+      {!connected && model.disabled_reason && managed && <div className="alert warn compact" role="status">{model.disabled_reason}</div>}
       {err && <div className="alert err compact" role="alert">{err}</div>}
       {note && <div className="alert cn-info compact" role="status">{note}</div>}
     </div>

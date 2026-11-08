@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_GOLD_COPY } from "../lib/cards";
+import { GOLD_TIP, MAX_GOLD_COPY } from "../lib/cards";
+import { InfoTip } from "./CategoryDistribution";
 
 interface Props {
   value: number;
@@ -29,6 +30,7 @@ export function GoldSlider({ value, max, onChange, disabled = false }: Props) {
     <div className={`gold ${drag ? "drag" : ""}`}>
       <div className="gold-head">
         <label className="lbl" htmlFor="gold-range"><span className="gold-star" aria-hidden>★</span> Golden cards</label>
+        <InfoTip id="tip-gold-slider" tip={{ title: "★ Golden cards", text: GOLD_TIP }} align="left" />
         <output className="gold-val" htmlFor="gold-range" aria-live="polite">{value}</output>
       </div>
       <div className="gold-wrap" style={{ ["--gp" as string]: pct }}>

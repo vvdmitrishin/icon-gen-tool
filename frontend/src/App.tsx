@@ -128,6 +128,14 @@ export default function App() {
     api.jobs().then((js) => { setJobs(js); if (js[0]) openJob(js[0].job_id); }).catch(() => undefined); // persists across refresh
   }, [loadModels, loadRefs, loadHistory, openJob]);
 
+  // model availability is backend state: re-read it whenever the Generate view is shown (and when the tab regains focus)
+  useEffect(() => { if (view === "generate") void loadModels(); }, [view, loadModels]);
+  useEffect(() => {
+    const onFocus = () => { void loadModels(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadModels]);
+
   // poll the running job
   useEffect(() => {
     if (!job?.active) return;
@@ -447,7 +455,7 @@ export default function App() {
               category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
             })} />
           )}
-          {view === "settings" && <SettingsView onOpenSetup={() => setSetupOpen(true)} />}
+          {view === "settings" && <SettingsView onOpenSetup={() => setSetupOpen(true)} onConnectionChanged={loadModels} />}
         </div>
       )}
       <main hidden={view !== "generate"}>
@@ -470,11 +478,14 @@ export default function App() {
                 {suggestions.map((g) => <button type="button" key={g} onClick={() => { setGenre(g); setSeed(null); }}>{g}</button>)}
               </div>
               <p className="hint rowhint">Free text, any set you like. The AI planner interprets it together with the Collection; suggestions only fill the field.</p>
-              <div className="row"><label className="lbl" htmlFor="settype">Set type</label>
-                <select id="settype" value={setType} onChange={(e) => { setSetType(e.target.value as "standard" | "grand"); setSeed(null); }}>
-                  <option value="standard">Standard Set</option>
-                  <option value="grand">Grand Set (All Golden)</option>
-                </select></div>
+              <div className="row"><span className="lbl" id="settype-lbl">Set type</span>
+                <div className="seg" role="radiogroup" aria-labelledby="settype-lbl" id="settype">
+                  {([["standard", "🗽 Standard Set"], ["grand", "🪙 Grand Set"]] as const).map(([v, label]) => (
+                    <button key={v} type="button" role="radio" aria-checked={setType === v} className={setType === v ? "on" : ""}
+                      title={v === "grand" ? "Grand Set (All Golden): the finale set, every card is golden" : "Standard Set: Categories 1–4 plus optional golden cards"}
+                      onClick={() => { setSetType(v); setSeed(null); }}>{label}</button>
+                  ))}
+                </div></div>
               {grand && <p className="hint rowhint">Finale set: every card is golden (an ironic, emotional scene with at most 2 characters), Categories 1–4 are 0. "Grand" is the final set position in the collection, not a card count. Always planned with AI; not part of the Movie Collection bundle.</p>}
               <div className="row two">
                 <div><label className="lbl" htmlFor="ncards">Number of cards</label>

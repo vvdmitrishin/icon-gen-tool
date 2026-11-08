@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Collection Studio launcher</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f6f5ff; color: #1b1b3a; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  main { background: #fff; border: 1px solid #dcd9f5; border-radius: 14px; padding: 28px 32px; max-width: 520px; box-shadow: 0 6px 24px rgba(80, 60, 200, .08); }
+  h1 { margin: 0 0 8px; font-size: 20px; }
+  .ok { color: #1a8a4a; } .wait { color: #6b46e5; }
+  code { background: #efedff; padding: 2px 6px; border-radius: 6px; }
+  p { line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI Collection Studio</h1>
+  <p id="msg" class="wait">Looking for the app at <code>http://127.0.0.1:8000</code>…</p>
+  <p id="help" hidden>
+    The server is not running. A web page cannot start programs, so double-click the
+    <b>AI Collection Studio</b> icon on your Desktop (or <code>open-studio.cmd</code> in this folder).
+    This page opens the app by itself as soon as the server is up.
+  </p>
+</main>
+<script>
+  const URL_APP = "http://127.0.0.1:8000/";
+  const msg = document.getElementById("msg"), help = document.getElementById("help");
+  async function probe() {
+    try {
+      await fetch(URL_APP + "api/health", { mode: "no-cors", cache: "no-store" }); // an opaque answer is enough: the server is up
+      msg.className = "ok"; msg.textContent = "Server is up. Opening…";
+      location.replace(URL_APP);
+    } catch {
+      msg.textContent = "Waiting for the server…"; help.hidden = false;
+      setTimeout(probe, 1500);
+    }
+  }
+  probe();
+</script>
+</body>
+</html>

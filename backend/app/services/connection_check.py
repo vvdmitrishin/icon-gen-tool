@@ -152,6 +152,7 @@ class ConnectionService:
                  cloudflare_transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.base, self.store, self.db, self.registry = base, store, db, registry
         self._cf_transport = cloudflare_transport
+        self.registry.connection_state = self.last_test  # the registry reads connection state from here (no second copy)
         db.script("""CREATE TABLE IF NOT EXISTS connection_status(
             provider TEXT PRIMARY KEY, status TEXT NOT NULL, message TEXT NOT NULL, tested_at TEXT NOT NULL);""")
 
@@ -164,9 +165,16 @@ class ConnectionService:
         return stored or env
 
     def configured(self, provider: str) -> bool:
-        if provider == "gemini" and not self.base.gemini_api_enabled:
-            return False
-        return all(self._have(provider, f) for f in PROVIDER_FIELDS[provider])
+        # same effective settings (credential store > .env) the model registry uses, so both always agree
+        eff = self.registry.effective
+        return eff.gemini_configured if provider == "gemini" else eff.cloudflare_configured
+
+    def last_test(self, provider: str) -> tuple[str, str] | None:
+        """(status, message) of the last free connection test, or None when nothing was tested for current credentials."""
+        if not self.configured(provider):
+            return None
+        row = self.db.one("SELECT status, message FROM connection_status WHERE provider=?", (provider,))
+        return (row["status"], row["message"]) if row else None
 
     def first_run(self) -> bool:
         return not any(self.configured(p) for p in PROVIDER_META)

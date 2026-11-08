@@ -65,6 +65,9 @@
 .mpick-btn.live { background: #f2fbf6; border-color: #bfe5cf; }
 .mpick-btn .caret { color: var(--muted); }
 .mpick-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plogo { display: inline-block; width: 16px; height: 16px; flex: none; vertical-align: -3px; margin-right: 6px; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain; mask-size: contain; }
+.mgroup-h .plogo { width: 14px; height: 14px; vertical-align: -2px; }
+.mopt.off .plogo { opacity: .45; filter: grayscale(.6); }
 .mdot { width: 9px; height: 9px; border-radius: 50%; background: #c4c8e0; flex: none; display: inline-block; }
 .mdot.on { background: #22b35e; box-shadow: 0 0 0 3px rgba(34, 179, 94, .18); }
 .mbadge { font-size: 10px; font-weight: 700; color: #6b6f92; background: #eceef8; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }

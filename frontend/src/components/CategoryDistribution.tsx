@@ -1,4 +1,4 @@
-import { CATS, type Cat, type DistCounts } from "../lib/cards";
+import { CATS, GOLD_TIP, type Cat, type DistCounts } from "../lib/cards";
 
 export type { DistCounts };
 export type DistMode = "auto_balanced" | "custom";
@@ -20,11 +20,11 @@ const TIPS: Record<Cat | "gold", { title: string; text: string }> = {
   "2": { title: "Cat. 2", text: "Object resting on a surface (shelf/table), minimal background, soft shadow." },
   "3": { title: "Cat. 3", text: "Object on a realistic surface with a few supporting props; slightly richer context, still object-focused." },
   "4": { title: "Cat. 4", text: "Object inside a small environment/scene that tells a story; bright, casual, readable." },
-  gold: { title: "★ Gold (Cat. 5)", text: "Most valuable card: key characters of the collection in an ironic, emotional situation. Max 2 characters." },
+  gold: { title: "★ Golden cards", text: GOLD_TIP },
 };
 
 /** Rich tooltip: shows on hover and on keyboard focus of the ⓘ button. */
-function InfoTip({ id, tip, align }: { id: string; tip: { title: string; text: string }; align: "left" | "center" | "right" }) {
+export function InfoTip({ id, tip, align }: { id: string; tip: { title: string; text: string }; align: "left" | "center" | "right" }) {
   return (
     <span className={`tip tip-${align}`}>
       <button type="button" className="tip-btn" aria-label={`About ${tip.title}`} aria-describedby={id}>ⓘ</button>

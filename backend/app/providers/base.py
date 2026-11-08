@@ -19,6 +19,7 @@ class ModelStatus(str, Enum):
     PLANNED = "planned"  # visible roadmap entry: no adapter/runtime yet, never selectable
     DISABLED_NO_KEY = "disabled_no_key"
     DISABLED_BY_FLAG = "disabled_by_flag"
+    CONNECTION_FAILED = "connection_failed"  # credentials present but the last free connection test rejected them
     MOCK = "mock"
 
 
