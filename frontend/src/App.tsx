@@ -560,10 +560,6 @@ export default function App() {
                 </>
               )}
               <div className="field">
-                <label className="lbl" htmlFor="artstyle">Art style</label>
-                <select id="artstyle" disabled title="One style bible in this version: Reference Match v1 (draft)"><option>Reference Match v1 (draft)</option></select>
-              </div>
-              <div className="field">
                 <label className="lbl" htmlFor="wishes">Producer's free wishes <small>(optional)</small></label>
                 <div className="ta-wrap">
                   <textarea id="wishes" rows={3} maxLength={MAX_WISHES} value={wishes} onChange={(e) => setWishes(e.target.value)}
