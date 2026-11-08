@@ -137,6 +137,7 @@ export const api = {
   overview: (collection = "Movie Collection") =>
     call<CollectionOverview>(`/api/collection/overview?collection=${encodeURIComponent(collection)}`),
   exports: () => call<ExportRecord[]>("/api/exports"),
+  saveExport: (id: string) => call<{ path: string }>(`/api/exports/${id}/save-to-downloads`, { method: "POST" }),
   exportVariant: (job_id: string, variant_id: string, flags: { include_unapproved?: boolean; allow_mock?: boolean } = {}) =>
     call<ExportRecord>("/api/exports", json({ job_id, variant_id, ...flags })),
   exportSelection: (body: { collection: string; genre: string; set_type: "standard" | "grand"; items: SelectionExportItem[] }) =>

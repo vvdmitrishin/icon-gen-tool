@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { vlabel } from "../lib/cards";
+import { SaveExport } from "./SaveExport";
 import type { Artifact, CollectionOverview, ExportRecord, JobSummary } from "../types/api";
 
 interface Props {
@@ -113,7 +114,7 @@ export function HistoryView(p: Props) {
             <tbody>{exports.map((x) => (
               <tr key={x.export_id}><td>{new Date(x.created_at).toLocaleString()}</td><td>{x.kind}</td>
                 <td>{x.kind === "variant" ? `${x.genre} · variant ${vlabel(x.variant_id)} · ${x.approved ? "approved" : "unapproved"}` : `final bundle${x.partial ? " (partial)" : ""}`}{x.contains_mock_images ? " · MOCK" : ""}</td>
-                <td>{(x.size / 1024).toFixed(0)} KB</td><td><a href={x.download_url} download={x.filename}>Download</a></td></tr>
+                <td>{(x.size / 1024).toFixed(0)} KB</td><td><a href={x.download_url} download={x.filename}>Download</a> <SaveExport exportId={x.export_id} /></td></tr>
             ))}</tbody></table>
         )}
       </section>

@@ -10,6 +10,7 @@ import { PlanNotice, type PlanError } from "./PlanNotice";
 import { STATUS_LABEL } from "./ModelSettings";
 import { PipelineStrip, type PipeStep } from "./Pipeline";
 import { PromptLibrary } from "./PromptLibrary";
+import { SaveExport } from "./SaveExport";
 import { PromptsView } from "./PromptsView";
 import { ImagePrompt } from "./PromptViewer";
 import { useSessionPrompts } from "../lib/sessionPrompts";
@@ -304,7 +305,7 @@ export function SetPanel(p: Props) {
       {expMsg && (
         <div className={`alert ${expMsg.ok ? "ok" : "warn"}`} role="status">
           {expMsg.text}
-          {expMsg.rec && <>: <a href={expMsg.rec.download_url} download={expMsg.rec.filename}>{expMsg.rec.filename}</a> ({(expMsg.rec.size / 1024).toFixed(0)} KB){expMsg.rec.contains_mock_images && " · contains MOCK images"}</>}
+          {expMsg.rec && <>: <a href={expMsg.rec.download_url} download={expMsg.rec.filename}>{expMsg.rec.filename}</a> ({(expMsg.rec.size / 1024).toFixed(0)} KB) <SaveExport exportId={expMsg.rec.export_id} />{expMsg.rec.contains_mock_images && " · contains MOCK images"}</>}
           {expMsg.retry && <> <button type="button" className="ghost" onClick={expMsg.retry.run}>{expMsg.retry.label}</button></>}
           <button type="button" className="alert-x" aria-label="Dismiss" onClick={() => setExpMsg(null)}>×</button>
         </div>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { ExportRecord } from "../types/api";
 import { catText, vlabel } from "../lib/cards";
+import { SaveExport } from "./SaveExport";
 import { selectionSummary, type Favorites } from "../lib/favorites";
 
 interface Props {
@@ -68,7 +69,7 @@ export function MySelection({ favs, collection, genre, setType, onOpenJob }: Pro
       {err && <div className="alert err" role="alert">{err}</div>}
       {rec && (
         <div className={`alert ${rec.warnings?.length ? "warn" : "ok"}`} role="status">
-          Exported {rec.count} image{rec.count === 1 ? "" : "s"}: <a href={rec.download_url} download={rec.filename}>{rec.filename}</a> ({(rec.size / 1024).toFixed(0)} KB)
+          Exported {rec.count} image{rec.count === 1 ? "" : "s"}: <a href={rec.download_url} download={rec.filename}>{rec.filename}</a> ({(rec.size / 1024).toFixed(0)} KB) <SaveExport exportId={rec.export_id} />
           {rec.contains_mock_images && " · contains MOCK images"}
           {rec.warnings?.map((w) => <div key={w}>⚠ {w}</div>)}
           <button type="button" className="alert-x" aria-label="Dismiss" onClick={() => setRec(null)}>×</button>

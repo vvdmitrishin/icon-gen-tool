@@ -4,6 +4,9 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Literal
 
+import shutil
+from pathlib import Path
+
 import httpx
 from pydantic import BaseModel, Field
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -637,6 +640,22 @@ def create_app(
         if found is None:
             raise _err(404, "not_found", "Export not found.")
         return FileResponse(found[0], media_type="application/zip", filename=found[1])
+
+    @app.post("/api/exports/{export_id}/save-to-downloads")
+    def exports_save_to_downloads(export_id: str) -> dict[str, str]:
+        """Local-only convenience: copy an export ZIP into the user's Downloads folder (the in-app browser may not finish downloads)."""
+        found = exporter.path(export_id)
+        if found is None:
+            raise _err(404, "not_found", "Export not found.")
+        folder = Path.home() / "Downloads"
+        if not folder.is_dir():
+            raise _err(400, "no_downloads_folder", f"Downloads folder not found: {folder}")
+        src, name = Path(found[0]), Path(found[1]).name
+        dest, n = folder / name, 1
+        while dest.exists():  # never overwrite an earlier file
+            dest, n = folder / f"{Path(name).stem} ({n}){Path(name).suffix}", n + 1
+        shutil.copy2(src, dest)
+        return {"path": str(dest)}
 
     @app.post("/api/imports")
     async def imports_create(file: UploadFile = File(...), provider_label: str = Form(...), model_label: str = Form(...),
