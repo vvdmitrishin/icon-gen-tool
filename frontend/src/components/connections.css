@@ -13,7 +13,7 @@
 .cn-field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 3px; }
 .cn-field input[readonly] { background: #f7f8fc; }
 .cn-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
-.cn-btn { flex: 0 0 auto; padding: 8px 14px; font-size: 14px; }
+.cn-btn { flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; font-size: 14px; }
 .cn-btn:disabled { opacity: .5; cursor: not-allowed; }
 .cn-danger { color: var(--err); border-color: #f5bcbc; }
 .cn-confirm { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
@@ -30,3 +30,8 @@
 .wz-step { color: var(--purple); font-size: 12px; font-weight: 700; margin: 0 0 4px; }
 .wz-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
 .wz-summary { list-style: none; padding: 0; display: grid; gap: 8px; }
+.cn-inrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cn-inrow input { flex: 1 1 140px; min-width: 0; }
+.cn-src { font-size: 12px; color: var(--muted); }
+.cn-prec { margin: 0 0 8px; font-size: 12px; color: #4b3a8a; background: var(--lav); border-radius: 8px; padding: 4px 8px; }
+.cn-revoke { margin: 8px 0 0; }

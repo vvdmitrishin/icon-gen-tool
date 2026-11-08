@@ -107,6 +107,8 @@ class Exporter:
                 "object": c["object_name"], "description": c["object_description"], "category": c["category"],
                 "artifact_id": c["artifact_id"], "version": cur["version"], "regenerations": c["regen_count"],
                 "sha256": hashlib.sha256(png).hexdigest(), "width": meta["image"]["width"], "height": meta["image"]["height"],
+                "pixel_size": f"{meta['image']['width']}x{meta['image']['height']}",
+                "native_width": meta["image"].get("native_width"), "native_height": meta["image"].get("native_height"),
                 "provider": meta["provider"]["id"], "model": meta["provider"]["model"],
                 "model_status": meta["provider"]["model_status"], "origin": meta["origin"], "is_mock": meta.get("is_mock", False),
                 "prompt": {"effective": meta["prompt"]["effective"], "template_versions": meta["prompt"].get("template_versions", {}),
@@ -125,7 +127,9 @@ class Exporter:
             "concept": variant["concept"], "approved": variant["approved"], "approved_at": variant["approved_at"],
             "distribution": detail["distribution"], "seed": detail["seed"], "contains_mock_images": mock,
             "number_of_cards": len(cards), "gold_cards": detail.get("gold_cards", 0),
-            "output_size": detail.get("output_size", 1024), "planning_mode": detail.get("planning_mode", "rules"),
+            "output_size": detail.get("output_size", 1024),
+            "output_pixel_size": (f"{manifest_cards[0]['width']}x{manifest_cards[0]['height']}" if manifest_cards else None),
+            "planning_mode": detail.get("planning_mode", "rules"),
             "estimated_total_cost_usd": round(sum(c["estimated_cost_usd"] for c in manifest_cards), 6),
             "cost_is_estimate": True, "limitations": LIMITATIONS, "cards": manifest_cards,
         }
@@ -144,7 +148,7 @@ class Exporter:
             f"{detail['collection']} - {detail['genre']} - Variant {vid} ({variant['title']})\n"
             f"Status: {'APPROVED' if variant['approved'] else 'NOT APPROVED (exported explicitly)'}\n"
             f"{'WARNING: contains MOCK placeholder images, not AI artwork.' + chr(10) if mock else ''}"
-            f"\nartwork/            {len(cards)} PNGs (artwork only: no frames, stars or UI)\n"
+            f"\nartwork/            {len(cards)} PNGs, each exactly {manifest['output_pixel_size']} px (artwork only: no frames, stars or UI)\n"
             "manifest.json       provider, model, prompts, references, category, QA verdict per image\n"
             "set-plan.json       the planned set and request settings\n"
             "QA-report.json      technical + set QA results\n"
@@ -177,6 +181,7 @@ class Exporter:
                     f"{'Approved' if variant['approved'] else 'Unapproved'}.zip")
         return self._write("variant", filename, files, {
             "job_ids": [job_id], "genre": detail["genre"], "variant_id": vid, "approved": variant["approved"],
+            "final_eligible": detail.get("final_eligible", True), "final_ineligible_reason": detail.get("final_ineligible_reason"),
             "contains_mock_images": manifest["contains_mock_images"]})
 
     # -------------------------------------------------------------------------- collection
@@ -185,12 +190,18 @@ class Exporter:
         jobs = [j for j in self.jobs.list(500) if j["collection"] == collection]
         out, blockers_all = [], []
         for genre in genres:
-            gj = [j for j in jobs if j["genre"] == genre]
+            all_gj = [j for j in jobs if j["genre"] == genre]
+            gj = [j for j in all_gj if j.get("final_eligible", True)]  # only full 10-card sets with 0 golden cards
+            skipped = [{"job_id": j["job_id"], "reason": j.get("final_ineligible_reason")} for j in all_gj
+                       if not j.get("final_eligible", True)]
             row: dict[str, Any] = {"genre": genre, "jobs": len(gj), "job_id": None, "status": None, "approved_variant_id": None,
-                                   "generated": 0, "ready": False, "blockers": [], "contains_mock_images": False}
+                                   "generated": 0, "ready": False, "blockers": [], "contains_mock_images": False,
+                                   "ineligible_jobs": skipped}
             pick = next((j for j in gj if j["approved_variant_id"]), gj[0] if gj else None)
             if pick is None:
-                row["blockers"].append("no job generated yet")
+                row["blockers"].append(
+                    f"no final-eligible job yet ({len(skipped)} job(s) ignored: " + (skipped[0]["reason"] or "") + ")"
+                    if skipped else "no job generated yet")
             else:
                 d = self.jobs.detail(pick["job_id"])
                 row.update(job_id=pick["job_id"], status=d["status"], approved_variant_id=d["approved_variant_id"])
@@ -212,7 +223,8 @@ class Exporter:
             blockers_all += [f"{genre}: {b}" for b in row["blockers"]]
             out.append(row)
         return {"collection": collection, "genres": out, "final_ready": all(r["ready"] for r in out),
-                "blockers": blockers_all, "note": "Final deliverable: one approved, complete, non-mock set per genre (golden cards, if any, included)."}
+                "blockers": blockers_all, "note": "Final deliverable: one approved, complete, non-mock 10-card standard set per genre. Golden cards are excluded: "
+                "jobs with golden cards or fewer than 10 cards stay exportable as ordinary variant ZIPs but are not counted here."}
 
     def export_collection(self, collection: str = "Movie Collection", *, include_unapproved: bool = False,
                           allow_mock: bool = False, allow_partial: bool = False) -> dict[str, Any]:

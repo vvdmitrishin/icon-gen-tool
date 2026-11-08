@@ -68,7 +68,7 @@
 .mdot { width: 9px; height: 9px; border-radius: 50%; background: #c4c8e0; flex: none; display: inline-block; }
 .mdot.on { background: #22b35e; box-shadow: 0 0 0 3px rgba(34, 179, 94, .18); }
 .mbadge { font-size: 10px; font-weight: 700; color: #6b6f92; background: #eceef8; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-.mpick-list { position: absolute; z-index: 50; left: 0; right: 0; top: calc(100% + 4px); max-height: 300px; overflow: auto; margin: 0; padding: 6px; list-style: none; background: #fff; border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(27, 29, 59, .18); }
+.mpick-list { position: fixed; z-index: 900; max-height: 300px; overflow: auto; margin: 0; padding: 6px; list-style: none; background: #fff; border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(27, 29, 59, .18); }
 .mgroup ul { list-style: none; margin: 0; padding: 0; }
 .mgroup-h { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 8px 3px; font-weight: 700; }
 .mopt { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--r-sm); cursor: pointer; }
@@ -90,3 +90,17 @@
 .alert.plan-key { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .chip.plan-ai { background: var(--lav); color: var(--purple-d); }
 .chip.plan-rules { background: #e7e9f6; color: #3b3f66; }
+
+/* suggestion chips under free-text fields */
+.sugg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: -4px 0 6px; font-size: 12px; color: var(--muted); }
+.sugg button { border: 1px solid var(--line-2); background: #fff; color: var(--ink); border-radius: 999px; padding: 1px 9px; font-size: 12px; cursor: pointer; }
+.sugg button:hover { background: var(--lav); }
+.compl { margin-top: 6px; }
+.compl .chip { white-space: normal; }
+
+/* previous-run strip */
+.prevrun { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #fff7e0; border: 1px solid #f1d58a; color: #6b4b00; border-radius: var(--r-md); padding: 8px 12px; margin: 0 0 10px; font-size: 13px; }
+.prevrun p { margin: 0; flex: 1 1 260px; }
+.prevrun .btns { display: flex; gap: 8px; }
+.chip.prev { background: #fdeccd; color: var(--warn); margin-left: 8px; vertical-align: middle; font-size: 12px; }
+.cta .cost2 { display: block; font-size: 11px; font-weight: 500; opacity: .9; }

@@ -40,7 +40,7 @@ def test_end_to_end_text_only_with_provenance(client, rec, settings):
     assert r.status_code == 200, r.text
     meta = r.json()
     assert meta["origin"] == "Live API · Gemini Nano Banana 2.1" and not meta["is_mock"]
-    assert meta["image"]["width"] == 64 and meta["prompt"]["layers"]["C_free_wishes"]
+    assert meta["image"]["width"] == 1024 and meta["image"]["native_width"] == 64 and meta["prompt"]["layers"]["C_free_wishes"]
     assert meta["cost"]["is_estimate"] and meta["review"]["art_review"] == "pending"
     img = client.get(meta["image"]["url"])
     assert img.status_code == 200 and img.content[:4] == b"\x89PNG"

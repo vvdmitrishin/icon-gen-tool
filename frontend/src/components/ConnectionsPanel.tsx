@@ -92,26 +92,36 @@ interface CardProps {
   onUpdate: (p: ProviderConn) => void;
 }
 
+const PRECEDENCE_DEFAULT = "Windows Credential Manager takes priority over the .env file; .env is the fallback.";
+const ACCOUNT_ID_HELP = "Find it in the Cloudflare dashboard under Workers AI (Account ID is shown on the right side of the page).";
+export const STILL_ENV = "Still connected through the .env file.";
+
 export function ProviderCard({ provider: p, storageAvailable, onUpdate }: CardProps) {
   const copy = COPY[p.id] ?? { title: p.label, blurb: "" };
-  const hasSaved = p.fields.some((f) => f.stored || f.from_env);
-  const [replacing, setReplacing] = useState(false);
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<null | "save" | "test" | "remove">(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err" | "info"; text: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const showInputs = !hasSaved || replacing;
+  const hasSaved = p.fields.some((f) => f.stored || f.from_env);
+  const anyStored = p.fields.some((f) => f.stored);
+  const anyEditing = Object.values(editing).some(Boolean);
   const filled = Object.fromEntries(Object.entries(values).filter(([, v]) => v.trim() !== ""));
   const canSave = storageAvailable && Object.keys(filled).length > 0 && busy === null;
+
+  function cancelEdit(name: string) {
+    setEditing((e) => ({ ...e, [name]: false }));
+    setValues((v) => { const n = { ...v }; delete n[name]; return n; });
+  }
 
   async function save() {
     setBusy("save"); setMsg(null);
     try {
-      const updated = await connectionsApi.save(p.id, filled, true);
+      const updated = await connectionsApi.save(p.id, filled, true); // only the fields the user typed
       setValues({}); // clear secrets from memory right after a successful save
-      setReplacing(false);
+      setEditing({});
       onUpdate(updated);
       const r = updated.test_result;
       if (r) setMsg({ kind: r.ok ? "ok" : "err", text: r.message });
@@ -139,8 +149,10 @@ export function ProviderCard({ provider: p, storageAvailable, onUpdate }: CardPr
     try {
       const updated = await connectionsApi.remove(p.id);
       onUpdate(updated);
-      setConfirmRemove(false); setReplacing(false); setValues({});
-      setMsg({ kind: "info", text: "Removed from this PC." });
+      setConfirmRemove(false); setEditing({}); setValues({});
+      const stillEnv = updated.configured || updated.fields.some((f) => f.from_env);
+      const note = updated.removal_note ?? "Removed from this PC. The key itself is still valid at the provider.";
+      setMsg({ kind: "info", text: stillEnv && !note.includes(".env") ? `${note} ${STILL_ENV}` : note });
     } catch (e) {
       setMsg({ kind: "err", text: errMsg(e) });
     } finally { setBusy(null); }
@@ -159,62 +171,68 @@ export function ProviderCard({ provider: p, storageAvailable, onUpdate }: CardPr
         {sourceText(p)} · Last tested: {formatTime(p.last_tested_at)}
         {p.message ? <> · {p.message}</> : null}
       </p>
+      <p className="cn-prec">{p.precedence_note ?? PRECEDENCE_DEFAULT}</p>
 
       <div className="cn-fields">
         {p.fields.map((f) => {
           const id = `cn-${p.id}-${f.name}`;
-          const saved = f.stored || f.from_env;
+          const hasValue = f.stored || f.from_env;
+          const showInput = !hasValue || editing[f.name];
+          const tag = f.stored ? "Windows Credential Manager" : ".env file";
+          const isAccount = f.name.toLowerCase().includes("account");
           return (
             <div className="cn-field" key={f.name}>
               <label htmlFor={id}>{f.label}</label>
-              {showInputs ? (
-                <input
-                  id={id}
-                  type={f.secret ? "password" : "text"}
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={values[f.name] ?? ""}
-                  placeholder={saved ? "Saved - type to replace" : ""}
-                  disabled={!storageAvailable || busy !== null}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-                />
+              {showInput ? (
+                <div className="cn-inrow">
+                  <input
+                    id={id}
+                    type={f.secret ? "password" : "text"}
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={values[f.name] ?? ""}
+                    placeholder={hasValue ? "Type the new value" : ""}
+                    aria-describedby={isAccount ? `${id}-help` : undefined}
+                    disabled={!storageAvailable || busy !== null}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  />
+                  {editing[f.name] && (
+                    <button type="button" className="ghost sm" disabled={busy !== null} onClick={() => cancelEdit(f.name)}>Cancel</button>
+                  )}
+                </div>
               ) : (
-                <input id={id} type="text" readOnly value="" placeholder={saved ? "Saved" : "Not set"} />
+                <div className="cn-inrow">
+                  <input id={id} type="password" readOnly value="••••••••" aria-label={`${f.label} (saved)`} />
+                  <span className="cn-src">Saved · {tag}{f.stored && f.in_env ? " (+ .env fallback)" : ""}</span>
+                  <button type="button" className="ghost sm" disabled={busy !== null || !storageAvailable}
+                    onClick={() => setEditing((e) => ({ ...e, [f.name]: true }))}>
+                    {f.stored ? "Replace" : "Edit"}
+                  </button>
+                </div>
               )}
+              {isAccount && showInput && <small id={`${id}-help`} className="hint">{ACCOUNT_ID_HELP}</small>}
             </div>
           );
         })}
       </div>
 
       <div className="cn-actions">
-        {showInputs && (
-          <button type="button" className="primary cn-btn" disabled={!canSave} onClick={() => void save()}>
-            {busy === "save" ? "Saving and testing…" : "Save & test"}
+        <button type="button" className="primary cn-btn" disabled={!canSave} onClick={() => void save()}>
+          {busy === "save" ? "Saving and testing…" : "Save & test"}
+        </button>
+        {hasSaved && (
+          <button type="button" className="ghost" disabled={busy !== null || anyEditing} onClick={() => void test()}>
+            {busy === "test" ? "Testing…" : "Test connection (free, no images)"}
           </button>
         )}
-        {showInputs && replacing && (
-          <button type="button" className="ghost" disabled={busy !== null} onClick={() => { setReplacing(false); setValues({}); }}>
-            Cancel
-          </button>
-        )}
-        {hasSaved && !replacing && (
-          <>
-            <button type="button" className="primary cn-btn" disabled={busy !== null} onClick={() => void test()}>
-              {busy === "test" ? "Testing…" : "Test connection"}
-            </button>
-            <button type="button" className="ghost" disabled={busy !== null || !storageAvailable} onClick={() => setReplacing(true)}>
-              Replace
-            </button>
-          </>
-        )}
-        {p.source === "credential_manager" && !confirmRemove && (
+        {anyStored && !confirmRemove && (
           <button type="button" className="ghost" disabled={busy !== null} onClick={() => setConfirmRemove(true)}>
-            Remove
+            Remove from this PC
           </button>
         )}
         {confirmRemove && (
           <span className="cn-confirm" role="group" aria-label="Confirm removal">
-            Remove the saved credentials from this PC?
+            Remove the saved credentials from Windows Credential Manager on this PC? This does NOT revoke the key at the provider.
             <button type="button" className="ghost cn-danger" disabled={busy !== null} onClick={() => void remove()}>
               {busy === "remove" ? "Removing…" : "Yes, remove"}
             </button>
@@ -227,6 +245,13 @@ export function ProviderCard({ provider: p, storageAvailable, onUpdate }: CardPr
         {msg && <div className={`alert cn-msg ${msg.kind === "err" ? "err" : msg.kind === "ok" ? "cn-okmsg" : "cn-info"}`}>{msg.text}</div>}
       </div>
 
+      <p className="hint cn-revoke">
+        To revoke a key for real, delete it in the provider's dashboard.
+        {p.help.get_credentials_url && (
+          <> <a href={p.help.get_credentials_url} target="_blank" rel="noopener noreferrer">Open the provider's page ↗</a></>
+        )}
+      </p>
+
       <div className="cn-help">
         <button type="button" className="cn-link" aria-expanded={showHelp} onClick={() => setShowHelp((s) => !s)}>
           {showHelp ? "▾" : "▸"} How do I get this?
@@ -234,9 +259,6 @@ export function ProviderCard({ provider: p, storageAvailable, onUpdate }: CardPr
         {showHelp && (
           <div>
             <ol>{p.help.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
-            {p.help.get_credentials_url && (
-              <a href={p.help.get_credentials_url} target="_blank" rel="noopener noreferrer">Open the provider's page ↗</a>
-            )}
           </div>
         )}
       </div>

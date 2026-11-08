@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api/client";
-import { CategoryDistribution, type DistMode } from "./components/CategoryDistribution";
+import { CategoryDistribution, distributionErrors, type DistMode } from "./components/CategoryDistribution";
 import { GoldSlider } from "./components/GoldSlider";
 import { PlanNotice, type PlanError } from "./components/PlanNotice";
 import { ModelSettings, ProviderAvailability, keyOf } from "./components/ModelSettings";
@@ -55,7 +55,7 @@ export default function App() {
   const [category, setCategory] = useState<1 | 2 | 3 | 4>(2);
   const [wishes, setWishes] = useState("");
   const [modelKey, setModelKey] = useState("");
-  const [aspect, setAspect] = useState("1:1");
+  const aspect = "1:1"; // Output Resolution is the only user-facing size setting; images are always square
   const [distMode, setDistMode] = useState<DistMode>("auto_balanced");
   const [customDist, setCustomDist] = useState<DistCounts | null>(null);
   const [variants, setVariants] = useState(1);
@@ -70,8 +70,9 @@ export default function App() {
   const [genError, setGenError] = useState<string | null>(null);
 
   // set generation
-  const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
-  const [jobPreviewError, setJobPreviewError] = useState<PlanError | null>(null);
+  // The plan preview is tagged with the plan key it was made for; a result for another Collection/Set/etc. is never shown.
+  const [pv, setPv] = useState<{ key: string; preview: JobPreview | null; error: PlanError | null } | null>(null);
+  const aiCache = useRef(new Map<string, JobPreview>()); // AI plans already paid for, by exact request
   const [aiPlanKey, setAiPlanKey] = useState<string | null>(null); // planKey the user agreed to plan with the AI for
   const [planningAi, setPlanningAi] = useState(false);
   const [job, setJob] = useState<JobDetail | null>(null);
@@ -144,6 +145,16 @@ export default function App() {
   const mode: "set" | "single" = numberOfCards === 1 ? "single" : "set";
   const goldEff = mode === "set" ? Math.min(gold, numberOfCards) : 0;
   const standard = numberOfCards - goldEff;
+  // everything the plan depends on; the "ai planned" flag is only valid while this is unchanged
+  const planKey = useMemo(
+    () => JSON.stringify([collection.trim(), genre.trim(), variants, numberOfCards, goldEff, distMode, distMode === "custom" ? customDist : null, wishes, seed]),
+    [collection, genre, variants, numberOfCards, goldEff, distMode, customDist, wishes, seed],
+  );
+  const aiPlanned = aiPlanKey === planKey;
+  const aiKeyRef = useRef<string | null>(null);
+  aiKeyRef.current = aiPlanKey;
+  const jobPreview = pv?.key === planKey ? pv.preview : null;
+  const jobPreviewError = pv?.key === planKey ? pv.error : null;
   const previewDist = jobPreview?.distribution;
   const previewDistKey = previewDist ? JSON.stringify(previewDist) : "";
   const autoCounts = useMemo<DistCounts>(() => {
@@ -155,20 +166,15 @@ export default function App() {
     return balancedSplit(standard);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDistKey, standard]);
-  // keep custom counts consistent with the number of standard cards
-  useEffect(() => { setCustomDist((c) => (c ? fitCounts(c, standard) : c)); }, [standard]);
+  // Custom counts are never changed silently: a mismatch with the standard-card total is shown and blocks Generate until fixed (Auto-fit button).
+  const distErrs = mode === "set" && distMode === "custom" ? distributionErrors(customDist ?? autoCounts, standard) : [];
+  const distBad = distErrs.length > 0;
   const model = useMemo(() => models?.models.find((m) => keyOf(m) === modelKey), [models, modelKey]);
   const refIds = useMemo(() => selectedRefs.filter((id) => refs.some((r) => r.ref_id === id)), [selectedRefs, refs]);
-  const setNames = useMemo(() => (genres.length ? genres.map((g) => g.genre) : ["Science Fiction", "Detective", "Fantasy"]), [genres]);
-  // everything the plan depends on; the "ai planned" flag is only valid while this is unchanged
-  const planKey = useMemo(
-    () => JSON.stringify([collection.trim(), genre.trim(), variants, numberOfCards, goldEff, distMode, distMode === "custom" ? customDist : null, wishes, seed]),
-    [collection, genre, variants, numberOfCards, goldEff, distMode, customDist, wishes, seed],
-  );
-  const aiPlanned = aiPlanKey === planKey;
-  const aiKeyRef = useRef<string | null>(null);
-  aiKeyRef.current = aiPlanKey;
-  const aiDoneSig = useRef<string | null>(null);
+  const suggestions = useMemo(() => {
+    const base = genres.length ? genres.map((g) => g.genre) : ["Science Fiction", "Detective", "Fantasy"];
+    return [...new Set([...base, "Comedy"])].slice(0, 8);
+  }, [genres]);
 
   const perImageSel = model?.est_cost_per_image_usd ?? 0;
   const perImageJob = useMemo(() => {
@@ -192,6 +198,18 @@ export default function App() {
     } else setDistMode("auto_balanced");
     setSeed(null);
     setView("generate");
+  }, []);
+
+  /** "Manage connection": open Settings and bring the API Connections section into view. */
+  const manageConnections = useCallback(() => {
+    setView("settings");
+    window.setTimeout(() => {
+      const el = document.getElementById("cn-panel-title");
+      if (!el) return;
+      el.setAttribute("tabindex", "-1");
+      el.scrollIntoView({ block: "start" });
+      el.focus({ preventScroll: true });
+    }, 120);
   }, []);
 
   const request = useCallback(
@@ -255,7 +273,6 @@ export default function App() {
     setNumberOfCards(n); setGold(g);
     setOutputSize(clampInt(j.output_size ?? r.output_size, 24, 1024, DEFAULT_SIZE));
     setWishes(r.wishes ?? "");
-    setAspect(r.aspect_ratio);
     const key = `${r.provider}/${r.model}`;
     if (models?.models.some((m) => keyOf(m) === key && m.selectable)) setModelKey(key);
     const d = r.category_distribution;
@@ -285,33 +302,36 @@ export default function App() {
 
   useEffect(() => {
     if (mode !== "set") return;
-    if (!setValid) { setJobPreview(null); setJobPreviewError(null); return; }
+    if (!setValid || distBad) { setPv(null); return; }
+    const key = planKey;
+    let live = true;
     const t = window.setTimeout(async () => {
       // Free previews never trigger the AI planner unless the user already agreed for these exact inputs.
-      const allow = aiKeyRef.current === planKey;
+      const allow = aiKeyRef.current === key;
       const req = jobRequest(false, true, allow);
       const sig = JSON.stringify(req);
-      if (allow && aiDoneSig.current === sig) return; // this exact AI plan is already shown: never pay twice
+      const hit = allow ? aiCache.current.get(sig) : undefined;
+      if (hit) { setPv({ key, preview: hit, error: null }); return; } // this exact AI plan was already paid for: never pay twice
       try {
-        setJobPreview(await api.jobsPreview(req));
-        setJobPreviewError(null);
-        if (allow) aiDoneSig.current = sig;
-      } catch (e) { setJobPreview(null); setJobPreviewError(toPlanError(e)); }
+        const r = await api.jobsPreview(req);
+        if (allow) aiCache.current.set(sig, r);
+        if (live) setPv({ key, preview: r, error: null });
+      } catch (e) { if (live) setPv({ key, preview: null, error: toPlanError(e) }); }
     }, 350);
-    return () => window.clearTimeout(t);
-  }, [mode, setValid, jobRequest, planKey, models?.budget.spent_estimated_usd]);
+    return () => { live = false; window.clearTimeout(t); };
+  }, [mode, setValid, distBad, jobRequest, planKey, models?.budget.spent_estimated_usd]);
 
   /** "Plan with AI": one small text call for custom themes; the result is reused while the inputs stay unchanged. */
   async function planWithAi() {
     setPlanningAi(true);
+    const key = planKey;
     try {
       const req = jobRequest(false, true, true);
-      const pv = await api.jobsPreview(req);
-      aiDoneSig.current = JSON.stringify(req);
-      setJobPreview(pv);
-      setJobPreviewError(null);
-      setAiPlanKey(planKey);
-    } catch (e) { setJobPreview(null); setJobPreviewError(toPlanError(e)); }
+      const r = await api.jobsPreview(req);
+      aiCache.current.set(JSON.stringify(req), r);
+      setPv({ key, preview: r, error: null });
+      setAiPlanKey(key);
+    } catch (e) { setPv({ key, preview: null, error: toPlanError(e) }); }
     finally { setPlanningAi(false); }
   }
 
@@ -323,7 +343,7 @@ export default function App() {
   const needsPolicy = refIds.length > 0 && model?.provider_id !== "mock" && !policy;
   const policyNeeded = refIds.length > 0 && model?.provider_id !== "mock";
   const previewBlock = mode === "single" ? preview?.blocked?.message : jobPreview?.blocked?.message;
-  const blockedReason = previewBlock ?? (mode === "single" ? previewError : jobPreviewError?.message) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
+  const blockedReason = previewBlock ?? distErrs[0] ?? (mode === "single" ? previewError : jobPreviewError?.message) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
   const havePreview = mode === "single" ? !!preview : !!jobPreview;
   const busy = generating || starting || !!job?.active;
   const canGenerate = formValid && !busy && !blockedReason && havePreview;
@@ -388,15 +408,18 @@ export default function App() {
   }
 
   const planCost = jobPreview?.plan_cost_estimate_usd ?? 0;
-  const buttonLabel: { main: string; sub?: string } = (() => {
+  const buttonLabel: { main: string; sub?: string; sub2?: string } = (() => {
     if (generating || starting) return { main: mode === "single" ? "Generating…" : "Starting…" };
     if (job?.active && mode === "set") return { main: "Job running…" };
     if (armed) return { main: `Confirm & spend ≈ $${est.toFixed(3)}`, sub: "Click again to start; this uses the paid API" };
     const cost = paid ? `≈ $${est.toFixed(3)} (local estimate)` : "free";
-    if (mode === "single") return { main: "Generate card", sub: cost };
+    if (mode === "single") return { main: "Generate card", sub: `Images: ${cost}` };
     const n = jobPreview?.images_in_scope ?? variants * numberOfCards;
-    const planTxt = planCost > 0 ? ` + $${planCost.toFixed(3)} AI plan` : "";
-    return { main: `Generate Sets (${variants} variant${variants > 1 ? "s" : ""})`, sub: `${n} image${n === 1 ? "" : "s"} · ${cost}${planTxt}` };
+    return {
+      main: `Generate Sets (${variants} variant${variants > 1 ? "s" : ""})`,
+      sub: `Images: ${cost} · ${n} image${n === 1 ? "" : "s"}, paid separately from planning`,
+      sub2: planCost > 0 ? `Planning (AI text): ≈ $${planCost.toFixed(3)}, one time` : undefined,
+    };
   })();
 
   return (
@@ -433,11 +456,14 @@ export default function App() {
             <Section n={1} title="Set & Theme">
               <div className="row"><label className="lbl" htmlFor="coll">Collection</label>
                 <input id="coll" value={collection} placeholder="e.g. Movies, Transport, Space Travel" onChange={(e) => { setCollection(e.target.value); setSeed(null); }} maxLength={80} /></div>
-              <p className="hint rowhint">The AI reads this to choose the theme.</p>
+              <p className="hint rowhint">Free text. The AI planner interprets it to choose the theme.</p>
               <div className="row"><label className="lbl" htmlFor="genre">Set</label>
-                <input id="genre" list="genres" value={genre} placeholder="e.g. Sci-Fi, Detective, Cars" onChange={(e) => { setGenre(e.target.value); setSeed(null); }} maxLength={80} />
-                <datalist id="genres">{setNames.map((g) => <option key={g} value={g} />)}</datalist></div>
-              <p className="hint rowhint">A narrower refinement of the Collection; the AI analyses it too.</p>
+                <input id="genre" value={genre} placeholder="e.g. Sci-Fi, Detective, Cars" onChange={(e) => { setGenre(e.target.value); setSeed(null); }} maxLength={80} autoComplete="off" /></div>
+              <div className="sugg" role="group" aria-label="Set suggestions">
+                <span>Suggestions:</span>
+                {suggestions.map((g) => <button type="button" key={g} onClick={() => { setGenre(g); setSeed(null); }}>{g}</button>)}
+              </div>
+              <p className="hint rowhint">Free text, any set you like. The AI planner interprets it together with the Collection; suggestions only fill the field.</p>
               <div className="row two">
                 <div><label className="lbl" htmlFor="ncards">Number of cards</label>
                   <select id="ncards" value={numberOfCards} onChange={(e) => { const n = Number(e.target.value); setNumberOfCards(n); setGold((g) => Math.min(g, n)); setSeed(null); }}>
@@ -490,6 +516,9 @@ export default function App() {
                     gold={goldEff}
                     onMode={(m) => { setDistMode(m); setSeed(null); if (m === "custom") setCustomDist((c) => c ?? { ...autoCounts }); }}
                     onCount={(cat: Cat, v) => setCustomDist((c) => ({ ...(c ?? autoCounts), [cat]: Math.max(0, Math.min(standard, v)) }))}
+                    onAutoFit={() => setCustomDist((c) => fitCounts(c ?? autoCounts, standard))}
+                    compliant={jobPreview?.compliant}
+                    complianceNote={jobPreview?.compliance_note}
                   />
                 </>
               )}
@@ -518,8 +547,7 @@ export default function App() {
             <Section n={4} title="Generation Setup">
               {models ? (
                 <>
-                  <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} aspect={aspect} onAspect={setAspect}
-                    outputSize={outputSize} onOutputSize={setOutputSize} onManage={() => setView("settings")} onConnectionChanged={loadModels} />
+                  <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} outputSize={outputSize} onOutputSize={setOutputSize} onManage={manageConnections} onConnectionChanged={loadModels} />
                   <ProviderAvailability models={models.models} checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />
                 </>
               ) : <p className="hint">Loading models…</p>}
@@ -533,7 +561,7 @@ export default function App() {
             {mode === "set" && jobPreview?.warnings.map((w) => <div key={w} className="alert warn compact">{w}</div>)}
             <div className="cta-row">
               <button type="button" className={`primary big ${armed ? "armed" : ""}`} onClick={onGenerate} disabled={!canGenerate}>
-                <span>{buttonLabel.main}</span>{buttonLabel.sub && <small>{buttonLabel.sub}</small>}
+                <span>{buttonLabel.main}</span>{buttonLabel.sub && <small>{buttonLabel.sub}</small>}{buttonLabel.sub2 && <small className="cost2">{buttonLabel.sub2}</small>}
               </button>
               {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
             </div>
@@ -544,7 +572,7 @@ export default function App() {
         {mode === "set" ? (
           <SetPanel job={job} preview={jobPreview} previewError={jobPreviewError} events={events} jobs={jobs}
             models={models?.models ?? []}
-            form={{ collection, genre, variants, numberOfCards, gold: goldEff, outputSize, provider: model?.provider_id ?? "", model: model?.model_id ?? "", aspect }}
+            form={{ collection, genre, variants, numberOfCards, gold: goldEff, outputSize, provider: model?.provider_id ?? "", model: model?.model_id ?? "" }}
             error={jobError} starting={starting} perImage={perImageJob} onJob={(d) => { setJob(d); loadJobs(); if (!d.active) loadModels(); }}
             onError={setJobError} onPickJob={openJob} onContinue={onContinue}
             planningAi={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)}

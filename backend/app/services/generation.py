@@ -34,7 +34,7 @@ class GenerateCardRequest(BaseModel):
     reference_ids: list[str] = Field(default_factory=list)
     reference_policy_accepted: bool = False
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"] = "1:1"
-    output_size: int = 1024  # delivered icon side in px (24..1024); downscaled from the native image, never upscaled
+    output_size: int = 1024  # EXACT delivered icon side in px (24..1024); the native image is up/downscaled to it
     confirmed: bool = False  # explicit user confirmation of the shown cost estimate
     context: dict[str, Any] = Field(default_factory=dict)  # e.g. job_id/variant_id/position (provenance)
     repair_note: str = Field(default="", max_length=300)  # regeneration corrections (spec §11.4)
@@ -58,24 +58,39 @@ class GenerationFailure(Exception):
 ALLOWED_OUTPUT_SIZES = (24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
 
 
-def deliver_size(png: bytes, width: int, height: int, output_size: int) -> tuple[bytes, int, int, str]:
-    """Downscale (LANCZOS, aspect kept) so the longer side == output_size; never upscale.
-    -> (png_bytes, width, height, note). note is '' unless the native image was smaller than requested."""
-    longer = max(width, height)
-    if longer <= output_size:
-        note = ("" if longer == output_size else
-                f"Native image is {width}x{height}px, smaller than the requested {output_size}px; "
-                "delivered at native size (no upscaling).")
-        return png, width, height, note
-    scale = output_size / longer
-    nw, nh = max(1, round(width * scale)), max(1, round(height * scale))
+def deliver_size(png: bytes, width: int, height: int, output_size: int,
+                 square: bool = True) -> tuple[bytes, int, int, str]:
+    """Return the delivered PNG with EXACT dimensions (LANCZOS up- or downscale).
+    square=True (1:1 requests): a non-square native image is centre-cropped to a square first, then resized to
+    output_size x output_size. square=False (other aspects): aspect is kept and the longer side == output_size.
+    -> (png_bytes, width, height, note). The note describes what was done (kept in the provenance sidecar only)."""
+    if square and width == height == output_size:
+        return png, width, height, "Native size already matches the requested size; delivered unchanged."
     with Image.open(io.BytesIO(png)) as im:
         im.load()
         out = im.convert("RGBA" if im.mode in ("RGBA", "LA", "P") else "RGB")
+    steps = []
+    if square:
+        if width != height:
+            side = min(width, height)
+            left, top = (width - side) // 2, (height - side) // 2
+            out = out.crop((left, top, left + side, top + side))
+            steps.append(f"centre-cropped {width}x{height} to {side}x{side}")
+        nw = nh = output_size
+    else:
+        scale = output_size / max(width, height)
+        nw, nh = max(1, round(width * scale)), max(1, round(height * scale))
+        if width >= height:
+            nw = output_size
+        else:
+            nh = output_size
+    if out.size != (nw, nh):
+        verb = "upscaled" if max(out.size) < output_size else "downscaled"
         out = out.resize((nw, nh), Image.LANCZOS)
-        buf = io.BytesIO()
-        out.save(buf, format="PNG")
-    return buf.getvalue(), nw, nh, ""
+        steps.append(f"{verb} to {nw}x{nh} (LANCZOS)")
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue(), nw, nh, "; ".join(steps) or "Delivered unchanged."
 
 
 class GenerationService:
@@ -224,10 +239,14 @@ class GenerationService:
                 model_id=model.model_id, est_cost_usd=estimate,
                 usage=result.usage, outcome="ok",
             )
-            delivered = deliver_size(result.png_bytes, result.width, result.height, req.output_size)
+            delivered = deliver_size(result.png_bytes, result.width, result.height, req.output_size,
+                                     square=req.aspect_ratio == "1:1")
             metadata = self._metadata(artifact_id, req, model, compiled, refs, result,
                                       estimate, attempts, delivered)
-            self.store.save(artifact_id, delivered[0], metadata)
+            metadata["image"]["original_file"] = f"{artifact_id}.original.png"
+            metadata["image"]["original_sha256"] = hashlib.sha256(result.png_bytes).hexdigest()
+            metadata["image"]["original_bytes"] = len(result.png_bytes)
+            self.store.save(artifact_id, delivered[0], metadata, original=result.png_bytes)
             if model.provider_id != "mock":
                 self.registry.mark_live(model.provider_id, model.model_id)
             return metadata

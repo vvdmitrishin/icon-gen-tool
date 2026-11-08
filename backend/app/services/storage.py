@@ -37,10 +37,12 @@ class ArtifactStore:
             raise ValueError("invalid artifact id")
         return self.root / f"{artifact_id}.png", self.root / f"{artifact_id}.json"
 
-    def save(self, artifact_id: str, png: bytes, metadata: dict[str, Any]) -> None:
+    def save(self, artifact_id: str, png: bytes, metadata: dict[str, Any], original: bytes | None = None) -> None:
         png_path, json_path = self._paths(artifact_id)
         if png_path.exists():
             raise FileExistsError("artifact versions are immutable")
+        if original is not None:  # the untouched provider image, kept next to the delivered file
+            _atomic_write(self.root / f"{artifact_id}.original.png", original)
         _atomic_write(png_path, png)
         _atomic_write(json_path, json.dumps(metadata, indent=2, ensure_ascii=False).encode())
 

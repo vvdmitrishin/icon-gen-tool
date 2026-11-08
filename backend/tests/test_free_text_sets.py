@@ -344,19 +344,6 @@ def test_output_size_downscales_and_qa_accepts_small_icons(settings, size):
             assert card["qa_status"] != "failed"
 
 
-def test_output_size_never_upscales(settings):
-    import io
-    with TestClient(create_app(settings)) as c:
-        jid = c.post("/api/jobs", json=dict(genre="Detective", number_of_variants=1, number_of_cards=1,
-                                            output_size=1024, confirmed=True, **MOCK)).json()["job_id"]
-        card = wait(c, jid)["variants"][0]["cards"][0]
-        meta, png = _image_for(c, card)
-        with Image.open(io.BytesIO(png)) as im:
-            assert im.size == (512, 512)
-        assert "no upscaling" in meta["image"]["output_size_note"]
-        assert meta["image"]["output_size_requested"] == 1024
-
-
 def test_bad_output_size_is_422(settings):
     with TestClient(create_app(settings)) as c:
         for path in ("/api/jobs/preview", "/api/jobs"):

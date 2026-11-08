@@ -24,7 +24,6 @@ export interface FormSummary {
   outputSize: number;
   provider: string;
   model: string;
-  aspect: string;
 }
 
 interface Props {
@@ -96,6 +95,7 @@ export function SetPanel(p: Props) {
   const detailRef = useRef<HTMLDivElement>(null);
   const variantsRef = useRef<HTMLDivElement>(null);
   const job = p.job;
+  const [keepKey, setKeepKey] = useState<string | null>(null);
 
   const pct = job && job.counts.total ? Math.round((job.counts.done / job.counts.total) * 100) : 0;
   const picked = job?.variants.flatMap((v) => v.cards).find((c) => c.card_id === pickedId) ?? null;
@@ -105,6 +105,13 @@ export function SetPanel(p: Props) {
   const cardsN = job ? (job.number_of_cards ?? job.variants[0]?.cards.length ?? 10)
     : p.preview ? (p.preview.number_of_cards ?? p.preview.plan.variants[0]?.cards.length ?? p.form.numberOfCards) : p.form.numberOfCards;
   const selTotal = selV ? (selV.set_qa.total || selV.cards.length) : cardsN;
+  // The form no longer describes the displayed job: it is a previous run, not the active generation.
+  const jobCards = job ? (job.number_of_cards ?? job.request.number_of_cards ?? job.variants[0]?.cards.length ?? 10) : 0;
+  const jobGold = job ? (job.gold_cards ?? job.request.gold_cards ?? 0) : 0;
+  const formSig = JSON.stringify([p.form.collection.trim(), p.form.genre.trim(), p.form.variants, p.form.numberOfCards, p.form.gold]);
+  const stale = !!job && (job.collection.trim() !== p.form.collection.trim() || job.genre.trim() !== p.form.genre.trim()
+    || jobCards !== p.form.numberOfCards || job.variants.length !== p.form.variants || jobGold !== p.form.gold);
+  const showStrip = stale && keepKey !== formSig;
   const planMode = job ? (job.planning_mode ?? "rules") : (p.preview?.planning_mode ?? "rules");
 
   useEffect(() => {
@@ -179,7 +186,7 @@ export function SetPanel(p: Props) {
 
   const TABS: [View, string][] = [["results", "Results"], ["plans", "Set Plans (JSON)"], ["qa", "QA Report"], ["log", "Generation Log"]];
   const inExtra = view === "variants" || view === "compare" || view === "library";
-  const heading = job ? `Generated Sets — ${job.collection}: ${job.genre}` : p.preview ? `Plan Preview — ${p.form.collection}: ${p.form.genre}` : `Generated Sets — ${p.form.collection}: ${p.form.genre}`;
+  const heading = job ? `${stale ? "Previous result" : "Generated Sets"} — ${job.collection}: ${job.genre}` : p.preview ? `Plan Preview — ${p.form.collection}: ${p.form.genre}` : `Generated Sets — ${p.form.collection}: ${p.form.genre}`;
   const nVariants = job ? job.variants.length : p.preview ? p.preview.plan.variants.length : p.form.variants;
   const exportItems: MenuItem[] = [
     { key: "v", label: selV ? `Variant ${vlabel(selV.variant_id)} — ZIP` : "Selected variant — ZIP", sub: selV?.approved ? "approved variant" : "needs approval", disabled: !job || !selV || job.active || selV.set_qa.generated < selTotal || expBusy,
@@ -227,7 +234,7 @@ export function SetPanel(p: Props) {
       </div>
 
       <div className="titlerow">
-        <h1>{heading}</h1>
+        <h1>{heading}{stale && <span className="chip prev">Previous run</span>}</h1>
         <div className="titlebtns">
           <button type="button" className={`btn outline ${view === "variants" || view === "compare" ? "on" : ""}`} disabled={!job} onClick={() => setView("variants")}
             title={job ? "Compare the variants side by side, or check cards against references" : "Generate a set first"}><span aria-hidden>◫</span> Compare Variants</button>
@@ -237,7 +244,21 @@ export function SetPanel(p: Props) {
       </div>
 
       {p.error && <div className="alert err" role="alert">{p.error}</div>}
-      {p.previewError && !job && <PlanNotice error={p.previewError} planning={p.planningAi} onPlanWithAi={p.onPlanWithAi} onConnectGemini={p.onConnectGemini} />}
+      {showStrip && job && (
+        <div className="prevrun" role="status">
+          <p>
+            <strong>{job.active ? "Showing the running job" : "Showing a previous run"}:</strong> {job.collection} · {job.genre} ({jobCards} cards, {job.variants.length} variant{job.variants.length === 1 ? "" : "s"}{jobGold > 0 ? `, ${jobGold} ★` : ""}).
+            {" "}Your form now says: <strong>{p.form.collection || "(no collection)"} · {p.form.genre || "(no set)"}</strong> ({p.form.numberOfCards} cards, {p.form.variants} variant{p.form.variants === 1 ? "" : "s"}{p.form.gold > 0 ? `, ${p.form.gold} ★` : ""}).
+            {" "}Nothing has been generated for the form yet.
+          </p>
+          <span className="btns">
+            <button type="button" className="primary small" disabled={job.active} title={job.active ? "Wait for the running job to finish" : undefined} onClick={p.onNew}>Plan this form</button>
+            <button type="button" className="ghost" onClick={() => setKeepKey(formSig)}>Keep viewing</button>
+          </span>
+        </div>
+      )}
+      {stale && p.preview && !p.previewError && <p className="hint plan-hint">A plan for your form is ready ({p.preview.images_in_scope} image{p.preview.images_in_scope === 1 ? "" : "s"}, nothing generated). Click “Plan this form” to review it.</p>}
+      {p.previewError && (!job || stale) && <PlanNotice error={p.previewError} planning={p.planningAi} onPlanWithAi={p.onPlanWithAi} onConnectGemini={p.onConnectGemini} />}
       {expMsg && (
         <div className={`alert ${expMsg.ok ? "ok" : "warn"}`} role="status">
           {expMsg.text}
@@ -322,7 +343,7 @@ export function SetPanel(p: Props) {
           )}
 
           <div className="bottomrow">
-            <SetSummary job={job} preview={p.preview} form={p.form} models={p.models} events={p.events} selV={selV} />
+            <SetSummary stale={stale} job={job} preview={p.preview} form={p.form} models={p.models} events={p.events} selV={selV} />
             <QuickActions job={job} hasPlan={!!p.preview} picked={picked} onRegenerate={() => { setRegenReq((n) => n + 1); detailRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }}
               onReplace={() => setReplaceReq((n) => n + 1)}
               onEditPlan={() => { if (picked) setReplaceReq((n) => n + 1); else setView("plans"); }}
@@ -519,25 +540,15 @@ function PlanRow({ id, title, concept, cards }: { id: string; title: string; con
 }
 
 // ------------------------------------------------------------------------------------ bottom row
-function SetSummary({ job, preview, form, models, events, selV }: {
-  job: JobDetail | null; preview: JobPreview | null; form: FormSummary; models: ModelInfo[]; events: JobEvent[]; selV?: JobVariant;
+function SetSummary({ stale, job, preview, form, models, events, selV }: {
+  stale: boolean; job: JobDetail | null; preview: JobPreview | null; form: FormSummary; models: ModelInfo[]; events: JobEvent[]; selV?: JobVariant;
 }) {
   const provider = job?.request.provider ?? form.provider;
   const modelId = job?.request.model ?? form.model;
-  const aspect = job?.request.aspect_ratio ?? form.aspect;
-  const size = job?.output_size ?? job?.request.output_size ?? preview?.output_size ?? form.outputSize;
+  const size = job ? (job.output_size ?? job.request.output_size ?? form.outputSize) : (preview?.output_size ?? form.outputSize);
   const nCards = job ? (job.number_of_cards ?? job.variants[0]?.cards.length ?? 10) : preview?.number_of_cards ?? form.numberOfCards;
   const nGold = job ? (job.gold_cards ?? job.request.gold_cards ?? job.variants[0]?.cards.filter((c) => c.category === 5).length ?? 0) : preview?.gold_cards ?? form.gold;
   const m = models.find((x) => x.provider_id === provider && x.model_id === modelId);
-  const firstArt = job?.variants.flatMap((v) => v.cards).find((c) => c.artifact_id)?.artifact_id ?? null;
-  const [px, setPx] = useState<string | null>(null);
-  useEffect(() => {
-    setPx(null);
-    if (!firstArt) return;
-    let live = true;
-    api.artifact(firstArt).then((a) => { if (live) setPx(`${a.image.width} × ${a.image.height}`); }).catch(() => undefined);
-    return () => { live = false; };
-  }, [firstArt]);
   const secs = job ? runSeconds(events) : null;
   const thumbs = (selV ?? job?.variants[0])?.cards.filter((c) => c.image_url).slice(0, 3) ?? [];
   const nVar = job ? job.variants.length : preview?.plan.variants.length ?? form.variants;
@@ -545,7 +556,7 @@ function SetSummary({ job, preview, form, models, events, selV }: {
   const free = provider === "mock";
   return (
     <section className="bcard summary" aria-label="Set summary">
-      <h3><span aria-hidden>▤</span> Set Summary</h3>
+      <h3><span aria-hidden>▤</span> Set Summary{stale ? " (previous run)" : ""}</h3>
       <div className="summary-body">
         <dl>
           <dt>Collection</dt><dd>{job?.collection ?? form.collection}</dd>
@@ -553,7 +564,7 @@ function SetSummary({ job, preview, form, models, events, selV }: {
           <dt>Cards</dt><dd>{nGold > 0 ? `${nCards - nGold} + ${nGold} ★ gold` : nCards}{job && job.scope === "pilot" ? " · pilot run" : ""}</dd>
           <dt>Variants</dt><dd>{nVar}</dd>
           <dt>Image model</dt><dd>{m ? m.label : modelId || "—"} {m && <span className={`chip tiny st-${m.status}`}>{STATUS_LABEL[m.status] ?? m.status}</span>}</dd>
-          <dt>Resolution</dt><dd>{size} × {size} px <span className="muted">({aspect}{px && px !== `${size} × ${size}` ? `, file ${px}` : ""})</span></dd>
+          <dt>Output Resolution</dt><dd>{size} × {size} px</dd>
           <dt>Run time</dt><dd>{secs != null ? fmtDuration(secs) : "—"}{secs != null && <span className="muted"> (from job log)</span>}</dd>
           <dt>Cost</dt><dd>{free ? "$0.000 (mock, free)" : money(cost)} <span className="chip tiny" title="Calculated locally from list prices; not a provider invoice">estimate</span></dd>
         </dl>

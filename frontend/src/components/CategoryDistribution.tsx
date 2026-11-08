@@ -43,14 +43,32 @@ interface Props {
   gold: number;
   onMode: (m: DistMode) => void;
   onCount: (cat: Cat, v: number) => void;
+  /** refit custom counts to the standard-card total (explicit user action; values are never changed silently) */
+  onAutoFit?: () => void;
+  /** backend flags (optional; computed locally when absent) */
+  compliant?: boolean | null;
+  complianceNote?: string | null;
+}
+
+/** Playrix rule of thumb mirrored client-side: at least 4 standard cards and every Cat. 1-4 has >= 1. */
+export function localCompliance(counts: DistCounts, standard: number): { ok: boolean; note: string } {
+  const sum = CATS.reduce((s, c) => s + counts[c], 0);
+  if (standard < 4) return { ok: false, note: "fewer than 4 standard cards, so not every category can be covered" };
+  const empty = CATS.filter((c) => counts[c] < 1);
+  if (empty.length) return { ok: false, note: `Cat. ${empty.join(", ")} has no cards` };
+  if (sum !== standard) return { ok: false, note: "counts do not add up yet" };
+  return { ok: true, note: "" };
 }
 
 /** Compact "Card categories" control: cards per category 1-4 plus the ★ Gold slot driven by the golden-cards slider. */
-export function CategoryDistribution({ mode, counts, autoCounts, standard, gold, onMode, onCount }: Props) {
+export function CategoryDistribution({ mode, counts, autoCounts, standard, gold, onMode, onCount, onAutoFit, compliant, complianceNote }: Props) {
   const shown = mode === "auto_balanced" ? autoCounts : counts;
   const sum = CATS.reduce((s, c) => s + shown[c], 0);
   const errors = mode === "custom" ? distributionErrors(counts, standard) : [];
   const editable = mode === "custom";
+  const local = localCompliance(shown, standard);
+  const isOk = compliant ?? local.ok;
+  const note = complianceNote || local.note || "not all 4 standard categories are covered";
   const help =
     (mode === "auto_balanced" ? "Auto: balanced split of the standard cards (2:2:3:3 for 10). " : "Producer-defined counts. ") +
     "Applied identically in every variant. Separate from rarity / stars.";
@@ -85,9 +103,16 @@ export function CategoryDistribution({ mode, counts, autoCounts, standard, gold,
       </div>
       <div className="dist-foot">
         <span className={`sum ${errors.length || sum !== standard ? "bad" : "ok"}`}>Σ = {sum} / {standard}</span>
+        {editable && sum !== standard && onAutoFit && <button type="button" className="ghost sm" onClick={onAutoFit}>Auto-fit to {standard}</button>}
         <span className="hint">Standard cards (Cat. 1–4){gold > 0 ? ` + ${gold} ★ gold` : ""}</span>
       </div>
       {errors.map((e) => <div key={e} className="alert err" role="alert">{e}</div>)}
+      {errors.length > 0 && <p className="hint">Generate is blocked until the counts add up. Nothing was changed automatically.</p>}
+      <div className="compl" role="status">
+        {isOk
+          ? <span className="chip ok">Playrix-compliant: all 4 standard categories covered</span>
+          : <span className="chip warn">Custom / non-compliant set: {note}</span>}
+      </div>
     </div>
   );
 }

@@ -190,9 +190,14 @@ class ConnectionService:
         fields = []
         for name, label, secret in meta["fields"]:
             stored, env = field_source(self.base, self.store, provider, name)
-            fields.append({"name": name, "label": label, "secret": secret, "stored": stored, "from_env": env and not stored})
+            fields.append({"name": name, "label": label, "secret": secret, "stored": stored,
+                           "from_env": env and not stored, "in_env": env})
+        env_available = all(f["in_env"] for f in fields)
         return {"id": provider, "label": meta["label"], "configured": configured, "source": self.source(provider),
-                "status": status, "last_tested_at": last, "message": msg, "fields": fields, "help": meta["help"]}
+                "status": status, "last_tested_at": last, "message": msg, "fields": fields, "help": meta["help"],
+                "env_available": env_available,
+                "precedence_note": ("A value saved in Windows Credential Manager wins over the same value in .env; "
+                                    ".env is only the fallback for fields that are not saved here.")}
 
     def overview(self) -> dict[str, Any]:
         return {"secure_storage": {"available": self.store.available(), "backend": self.store.backend_name},

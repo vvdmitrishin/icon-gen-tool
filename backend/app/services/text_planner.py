@@ -114,8 +114,12 @@ class TextPlanner:
         lines = [
             f"COLLECTION (broad theme, free text): {collection!r}",
             f"SET (narrower theme inside the collection, free text): {set_name!r}",
-            "First analyse what the Collection and the Set mean together (for example Collection 'Movies' -> film themes, "
-            "Collection 'Transport' -> vehicles; Set 'Sci-Fi' or 'Detective' narrows it down) and keep every object on that theme.",
+            "First interpret BOTH fields and what they mean together: the Collection is the broad theme and the Set narrows "
+            "it down (for example Collection 'Summer' + Set 'Sports' -> summer sports gear; Collection 'Movies' + Set "
+            "'Detective' -> detective-film props). Keep every object clearly on that combined theme and do not drift to "
+            "an unrelated theme or to a stock genre that was not asked for.",
+            "Choose objects that are good standalone illustrations. Avoid objects whose look depends on text or lettering "
+            "(signs, posters, book covers, labels, scoreboards, banknotes, flags with writing).",
             f"Create {variants} DISTINCT alternative variant(s) of the set. Each variant has its own micro-theme: a short "
             f"`title` and a one-sentence `concept`. Each variant has exactly {total} cards.",
             "Per variant the cards must follow this category distribution EXACTLY:",
@@ -131,7 +135,7 @@ class TextPlanner:
                 "Name = the characters + situation, description = the visual scene. Characters must be original designs."
             )
         if wishes.strip():
-            lines.append(f"Producer wishes (guidance only, never break the rules above): {wishes.strip()[:500]}")
+            lines.append(f"Producer wishes (honour them for theme, mood and style, but never break the rules above): {wishes.strip()[:500]}")
         lines.append("Return JSON only, matching the response schema.")
         return "\n".join(lines)
 

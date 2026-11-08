@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { connectionsApi, ConnError } from "../api/connections";
 import { OUTPUT_SIZES } from "../lib/cards";
 import type { ProviderId } from "../types/connections";
 import type { ModelCapabilities, ModelInfo } from "../types/api";
-import { useConnections } from "./ConnectionsPanel";
+import { STILL_ENV, useConnections } from "./ConnectionsPanel";
 
 export const STATUS_LABEL: Record<string, string> = {
   external_rest_verified: "REST-verified",
@@ -54,8 +54,6 @@ interface Props {
   models: ModelInfo[];
   value: string; // "provider/model"
   onChange: (v: string) => void;
-  aspect: string;
-  onAspect: (v: string) => void;
   outputSize: number;
   onOutputSize: (v: number) => void;
   /** open the API Connections settings */
@@ -112,10 +110,37 @@ function OptionalToggles({ m }: { m: ModelInfo }) {
   );
 }
 
+/** Display order: Gemini Nano Banana, Cloudflare FLUX.2 Klein, Z-Image-Turbo (local), then everything else (FLUX.1 Schnell last). */
+function rankOf(m: ModelInfo): number {
+  const t = `${m.model_id} ${m.label}`.toLowerCase();
+  if (m.provider_id === "gemini" || /nano.?banana/.test(t)) return 0;
+  if (/klein/.test(t)) return 1;
+  if (/z-?image/.test(t)) return 2;
+  if (/schnell/.test(t)) return 4;
+  return 3;
+}
+
+/** User-facing status wording for a model (does not change what is selectable). */
+export function statusText(m: ModelInfo): string {
+  if (runtimeOf(m) === "local" && !m.selectable) return "Planned · local";
+  if (m.status === "configured_app") return "Connected · awaiting live verification";
+  if (m.selectable && (m.status === "app_live" || m.status === "external_rest_verified" || m.status === "available_in_account")) return "Active";
+  if (m.status === "app_live") return "Active";
+  if (m.status === "planned" || m.status === "adapter_pending") return "Planned";
+  if (!m.selectable && (m.status === "documented" || m.status === "disabled_no_key")) return "Not connected";
+  return STATUS_LABEL[m.status] ?? m.status;
+}
+
+function badgeText(m: ModelInfo): string {
+  if (runtimeOf(m) === "local") return "Planned · local";
+  if (m.status === "planned" || m.status === "adapter_pending") return "Planned";
+  return "Not connected";
+}
+
 function modelGroups(models: ModelInfo[]) {
   const groups = new Map<string, { rt: Runtime; items: ModelInfo[] }>();
   [...models]
-    .sort((a, b) => RUNTIME_ORDER.indexOf(runtimeOf(a)) - RUNTIME_ORDER.indexOf(runtimeOf(b)))
+    .sort((a, b) => rankOf(a) - rankOf(b))
     .forEach((m) => {
       const rt = runtimeOf(m);
       const label = groupLabel(rt, m);
@@ -128,25 +153,61 @@ function modelGroups(models: ModelInfo[]) {
 
 const optId = (k: string) => `mopt-${k.replace(/[^a-z0-9_-]/gi, "_")}`;
 
-/** Custom listbox: connected models get a light green tint + dot, unavailable ones are greyed with a "Not connected" badge. */
+interface ListPos { left: number; width: number; top?: number; bottom?: number; maxHeight: number }
+
+/**
+ * Custom listbox. The list is `position: fixed`, placed from the trigger's rect (flips upward when there is no room below),
+ * sits above the sticky Generate footer and scrolls on its own. Closes on outside click, Esc, resize and page scroll.
+ */
 function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<string>(value);
+  const [pos, setPos] = useState<ListPos | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const groups = modelGroups(models);
-  const selectable = models.filter((m) => m.selectable).map(keyOf);
+  const selectable = groups.flatMap(([, g]) => g.items).filter((m) => m.selectable).map(keyOf);
   const current = models.find((m) => keyOf(m) === value);
   const startActive = () => (selectable.includes(value) ? value : selectable[0] ?? value);
 
+  const place = useCallback(() => {
+    const r = btn.current?.getBoundingClientRect();
+    if (!r) return;
+    const vh = window.innerHeight;
+    const cta = document.querySelector(".cta")?.getBoundingClientRect();
+    const limit = cta && cta.top > r.bottom ? cta.top : vh; // keep clear of the sticky footer when possible
+    const below = limit - r.bottom - 8;
+    const above = r.top - 8;
+    const want = 380;
+    if (below >= Math.min(want, 240) || below >= above) {
+      setPos({ left: r.left, width: r.width, top: r.bottom + 4, maxHeight: Math.max(140, Math.min(want, below)) });
+    } else {
+      setPos({ left: r.left, width: r.width, bottom: vh - r.top + 4, maxHeight: Math.max(140, Math.min(want, above)) });
+    }
+  }, []);
+
+  useLayoutEffect(() => { if (open) place(); }, [open, place]);
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    const close = () => setOpen(false);
+    const onDoc = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) close(); };
+    const onScroll = (e: Event) => { if (list.current && e.target instanceof Node && list.current.contains(e.target)) return; close(); };
+    const onEsc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") { close(); btn.current?.focus(); } };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", close);
+    };
   }, [open]);
   useEffect(() => {
-    if (open) document.getElementById(optId(active))?.scrollIntoView({ block: "nearest" });
-  }, [open, active]);
+    if (open && pos) document.getElementById(optId(active))?.scrollIntoView({ block: "nearest" });
+  }, [open, active, pos]);
 
   const move = (delta: number | "first" | "last") => {
     if (!selectable.length) return;
@@ -166,26 +227,26 @@ function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: 
       e.preventDefault();
       if (!open) { setActive(startActive()); setOpen(true); }
       else if (selectable.includes(active)) choose(active);
-    } else if (e.key === "Escape" && open) { e.preventDefault(); setOpen(false); }
-    else if (e.key === "Tab") setOpen(false);
+    } else if (e.key === "Tab") setOpen(false);
   }
 
   return (
     <div className="mpick" ref={wrap}>
-      <button type="button" id="model" className={`mpick-btn ${current?.selectable ? "live" : ""}`} role="combobox" aria-haspopup="listbox"
+      <button type="button" ref={btn} id="model" className={`mpick-btn ${current?.selectable ? "live" : ""}`} role="combobox" aria-haspopup="listbox"
         aria-expanded={open} aria-controls="model-list" aria-activedescendant={open ? optId(active) : undefined} onKeyDown={onKey}
         onClick={() => { if (!open) setActive(startActive()); setOpen(!open); }}>
         {current ? (
           <>
             <i className={`mdot ${current.selectable ? "on" : ""}`} aria-hidden />
             <span className="mpick-label">{current.label}</span>
-            {!current.selectable && <span className="mbadge">Not connected</span>}
+            {!current.selectable && <span className="mbadge">{badgeText(current)}</span>}
           </>
         ) : <span className="mpick-label muted">Select a model</span>}
         <span className="caret" aria-hidden>▾</span>
       </button>
       {open && (
-        <ul id="model-list" className="mpick-list" role="listbox" aria-label="Image model">
+        <ul id="model-list" ref={list} className="mpick-list" role="listbox" aria-label="Image model"
+          style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: "hidden" }}>
           {groups.map(([label, g]) => (
             <li key={label} role="presentation" className="mgroup">
               <span className="mgroup-h" role="presentation">{label}</span>
@@ -196,14 +257,14 @@ function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: 
                   return (
                     <li key={k} id={optId(k)} role="option" aria-selected={sel} aria-disabled={!m.selectable}
                       className={`mopt ${m.selectable ? "live" : "off"} ${sel ? "sel" : ""} ${active === k ? "act" : ""}`}
-                      title={!m.selectable ? (m.disabled_reason ?? STATUS_LABEL[m.status] ?? m.status) : undefined}
+                      title={!m.selectable ? (m.disabled_reason ?? statusText(m)) : undefined}
                       onMouseEnter={() => { if (m.selectable) setActive(k); }} onClick={() => { if (m.selectable) choose(k); }}>
                       <i className={`mdot ${m.selectable ? "on" : ""}`} aria-hidden />
                       <span className="mopt-main">
                         <span className="mopt-name">{m.label}</span>
-                        <small>{STATUS_LABEL[m.status] ?? m.status}{m.role && ROLE_LABEL[m.role] && ROLE_LABEL[m.role] !== STATUS_LABEL[m.status] ? ` · ${ROLE_LABEL[m.role]}` : ""}</small>
+                        <small>{statusText(m)}{m.role && ROLE_LABEL[m.role] && ROLE_LABEL[m.role] !== statusText(m) && ROLE_LABEL[m.role] !== "Planned" ? ` · ${ROLE_LABEL[m.role]}` : ""}</small>
                       </span>
-                      {!m.selectable && <span className="mbadge">Not connected</span>}
+                      {!m.selectable && <span className="mbadge">{badgeText(m)}</span>}
                       {sel && <span className="mcheck" aria-hidden>✓</span>}
                     </li>
                   );
@@ -219,7 +280,7 @@ function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: 
 
 const CONN_PROVIDERS: string[] = ["gemini", "cloudflare"];
 
-/** Connection line under the model picker: status + Manage / Revoke. Never shows or stores secret values. */
+/** Connection line under the model picker: status + Manage / Remove from this PC. Never shows or stores secret values. */
 function ModelConnection({ model, refreshKey, onManage, onChanged }: { model: ModelInfo; refreshKey: unknown; onManage: () => void; onChanged: () => void }) {
   const conn = useConnections();
   const { refresh } = conn;
@@ -228,15 +289,19 @@ function ModelConnection({ model, refreshKey, onManage, onChanged }: { model: Mo
   const [err, setErr] = useState<string | null>(null);
   const managed = CONN_PROVIDERS.includes(model.provider_id);
   const pc = conn.state?.providers.find((x) => x.id === model.provider_id);
-  const hasVault = pc?.source === "credential_manager";
+  const hasVault = !!pc?.fields.some((f) => f.stored);
+  const [note, setNote] = useState<string | null>(null);
   const connected = model.selectable;
   const label = model.provider_label;
 
-  async function revoke() {
-    if (!window.confirm(`Remove the stored credential for ${label}? Generation with it stops until you reconnect.`)) return;
-    setBusy(true); setErr(null);
+  async function removeLocal() {
+    if (!window.confirm("Remove the saved credentials from Windows Credential Manager on this PC? This does NOT revoke the key at the provider.")) return;
+    setBusy(true); setErr(null); setNote(null);
     try {
-      await connectionsApi.remove(model.provider_id as ProviderId);
+      const updated = await connectionsApi.remove(model.provider_id as ProviderId);
+      const stillEnv = updated.configured || updated.fields.some((f) => f.from_env);
+      const base = updated.removal_note ?? "Removed from this PC.";
+      setNote(stillEnv && !base.includes(".env") ? `${base} ${STILL_ENV}` : base);
       await refresh();
       onChanged();
     } catch (e) { setErr(e instanceof ConnError ? e.message : "Could not remove the credential."); }
@@ -249,10 +314,11 @@ function ModelConnection({ model, refreshKey, onManage, onChanged }: { model: Mo
       {managed && (
         <>
           <button type="button" className="ghost sm" onClick={onManage}>Manage connection</button>
-          {hasVault && <button type="button" className="ghost sm cn-danger" disabled={busy} onClick={() => void revoke()}>{busy ? "Removing…" : "Revoke"}</button>}
+          {hasVault && <button type="button" className="ghost sm cn-danger" disabled={busy} onClick={() => void removeLocal()}>{busy ? "Removing…" : "Remove from this PC"}</button>}
         </>
       )}
       {err && <div className="alert err compact" role="alert">{err}</div>}
+      {note && <div className="alert cn-info compact" role="status">{note}</div>}
     </div>
   );
 }
@@ -268,7 +334,7 @@ export function ModelSettings(p: Props) {
         {current && <ModelConnection model={current} refreshKey={p.models} onManage={p.onManage} onChanged={p.onConnectionChanged} />}
         {current && (
           <div className="chips tight" aria-label="Selected model">
-            <span className={`chip st-${current.status}`}>{STATUS_LABEL[current.status] ?? current.status}</span>
+            <span className={`chip st-${current.status}`}>{statusText(current)}</span>
             <span className="chip">{current.runtime_label ?? RUNTIME_HEADING[runtimeOf(current)]}</span>
             {current.origin_badge && <span className="chip">{current.origin_badge}</span>}
           </div>
@@ -289,23 +355,12 @@ export function ModelSettings(p: Props) {
         </details>
       )}
 
-      <div className="row two">
-        <div className="field">
-          <label className="lbl" htmlFor="outsize">Resolution</label>
-          <select id="outsize" value={p.outputSize} onChange={(e) => p.onOutputSize(Number(e.target.value))}>
-            {OUTPUT_SIZES.map((n) => <option key={n} value={n}>{n} × {n} px</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label className="lbl" htmlFor="aspect">Aspect</label>
-          <select id="aspect" value={p.aspect} onChange={(e) => p.onAspect(e.target.value)}>
-            {(current?.capabilities.aspect_ratios ?? ["1:1"]).map((a) => (
-              <option key={a} value={a}>{a === "1:1" ? "1:1 (square)" : a}</option>
-            ))}
-          </select>
-        </div>
+      <div className="field">
+        <label className="lbl" htmlFor="outsize">Output Resolution</label>
+        <select id="outsize" value={p.outputSize} onChange={(e) => p.onOutputSize(Number(e.target.value))}>
+          {OUTPUT_SIZES.map((n) => <option key={n} value={n}>{n} × {n} px</option>)}
+        </select>
       </div>
-      <p className="hint">Models render at their native size; smaller icons are downscaled.</p>
     </div>
   );
 }

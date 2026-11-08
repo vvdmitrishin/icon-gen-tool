@@ -1,12 +1,12 @@
 # Progress log and handoff
 
-Last updated: 2026-11-08 (after the Production-Ready MVP Sprint). Source of Truth: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md`
-(v1.9: §6.15, §12.7.1, §19.1.1, ADR-017). Git HEAD: `89293db`. Mockup: `Specification/Mockup.png`.
+Last updated: 2026-11-09 (after UI stabilization round 2, uncommitted). Source of Truth: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md`
+(content v1.10: see its 'ОНОВЛЕННЯ v1.10' block; v1.9: §6.15, §12.7.1, §19.1.1, ADR-017). Last commit: `1493ffb` (round 1); round 2 is not committed yet. Mockup: `Specification/Mockup.png`.
 
 ## Status in one paragraph
-Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 275 passed, 1 skipped (paid live Gemini test,
+Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 367 passed, 1 skipped (paid live Gemini test,
 `RUN_LIVE=1`). Frontend: typecheck + build only (no unit tests). Clean-checkout verification passed (`scripts/verify_clean_checkout.py`).
-Pushed to `origin/main` (HEAD `5d43a24`, docs on top of sprint commit `89293db`). Push only when asked.
+Pushed to `origin/main`: up to `a101067`. Local, NOT pushed: `1493ffb` (UI feedback round 1) plus the uncommitted round-2 stabilization. Push only when asked.
 
 ## Completed: Production-Ready MVP Sprint
 1. **API Connections (P1):** Settings > API Connections to add/replace/remove Gemini (key) and Cloudflare (Account ID + token).
@@ -20,6 +20,19 @@ Pushed to `origin/main` (HEAD `5d43a24`, docs on top of sprint commit `89293db`)
 3. **Cloudflare free models (P3):** FLUX.2 Klein 4B (text + up to 4 refs, downscaled <512x512) and FLUX.1 Schnell (text only), plan-aware
    cost guard (`CLOUDFLARE_PLAN`), `quota_exceeded` stops the job (no silent fallback, no auto-upgrade). Offline/mocked only.
 4. P4 (art-quality tuning) not started.
+
+## Round 2 stabilization (uncommitted, awaiting producer review)
+- **API Connections:** per-field editing (root cause: Cloudflare token present via `.env` made the whole card read-only, so the Account ID
+  could not be typed). Saving only the Account ID keeps the `.env` token. Precedence: Credential Manager > `.env`. "Remove from this PC"
+  is local only (not provider-side revocation) and says so when `.env` still provides the value. Verified in a real browser on the isolated
+  harness with fake values; the real vault and keys were not touched.
+- **Set** is free text (chips only suggest). Collection + Set go to the AI planner; the curated rules planner is used only for movie
+  collections with Sci-Fi/Detective/Fantasy. Custom themes need an explicit "Plan with AI" (~$0.002 text call; not yet run live).
+- **Output Resolution** (24-1024, default 1024) is the only size setting; the final PNG has exactly that size (original kept as
+  `<id>.original.png`, QA check TQ-10, manifest `output_pixel_size`).
+- **Cards/gold:** N = 1..10, gold 0..N, Σ always = N, no silent count changes, compliance flag; golden/short jobs are not
+  `final_eligible` for the Movie Collection bundle. Matrix N x G tested (65 combos).
+- **Model selector** overlap fixed (fixed-position list); previous-run vs current-form strip added.
 
 ## Providers (verified state)
 | Provider / model | State |
@@ -68,7 +81,7 @@ Pushed to `origin/main` (HEAD `5d43a24`, docs on top of sprint commit `89293db`)
 ```powershell
 .\start.bat                                                  # app on http://127.0.0.1:8000
 backend\.venv\Scripts\python scripts\check_env.py            # what is configured (no secret values printed)
-cd backend; .\.venv\Scripts\python -m pytest                 # offline tests (275 passed, 1 skipped)
+cd backend; .\.venv\Scripts\python -m pytest                 # offline tests (367 passed, 1 skipped)
 npm --prefix frontend run build                              # typecheck + build
 python scripts\verify_clean_checkout.py                      # re-prove it works from only the committable files
 ```

@@ -8,6 +8,8 @@ export interface ConnField {
   secret: boolean;
   stored: boolean;
   from_env: boolean;
+  /** value also present in .env even if a vault value exists (optional, newer backends) */
+  in_env?: boolean;
 }
 
 export interface ConnHelp {
@@ -33,6 +35,10 @@ export interface ProviderConn {
   fields: ConnField[];
   help: ConnHelp;
   test_result?: TestResult | null;
+  env_available?: boolean;
+  precedence_note?: string;
+  /** only on the DELETE response */
+  removal_note?: string;
 }
 
 export interface ConnectionsState {

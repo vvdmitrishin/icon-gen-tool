@@ -21,6 +21,7 @@ from .services.category_distribution import (
     CategoryDistribution,
     DistributionError,
     assign_slots,
+    compliance,
     default_counts,
     resolve_distribution,
 )
@@ -196,7 +197,13 @@ def create_app(
     def connections_delete(provider: str) -> dict[str, Any]:
         _known(provider)
         connections.remove(provider)
-        return connections.provider_view(provider)
+        view = connections.provider_view(provider)
+        view["removal_note"] = (
+            "Removed from Windows Credential Manager on this PC. The same credential is still in .env, "
+            "so the provider stays connected." if view["configured"] and view["source"] == "env" else
+            "Removed from this PC. This did not revoke the key at the provider; delete it in the provider "
+            "dashboard if it was exposed.")
+        return view
 
     @app.post("/api/connections/{provider}/test", dependencies=[Depends(local_mutating)])
     async def connections_test(provider: str) -> dict[str, Any]:
@@ -293,8 +300,10 @@ def create_app(
             counts = resolve_distribution(dist)
         except DistributionError as exc:
             raise _err(422, exc.code, exc.message) from exc
+        compliant, comp_note = compliance(counts)
         return {
             "mode": dist.mode,
+            "compliant": compliant, "compliance_note": comp_note,
             "counts": {str(k): v for k, v in counts.items()},
             "slots": assign_slots(counts),
             "number_of_cards": dist.number_of_cards,

@@ -136,3 +136,26 @@ def assign_slots(counts: dict[int, int]) -> list[int]:
     standard = sum(int(counts.get(c, 0)) for c in STANDARD_CATEGORIES)
     norm = validate_counts(counts, number_of_cards=standard + gold, gold_cards=gold)
     return [c for c in ALL_CATEGORIES for _ in range(norm[c])]
+
+
+def compliance(counts: dict[int, int]) -> tuple[bool, str | None]:
+    """Playrix-style coverage: compliant == at least 4 STANDARD cards and every one of Cat.1-4 has >= 1 card.
+    Non-compliant configurations stay allowed; this only reports (never alters) them."""
+    std = {c: int(counts.get(c, 0)) for c in STANDARD_CATEGORIES}
+    total = sum(std.values())
+    if total < 4:
+        return False, "Custom configuration: fewer than 4 standard cards cannot cover all four categories."
+    empty = [c for c in STANDARD_CATEGORIES if std[c] < 1]
+    if empty:
+        names = " and ".join(f"Category {c}" for c in empty)
+        return False, f"Custom configuration: {names} has no cards." if len(empty) == 1 else             f"Custom configuration: {names} have no cards."
+    return True, None
+
+
+def final_eligibility(number_of_cards: int, gold_cards: int) -> tuple[bool, str | None]:
+    """Movie Collection final bundle takes only full 10-card standard sets (no golden cards)."""
+    if gold_cards > 0:
+        return False, "Golden cards are excluded from the Movie Collection final bundle (needs a set with 0 golden cards)."
+    if number_of_cards != CARDS_PER_SET:
+        return False, f"The final bundle needs full {CARDS_PER_SET}-card standard sets; this set has {number_of_cards}."
+    return True, None

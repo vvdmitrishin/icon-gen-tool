@@ -150,6 +150,9 @@ export interface JobPreview {
   output_size?: number;
   planning_mode?: PlanningMode;
   plan_cost_estimate_usd?: number;
+  /** backend compliance flags (optional) */
+  compliant?: boolean;
+  compliance_note?: string | null;
   scope: "pilot" | "full";
   images_in_scope: number;
   images_total: number;

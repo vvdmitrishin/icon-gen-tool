@@ -65,6 +65,9 @@ def qa_card(png_path: Path, meta: dict[str, Any], expected_aspect: str = "1:1") 
     except (ValueError, ZeroDivisionError):
         checks.append(_chk("TQ-04", "Aspect ratio", "warn", f"unparseable requested ratio '{expected_aspect}'"))
 
+    if requested and expected_aspect == "1:1":
+        checks.append(_chk("TQ-10", "Output size matches request", "pass" if (w, h) == (requested, requested) else "fail",
+                           f"delivered {w}x{h}px vs requested {requested}x{requested}px"))
     std = ImageStat.Stat(gray).stddev[0]
     checks.append(_chk("TQ-05", "Not blank", "fail" if std < 3 else "warn" if std < 12 else "pass",
                        f"luminance spread {std:.1f} (fail < 3, warn < 12)"))

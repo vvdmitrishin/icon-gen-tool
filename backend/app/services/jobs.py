@@ -26,7 +26,14 @@ from pydantic import BaseModel, Field
 
 from ..config import Settings
 from ..providers.base import ProviderDisabled
-from .category_distribution import CARDS_PER_SET, CategoryDistribution, DistributionError, resolve_distribution
+from .category_distribution import (
+    CARDS_PER_SET,
+    CategoryDistribution,
+    DistributionError,
+    compliance,
+    final_eligibility,
+    resolve_distribution,
+)
 from .cost_guard import BudgetExceeded, CostGuard
 from .generation import GenerateCardRequest, GenerationFailure, GenerationService
 from .planning import PlanningError, SetPlan, curated_genre_for, plan_set, validate_plan
@@ -482,6 +489,9 @@ class JobService:
         return {
             "plan": plan.model_dump(mode="json"),
             "distribution": {str(k): v for k, v in counts.items()},
+            "compliant": compliance(counts)[0], "compliance_note": compliance(counts)[1],
+            "final_eligible": final_eligibility(req.number_of_cards, req.gold_cards)[0],
+            "final_ineligible_reason": final_eligibility(req.number_of_cards, req.gold_cards)[1],
             "scope": req.scope,
             "number_of_cards": req.number_of_cards,
             "gold_cards": req.gold_cards,
@@ -903,6 +913,13 @@ class JobService:
             "seed": job["plan"]["seed"], "distribution": job["plan"]["distribution"],
             "number_of_cards": rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
             "gold_cards": rq.get("gold_cards", distribution.get(5, 0)),
+            "compliant": compliance(distribution)[0], "compliance_note": compliance(distribution)[1],
+            "final_eligible": final_eligibility(
+                rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
+                rq.get("gold_cards", distribution.get(5, 0)))[0],
+            "final_ineligible_reason": final_eligibility(
+                rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
+                rq.get("gold_cards", distribution.get(5, 0)))[1],
             "output_size": rq.get("output_size", 1024),
             "planning_mode": job["plan"].get("planning_mode", "rules"),
             "notes": job["plan"]["notes"], "variants": variants,
@@ -923,6 +940,7 @@ class JobService:
             j["genre"], j["variants"], j["collection"] = rq["genre"], rq["number_of_variants"], rq["collection"]
             j["number_of_cards"] = rq.get("number_of_cards", CARDS_PER_SET)
             j["gold_cards"] = rq.get("gold_cards", 0)
+            j["final_eligible"], j["final_ineligible_reason"] = final_eligibility(j["number_of_cards"], j["gold_cards"])
             j["output_size"] = rq.get("output_size", 1024)
             j["approved_variant_id"] = next(iter(self.store.approvals(j["job_id"])), None)
             out.append(j)

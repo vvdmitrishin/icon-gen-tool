@@ -191,7 +191,7 @@ def test_connections_initial_state_first_run(empty_settings):
     g, cf = d["providers"]
     assert (g["id"], cf["id"]) == ("gemini", "cloudflare")
     assert g["status"] == "not_configured" and g["source"] == "none" and not g["configured"]
-    assert g["fields"] == [{"name": "api_key", "label": "Gemini API key", "secret": True, "stored": False, "from_env": False}]
+    assert g["fields"] == [{"name": "api_key", "label": "Gemini API key", "secret": True, "stored": False, "from_env": False, "in_env": False}]
     assert [f["name"] for f in cf["fields"]] == ["account_id", "api_token"]
     assert g["help"]["get_credentials_url"].startswith("https://") and g["help"]["steps"]
 
@@ -457,3 +457,73 @@ def test_generation_works_after_saving_key_through_api(empty_settings):
     # removing the key disables Gemini again at once
     c.delete("/api/connections/gemini", headers=auth(c))
     assert c.post("/api/generate-card", json=payload).status_code == 400
+
+
+# ------------------------------------------------ partial save: token in .env, account id missing
+ENV_TOKEN = "fake" + "-env-cf-token-789"
+
+
+def test_partial_save_account_id_only_with_env_token(empty_settings):
+    env = dataclasses.replace(empty_settings, cloudflare_api_token=ENV_TOKEN)
+    cf = FakeCloudflare()
+    c, store = make(env, cf=cf)
+    h = auth(c)
+    v0 = next(p for p in c.get("/api/connections").json()["providers"] if p["id"] == "cloudflare")
+    assert v0["configured"] is False and v0["env_available"] is False
+    f0 = {f["name"]: f for f in v0["fields"]}
+    assert f0["api_token"]["in_env"] is True and f0["account_id"]["in_env"] is False
+    assert "wins" in v0["precedence_note"] and ".env" in v0["precedence_note"]
+    r = c.put("/api/connections/cloudflare", json={"values": {"account_id": CF_ACCT}, "test": True}, headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["configured"] is True and body["test"]["ok"] is True
+    assert store.get("cloudflare", "account_id") == CF_ACCT
+    assert store.get("cloudflare", "api_token") is None  # token not overwritten / copied into the vault
+    f = {x["name"]: x for x in body["fields"]}
+    assert f["api_token"]["from_env"] is True and f["api_token"]["stored"] is False
+    assert f["account_id"]["stored"] is True and f["account_id"]["in_env"] is False
+    assert len(cf.requests) == 1
+    req = cf.requests[0]
+    assert CF_ACCT in str(req.url) and req.headers["authorization"] == f"Bearer {ENV_TOKEN}"
+    assert req.url.path.endswith("/ai/models/search")  # metadata only
+    for secret in (ENV_TOKEN, CF_ACCT):
+        assert secret not in r.text
+
+
+def test_in_env_even_when_vault_also_has_value_and_delete_removal_note(settings):
+    env = dataclasses.replace(settings, cloudflare_account_id=CF_ACCT, cloudflare_api_token=ENV_TOKEN)
+    c, store = make(env)
+    h = auth(c)
+    store.set("cloudflare", "api_token", CF_TOKEN)
+    v = next(p for p in c.get("/api/connections").json()["providers"] if p["id"] == "cloudflare")
+    tok = {f["name"]: f for f in v["fields"]}["api_token"]
+    assert tok["stored"] and tok["in_env"] and not tok["from_env"] and v["env_available"] is True
+    assert "removal_note" not in v
+    d = c.delete("/api/connections/cloudflare", headers=h).json()
+    assert d["configured"] is True and d["source"] == "env"
+    assert "still in .env" in d["removal_note"]
+    assert ENV_TOKEN not in str(d) and CF_TOKEN not in str(d)
+    assert "removal_note" not in c.get("/api/connections").json()["providers"][1]
+
+
+def test_delete_without_env_note_mentions_provider_not_revoked(empty_settings):
+    c, store = make(empty_settings)
+    store.set("gemini", "api_key", G_KEY)
+    d = c.delete("/api/connections/gemini", headers=auth(c)).json()
+    assert d["configured"] is False and "did not revoke" in d["removal_note"]
+    assert G_KEY not in str(d)
+
+
+def test_env_secret_never_in_any_connections_response(empty_settings, caplog):
+    caplog.set_level(logging.DEBUG)
+    env = dataclasses.replace(empty_settings, cloudflare_api_token=ENV_TOKEN, gemini_api_key=G_KEY)
+    c, store = make(env, cf=FakeCloudflare(status=403))
+    h = auth(c)
+    rs = [c.get("/api/connections"),
+          c.put("/api/connections/cloudflare", json={"values": {"account_id": CF_ACCT}, "test": True}, headers=h),
+          c.post("/api/connections/cloudflare/test", headers=h),
+          c.put("/api/connections/cloudflare", json={"values": {"api_token": ENV_TOKEN + " x"}}, headers=h),
+          c.delete("/api/connections/cloudflare", headers=h), c.get("/api/connections")]
+    blob = "|".join(r.text for r in rs) + caplog.text
+    for secret in (ENV_TOKEN, G_KEY, CF_ACCT):
+        assert secret not in blob
