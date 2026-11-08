@@ -45,5 +45,5 @@ Next Steps; no horizontal scroll at 1672x940, 1366x768, 1280x720). Remaining dif
 - A full 3 genres × 3 variants × 10 cards run is ≈ $6, more than a €5 balance: stage it (pilot → continue) and watch the cap.
 
 ## Documentation
-- The spec is now v1.9 (new sections 6.15, 12.7.1, 19.1.1, ADR-017); the README "Implementation status" table stays the detailed source.
+- The spec is now v1.10 (file `PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`; v1.9 sections 6.15, 12.7.1, 19.1.1, ADR-017 plus the v1.10 update block, 3.5, ADR-018); the README "Implementation status" table stays the detailed source.
 - File layout deviates from spec §10.5 (flat artifact store + SQLite).

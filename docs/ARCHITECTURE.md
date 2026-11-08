@@ -13,7 +13,7 @@ SQLite (data/collection_studio.sqlite3) + files (data/artifacts, references, exp
 
 Single process on the laptop; inference is a cloud call. `start.bat` builds the UI and the backend serves it
 (`frontend/dist`); dev mode uses Vite with an `/api` proxy. Keys are server-side only.
-Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md` (sections 6.15, 12.7.1, 19.1.1, ADR-017 cover this sprint).
+Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (sections 6.15, 12.7.1, 19.1.1, ADR-017 cover the API Connections sprint; the v1.10 update block, section 3.5 and ADR-018 cover stabilization and the pending Grand Set).
 
 ## Backend modules (`backend/app`)
 

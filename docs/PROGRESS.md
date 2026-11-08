@@ -1,12 +1,13 @@
 # Progress log and handoff
 
-Last updated: 2026-11-09 (after UI stabilization round 2, uncommitted). Source of Truth: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md`
-(content v1.10: see its 'ОНОВЛЕННЯ v1.10' block; v1.9: §6.15, §12.7.1, §19.1.1, ADR-017). Last commit: `1493ffb` (round 1); round 2 is not committed yet. Mockup: `Specification/Mockup.png`.
+Last updated: 2026-11-09 (after UI stabilization P0-P5, committed locally). Source of Truth:
+`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (v1.10 update block, section 3.5 Grand Set, ADR-018; v1.9: 6.15, 12.7.1, 19.1.1, ADR-017).
+Last commit: see `git log` (UI stabilization `2f16222`, docs commit on top). Mockup: `Specification/Mockup.png`.
 
 ## Status in one paragraph
 Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 367 passed, 1 skipped (paid live Gemini test,
 `RUN_LIVE=1`). Frontend: typecheck + build only (no unit tests). Clean-checkout verification passed (`scripts/verify_clean_checkout.py`).
-Pushed to `origin/main`: up to `a101067`. Local, NOT pushed: `1493ffb` (UI feedback round 1) plus the uncommitted round-2 stabilization. Push only when asked.
+`origin/main` is at `a101067`; local-only (NOT pushed): `1493ffb` (UI feedback round 1), `2f16222` (stabilization P0-P5) and the documentation commit. Push only when asked.
 
 ## Completed: Production-Ready MVP Sprint
 1. **API Connections (P1):** Settings > API Connections to add/replace/remove Gemini (key) and Cloudflare (Account ID + token).
@@ -21,7 +22,7 @@ Pushed to `origin/main`: up to `a101067`. Local, NOT pushed: `1493ffb` (UI feedb
    cost guard (`CLOUDFLARE_PLAN`), `quota_exceeded` stops the job (no silent fallback, no auto-upgrade). Offline/mocked only.
 4. P4 (art-quality tuning) not started.
 
-## Round 2 stabilization (uncommitted, awaiting producer review)
+## Completed: UI stabilization P0-P5 (commit `2f16222`)
 - **API Connections:** per-field editing (root cause: Cloudflare token present via `.env` made the whole card read-only, so the Account ID
   could not be typed). Saving only the Account ID keeps the `.env` token. Precedence: Credential Manager > `.env`. "Remove from this PC"
   is local only (not provider-side revocation) and says so when `.env` still provides the value. Verified in a real browser on the isolated
@@ -33,6 +34,9 @@ Pushed to `origin/main`: up to `a101067`. Local, NOT pushed: `1493ffb` (UI feedb
 - **Cards/gold:** N = 1..10, gold 0..N, Σ always = N, no silent count changes, compliance flag; golden/short jobs are not
   `final_eligible` for the Movie Collection bundle. Matrix N x G tested (65 combos).
 - **Model selector** overlap fixed (fixed-position list); previous-run vs current-form strip added.
+- **Verified:** backend 367 passed, 1 skipped (exit 0); frontend typecheck + build; `scripts/verify_clean_checkout.py` VERIFIED; real-browser
+  check of API Connections on the isolated harness with fake values (real vault and keys untouched); secret scan 0 hits.
+- **Not verified:** real Cloudflare (no Account ID yet), live AI planning (mocked Gemini only), Connections UI against the real vault.
 
 ## Providers (verified state)
 | Provider / model | State |
@@ -49,24 +53,32 @@ Pushed to `origin/main`: up to `a101067`. Local, NOT pushed: `1493ffb` (UI feedb
 
 ## UI status and known limitations
 - Deliberate deviations from the mockup: no style score / best match / sliders / fake cost-time figures; Cat. 1-4 steppers with
-  Auto/Custom (Cat. 5 locked 0); Collection is plain text; single draft Style Bible; Image model and Planning stacked; simple glyph icons.
+  Auto/Custom (Cat. 5 = gold slider 0..N; golden excluded from Movie deliverables); Collection is plain text; single draft Style Bible; Image model and Planning stacked; simple glyph icons.
 - QA is structural only (cannot detect text, frames or wrong style): human review required.
-- Planner is rules-based: only Sci-Fi, Detective, Fantasy; free wishes steer image prompts only. Max 5 distinct variants per genre.
+- Planner: curated rules planner only for movie collections with Sci-Fi/Detective/Fantasy; every other theme uses the AI TextPlanner via an explicit
+  'Plan with AI' (mocked-tested only, not yet run live). Max 5 variants.
 - Credential storage is Windows-only; one final variant per job; one running job at a time; single user.
 - Multi-variant layout verified structurally only; Continue/Cancel/Approve/real export not re-exercised in the last UI pass.
 - Full list: `docs/KNOWN_ISSUES.md`.
 
-## Pending (next session, in rough order)
-1. **Cloudflare live smoke test:** add the Account ID in Settings > API Connections, get explicit user approval, then
-   `scripts/smoke_cloudflare.py --model klein --yes` (ONE request). Only after a real success may the model be called "live".
-2. **Custom Collection / Set Text Planner (TextPlanner):** arbitrary collection/set themes and free text (today unknown genres are rejected).
-3. **Z-Image-Turbo integration** (local, ComfyUI or similar adapter); needs approval before downloading weights/installing runtimes.
-4. **Art-quality work (P4):** Cat. 3 scene drift + readable text, Cat. 4 too dark, category-specific references, Style Bible validation vs
-   Playrix frames; compare every round with `benchmarks/phase3_gemini_baseline` (local, untracked).
-5. **Remaining assignment deliverables:** `docs/REFERENCE_ANALYSIS.md`, `docs/ART_RUBRIC.md`, `docs/EXPERIMENT_LOG.md`, product/visual
-   comparison, three approved final sets (Sci-Fi, Detective, Fantasy; 3-5 variants each), Miro placement (manual).
-6. Real-vault check of the Connections UI with real keys (never save fake values to the real store); frontend unit tests;
-   Seedream 4.5 (needs approval, billing check).
+## Agreed execution plan (image-generation priorities)
+1. Test and refine real **Gemini Nano Banana 2.1** outputs.
+2. Connect and live-verify **Cloudflare FLUX.2 Klein 4B** (add Account ID in Settings > API Connections; get explicit approval; then
+   `scripts/smoke_cloudflare.py --model klein --yes`, ONE request; only after a real success may it be called "live").
+3. Improve generation quality using these two models (P4 below).
+4. Only then decide whether to add more models (Z-Image-Turbo local, Seedream 4.5). No new integrations or paid generation before that.
+
+## Pending (rough order)
+- **Grand Set (All Golden): `Approved - Pending Implementation`** (spec 3.5, ADR-018; NOT implemented). `Set Type` Standard/Grand, Gold = Number of
+  Cards, Cat.1-4 = 0 with disabled controls, AI planner for character-driven culmination scenes (max 2 characters, ironic emotional
+  situations, consistent art direction). "16th set" = position of the finale, not a card count. Excluded from Movie Collection deliverables.
+  Implementation needs separate authorization.
+- **Art-quality work (P4):** Cat. 3 scene drift + readable text, Cat. 4 too dark, category-specific references, Style Bible validation vs
+  Playrix frames; compare every round with `benchmarks/phase3_gemini_baseline` (local, untracked).
+- **Remaining assignment deliverables:** `docs/REFERENCE_ANALYSIS.md`, `docs/ART_RUBRIC.md`, `docs/EXPERIMENT_LOG.md`, product/visual
+  comparison, three approved final sets (Sci-Fi, Detective, Fantasy; 3-5 variants each), Miro placement (manual).
+- Live check of the AI TextPlanner (needs approval; ~$0.002), real-vault check of the Connections UI with real keys (never save fake values
+  to the real store), frontend unit tests, Z-Image-Turbo and Seedream 4.5 (backlog, needs approval).
 
 ## Security, budget and rules (still apply)
 - Never paste keys into chat; no secrets in Git (last scan: 0 hits in tree and history). `.env`, `data/`, `benchmarks/`, `screenshots/` are

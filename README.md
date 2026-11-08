@@ -3,7 +3,7 @@
 Local web app for the Playrix AI Producer assignment. It plans and generates **collectible-card artwork** (artwork only: no
 frames, stars or game UI) for themed 10-card sets, checks it, lets a human review and approve it, and exports it.
 
-Source of truth: [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md) ·
+Source of truth: [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) ·
 Docs: [Progress and handoff](docs/PROGRESS.md) · [User guide](docs/USER_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Known issues](docs/KNOWN_ISSUES.md)
 
 ## Quick start (Windows)
