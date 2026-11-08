@@ -6,7 +6,7 @@ Last updated: 2026-11-08 (after the Production-Ready MVP Sprint). Source of Trut
 ## Status in one paragraph
 Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 275 passed, 1 skipped (paid live Gemini test,
 `RUN_LIVE=1`). Frontend: typecheck + build only (no unit tests). Clean-checkout verification passed (`scripts/verify_clean_checkout.py`).
-Nothing is pushed: `origin/main` is at Phase 3 (`d7cce7a`); 6 local commits are ahead. Push only when asked.
+Pushed to `origin/main` (HEAD `5d43a24`, docs on top of sprint commit `89293db`). Push only when asked.
 
 ## Completed: Production-Ready MVP Sprint
 1. **API Connections (P1):** Settings > API Connections to add/replace/remove Gemini (key) and Cloudflare (Account ID + token).
