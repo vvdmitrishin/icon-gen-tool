@@ -20,8 +20,6 @@ import type {
 } from "./types/api";
 
 const MAX_WISHES = 500;
-/** One tiny AI text call plans a custom Collection/Set (local estimate; matches the backend PLAN_COST_ESTIMATE_USD). */
-const AI_PLAN_COST = 0.002;
 const CATEGORIES: { n: 1 | 2 | 3 | 4; label: string }[] = [
   { n: 1, label: "Cat. 1 — floating, simple background" },
   { n: 2, label: "Cat. 2 — on a surface" },
@@ -361,10 +359,10 @@ export default function App() {
   useEffect(() => () => { window.clearTimeout(armTimer.current); window.clearTimeout(contTimer.current); }, []);
   useEffect(() => { setArmed(false); }, [mode, modelKey, objectName, genre, category, wishes, aspect, outputSize, refIds.length, variants, numberOfCards, goldEff, distMode, customDist]);
 
-  // A custom Collection/Set is planned by the AI automatically when Generate is clicked (one tiny text call, ~$0.002).
+  // A custom Collection/Set is planned by the AI automatically when Generate is clicked (one tiny text call; the estimate comes from the backend's real text-model pricing).
   // The free preview cannot show that plan yet, so Generate stays available and the cost is estimated locally.
   const aiAuto = mode === "set" && jobPreviewError?.code === "ai_plan_required";
-  const planCost = mode === "set" ? (jobPreview?.plan_cost_estimate_usd ?? (aiAuto ? AI_PLAN_COST : 0)) : 0;
+  const planCost = mode === "set" ? (jobPreview?.plan_cost_estimate_usd ?? (aiAuto ? (models?.planner ? models.planner.base_usd + models.planner.per_card_usd * variants * numberOfCards : 0.005) : 0)) : 0;
   const est = mode === "single" ? (preview?.estimated_cost_usd ?? 0) : (jobPreview?.estimated_cost_usd ?? (aiAuto ? variants * numberOfCards * perImageSel : 0));
   const paid = est > 0 || planCost > 0; // the confirmation click covers planning AND images; planning never bypasses it
   const needsPolicy = refIds.length > 0 && model?.provider_id !== "mock" && !policy;
@@ -624,7 +622,7 @@ export default function App() {
             </div>
             {mode === "set" && (
               <button type="button" className="ghost sm planbtn" onClick={onPlanOnly} disabled={!genre.trim() || distBad || !!planOnly?.busy || busy}
-                title="Runs only the planner on the current Collection / Set / Free Wishes: no image provider is called. A real text call costs about $0.002.">
+                title="Runs only the planner on the current Collection / Set / Free Wishes: no image provider is called. A real text call costs a few tenths of a cent (the exact estimate is shown on the Generate button).">
                 🧪 Test planner (no images)
               </button>
             )}

@@ -21,7 +21,29 @@ from .category_distribution import ALL_CATEGORIES, GOLDEN_CATEGORY, assign_slots
 from .semantic_planning import forbidden_terms, near_duplicates, violates
 from .planning import VARIANT_IDS, PlanCard, PlanningError, PlanVariant, SetPlan, default_seed, validate_plan
 
-PLAN_COST_ESTIMATE_USD = 0.002  # rough cost of one small Gemini text call (local estimate, not an invoice)
+# Gemini API list prices (standard tier, USD per 1M tokens: input, output INCLUDING thinking tokens), checked 2026-11 against
+# https://ai.google.dev/gemini-api/docs/pricing . A local estimate for the budget guard and the UI, not an invoice.
+TEXT_PRICE_PER_M: dict[str, tuple[float, float]] = {"gemini-3.5-flash-lite": (0.30, 2.50)}
+DEFAULT_TEXT_PRICE_PER_M = (0.30, 2.50)  # unknown / overridden model: assume the same list price
+PLAN_INPUT_TOKENS = 2100          # system text + instructions + wishes + headroom for up to ~48 history lines
+PLAN_OUTPUT_TOKENS_PER_CARD = 110  # name + description + rationale (+ characters) as JSON
+PLAN_THINKING_HEADROOM_TOKENS = 300  # thinking tokens are billed as output (3.5 Flash-Lite thinks "minimal" by default)
+
+
+def plan_cost_params(model: str) -> dict[str, Any]:
+    """Pricing constants of one planning call: cost = base_usd + per_card_usd * variants * cards_per_variant."""
+    in_p, out_p = TEXT_PRICE_PER_M.get(model, DEFAULT_TEXT_PRICE_PER_M)
+    return {"text_model": model, "input_usd_per_m": in_p, "output_usd_per_m": out_p,
+            "base_usd": round((PLAN_INPUT_TOKENS * in_p + PLAN_THINKING_HEADROOM_TOKENS * out_p) / 1e6, 6),
+            "per_card_usd": round(PLAN_OUTPUT_TOKENS_PER_CARD * out_p / 1e6, 6)}
+
+
+def estimate_plan_cost_usd(model: str, variants: int, cards_per_variant: int) -> float:
+    """Local estimate of one AI planning call for this model and set size (same formula in Plan Only and Generate)."""
+    p = plan_cost_params(model)
+    return round(p["base_usd"] + p["per_card_usd"] * max(1, variants) * max(1, cards_per_variant), 5)
+
+
 CACHE_SIZE = 32
 
 CATEGORY_MEANINGS = {
@@ -225,7 +247,8 @@ class TextPlanner:
         data = self._backend(s, model, self.build_prompt(collection, set_name, variants, counts, wishes, grand, history), seed)
         plan = self._build(data, set_name, variants, counts, seed, model, wishes=wishes, history_used=len(history))
         self._put(key, plan)
-        return PlannerResult(plan.model_copy(deep=True), False, PLAN_COST_ESTIMATE_USD, model)
+        cost = estimate_plan_cost_usd(model, variants, sum(counts.get(c, 0) for c in ALL_CATEGORIES))
+        return PlannerResult(plan.model_copy(deep=True), False, cost, model)
 
     # --------------------------------------------------------------- http call
     def _call(self, s: Any, model: str, prompt: str, seed: int | None) -> dict[str, Any]:
@@ -233,7 +256,7 @@ class TextPlanner:
         gen_cfg: dict[str, Any] = {
             "responseMimeType": "application/json",
             "responseSchema": _RESPONSE_SCHEMA,
-            "temperature": 0.9,
+            # no temperature/top_p/top_k: Gemini 3.x models deprecate them (ignored, may be rejected); `seed` keeps variety reproducible
         }
         if seed is not None:
             gen_cfg["seed"] = int(seed) % (2**31 - 1)

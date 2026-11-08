@@ -56,6 +56,8 @@ export interface ModelsResponse {
   models: ModelInfo[];
   defaults: { provider: string; model: string; category_distribution: Record<string, number> };
   budget: Budget;
+  /** text model and price constants of ONE AI planning call: cost = base_usd + per_card_usd * variants * cards */
+  planner?: { text_model: string; input_usd_per_m: number; output_usd_per_m: number; base_usd: number; per_card_usd: number };
   availability: { checked_at: string | null; error: string | null };
   limits: { max_refs_per_request: number; max_upload_bytes: number; ref_types: string[] };
 }

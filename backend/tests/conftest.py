@@ -164,3 +164,9 @@ def make_plan(variants: int, counts: dict, set_name: str = "Detective", collecti
 
     prompt = TextPlanner.build_prompt(collection, set_name, variants, counts, "")
     return TextPlanner._build(deterministic_plan(prompt), set_name, variants, counts, None, "fixture-model")
+
+
+def plan_cost(variants: int, cards: int) -> float:
+    """Expected local estimate of one AI planning call with the default text model (gemini-3.5-flash-lite pricing)."""
+    from app.services.text_planner import estimate_plan_cost_usd
+    return estimate_plan_cost_usd("gemini-3.5-flash-lite", variants, cards)

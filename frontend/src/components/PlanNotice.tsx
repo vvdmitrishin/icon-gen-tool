@@ -21,7 +21,7 @@ export function PlanNotice({ error, planning, onPlanWithAi, onConnectGemini, com
       <div className={`plannotice ${compact ? "compact" : ""}`} role="status">
         <p>
           <span aria-hidden>✦</span> <strong>The AI plans this Set automatically</strong> when you click Generate (understands the Collection and the Set, avoids repeats from earlier batches).
-          {" "}<b>Planning text: ≈ $0.002.</b> Images are paid separately and confirmed on the Generate button. Want to look at the cards first? Preview them (optional).
+          {" "}<b>Planning text: a few tenths of a cent</b> (exact estimate on the Generate button). Images are paid separately and confirmed on the Generate button. Want to look at the cards first? Preview them (optional).
         </p>
         <button type="button" className="ghost small" disabled={planning} onClick={onPlanWithAi}>{planning ? "Planning…" : "Preview plan (optional)"}</button>
       </div>

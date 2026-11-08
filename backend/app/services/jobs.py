@@ -44,7 +44,7 @@ from .reference_manager import ReferenceError_, ReferenceManager
 from .prompt_compiler import check_overrides
 from .prompt_library import LibraryError
 from .semantic_planning import history_summary, theme_key
-from .text_planner import PLAN_COST_ESTIMATE_USD, TextPlanner
+from .text_planner import TextPlanner, estimate_plan_cost_usd
 
 ACTIVE_STATES = {"created", "planning", "plan_qa", "queued", "generating", "image_qa", "set_qa",
                  "cancel_requested"}
@@ -434,11 +434,15 @@ class JobService:
         plan, counts, model, metas, _ = self._plan_ex(req.model_copy(update={"allow_ai_plan": True}))
         return plan, counts, model, metas
 
-    def _check_plan_budget(self) -> None:
+    def _plan_cost(self, req: Any) -> float:
+        """Estimated cost of ONE planning call: same text model and formula for Plan Only and Generate."""
+        return estimate_plan_cost_usd(self.gen.registry.effective.gemini_text_model, req.number_of_variants, req.number_of_cards)
+
+    def _check_plan_budget(self, cost: float) -> None:
         if not self.s.paid_image_calls_enabled:
             raise JobFailure(402, "paid_disabled", "Paid calls are disabled (PAID_IMAGE_CALLS_ENABLED=false); "
                                                    "the AI planner is a paid Gemini text call.")
-        if self.guard.spent_usd() + PLAN_COST_ESTIMATE_USD > self.s.total_budget_usd:
+        if self.guard.spent_usd() + cost > self.s.total_budget_usd:
             raise JobFailure(402, "total_cap", "The total budget cap would be exceeded by the AI planner call.")
 
     def _plan_ex(self, req: JobCreateRequest) -> tuple[SetPlan, dict[int, int], Any, list[dict[str, Any]], float]:
@@ -599,14 +603,14 @@ class JobService:
         if not req.allow_ai_plan:
             raise JobFailure(
                 422, "ai_plan_required",
-                f"'{req.collection}' / '{req.genre}' is planned by AI (a Gemini text model, tiny cost, about $0.002 "
-                "per plan). Generate does this automatically; a free preview needs allow_ai_plan=true.",
-                {"plan_cost_estimate_usd": PLAN_COST_ESTIMATE_USD})
-        cost = PLAN_COST_ESTIMATE_USD
+                f"'{req.collection}' / '{req.genre}' is planned by AI (a Gemini text model, a tiny cost, about "
+                f"${self._plan_cost(req):.3f} for this set). Generate does this automatically; a free preview needs allow_ai_plan=true.",
+                {"plan_cost_estimate_usd": self._plan_cost(req)})
+        cost = self._plan_cost(req)
         try:
             history = self.previous_subjects(req.collection, req.genre, req.set_type)
             res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
-                                         seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget,
+                                         seed=req.seed, wishes=req.wishes, pre_call=lambda: self._check_plan_budget(cost),
                                          grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc

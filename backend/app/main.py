@@ -41,6 +41,7 @@ from .services.prompt_library import LibraryError, PromptLibrary
 from .services.presets import PresetError, PresetStore
 from .services.planning import supported_genres
 from .services.prompt_compiler import check_overrides, check_wishes
+from .services.text_planner import plan_cost_params
 from .services.security import RateLimiter, install_log_redaction, is_allowed_host, is_allowed_origin, new_session_token, token_matches
 from .services.reference_manager import REF_TYPES, ReferenceError_, ReferenceManager, is_valid_ref_id
 from .services.storage import ArtifactStore, is_valid_id
@@ -251,6 +252,8 @@ def create_app(
                 "category_distribution": {str(k): v for k, v in default_counts().items()},
             },
             "budget": asdict(guard.summary()),
+            # text model + price constants of one AI planning call (cost = base_usd + per_card_usd * variants * cards)
+            "planner": plan_cost_params(registry.effective.gemini_text_model),
             "availability": {
                 "checked_at": registry.availability_checked_at,
                 "error": registry.availability_error,

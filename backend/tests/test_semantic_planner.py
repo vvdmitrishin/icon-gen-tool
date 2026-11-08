@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.services.category_distribution import resolve_distribution
 from app.services.semantic_planning import forbidden_terms, history_summary, near_duplicates, theme_key, violates
+from tests.conftest import plan_cost
 from tests.test_free_text_sets import MOCK, TextRecorder, job_body, wait
 
 WINTER_FOREST = ["Snowy Pine Branch", "Red Fox in the Snow", "Frozen Wild Berries", "Barn Owl on a Birch", "Deer Antlers",
@@ -183,7 +184,7 @@ def test_plan_only_never_calls_an_image_provider_and_reports_model_and_cost(sett
         assert r.status_code == 200, r.text
         d = r.json()
         assert d["image_provider_called"] is False and d["planning_mode"] == "ai" and d["text_model"]
-        assert d["text_cost_estimate_usd"] == 0.002 and d["cached"] is False
+        assert d["text_cost_estimate_usd"] == plan_cost(1, 10) and d["cached"] is False
         cards = d["plan"]["variants"][0]["cards"]
         assert [x["object_name"] for x in cards] == WINTER_FOREST and all("category" in x and x["object_description"] for x in cards)
         assert len(rec.requests) == 1 and ":generateContent" in str(rec.requests[0].url)
@@ -194,7 +195,7 @@ def test_plan_only_never_calls_an_image_provider_and_reports_model_and_cost(sett
         rec.plan_body = plan_body(FESTIVAL)
         other = c.post("/api/plan/test", json=dict(collection="Summer", genre="Music Festival", number_of_cards=10)).json()
         assert other["plan"]["variants"][0]["cards"][0]["object_name"] == "Electric Guitar" and len(rec.requests) == 2
-        assert other["budget"]["spent_estimated_usd"] >= d["budget"]["spent_estimated_usd"] + 0.002 - 1e-9
+        assert other["budget"]["spent_estimated_usd"] >= d["budget"]["spent_estimated_usd"] + plan_cost(1, 10) - 1e-6
 
 
 def test_plan_only_grand_and_errors(settings):

@@ -20,7 +20,7 @@ from app.services.category_distribution import (
 )
 from app.services.planning import PlanningError, validate_plan
 from app.services.prompt_compiler import CardSpec, compile_card_prompt
-from tests.conftest import FAKE_KEY
+from tests.conftest import FAKE_KEY, plan_cost
 
 MOCK = dict(provider="mock", model="mock-placeholder-v1")
 
@@ -169,7 +169,7 @@ def test_movie_presets_use_the_same_ai_planner_as_any_theme(settings, genre):
                                                       number_of_cards=10, gold_cards=2, number_of_variants=1))
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == 0.002 and len(rec.requests) == 1
+        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == plan_cost(1, 10) and len(rec.requests) == 1
         assert d["number_of_cards"] == 10 and d["gold_cards"] == 2 and d["output_size"] == 1024
         assert d["images_total"] == 10 and d["distribution"]["5"] == 2
 
@@ -181,13 +181,14 @@ def test_ai_plan_preview_and_create_make_one_call(settings):
         p = c.post("/api/jobs/preview", json=job_body())
         assert p.status_code == 200, p.text
         d = p.json()
-        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == 0.002
+        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == plan_cost(2, 6)
         assert d["images_total"] == 12 and len(d["plan"]["variants"]) == 2
         body = rec.requests[0].content.decode()
         req = json.loads(body)
         assert req["generationConfig"]["responseMimeType"] == "application/json"
         assert "responseSchema" in req["generationConfig"]
-        assert "gemini-2.5-flash:generateContent" in str(rec.requests[0].url)
+        assert "models/gemini-3.5-flash-lite:generateContent" in str(rec.requests[0].url)
+        assert "temperature" not in req["generationConfig"]  # deprecated on Gemini 3.x
         assert FAKE_KEY not in body  # key travels in the header only
         r = c.post("/api/jobs", json=job_body())
         assert r.status_code == 200, r.text
@@ -201,7 +202,7 @@ def test_ai_plan_preview_and_create_make_one_call(settings):
         assert sq["SQ-01"] == "pass" and sq["SQ-02"] == "pass" and sq["SQ-04"] == "pass"
         # honest cost accounting: exactly one text call in the ledger
         lines = [json.loads(x) for x in settings.ledger_path.read_text().splitlines() if x.strip()]
-        assert [e["outcome"] for e in lines] == ["ok:plan"] and lines[0]["est_cost_usd"] == 0.002
+        assert [e["outcome"] for e in lines] == ["ok:plan"] and lines[0]["est_cost_usd"] == plan_cost(2, 6)
 
 
 def test_shuffle_seed_makes_a_new_call(settings):

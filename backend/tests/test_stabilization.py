@@ -15,7 +15,7 @@ from app.services.category_distribution import (
     final_eligibility,
     resolve_distribution,
 )
-from tests.conftest import make_plan
+from tests.conftest import make_plan, plan_cost
 from tests.test_free_text_sets import MOCK, TextRecorder, ai_plan_json, job_body, wait
 
 SUMMER = ["Beach Ball", "Surfboard", "Sun Hat", "Swim Goggles", "Sand Volleyball Net", "Paddle Board",
@@ -120,7 +120,7 @@ def test_ai_request_body_and_summer_sports_objects(settings):
         p = c.post("/api/jobs/preview", json=ai_body())
         assert p.status_code == 200, p.text
         d = p.json()
-        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == 0.002
+        assert d["planning_mode"] == "ai" and d["plan_cost_estimate_usd"] == plan_cost(2, 6)
         names = {card["object_name"] for v in d["plan"]["variants"] for card in v["cards"]}
         assert names <= set(SUMMER)
         assert len(c.get("/api/jobs").json()) == before  # preview creates no job
@@ -136,7 +136,7 @@ def test_ai_request_body_and_summer_sports_objects(settings):
         assert "SIMPLE object floating" in prompt and "KEY CHARACTERS" in prompt
         low = (prompt + sys_text).lower()
         assert "semantic boundary" in low and "lettering" in low and "producer's free wishes" in low
-        assert d["estimated_cost_usd"] == 0 and d["plan_cost_estimate_usd"] == 0.002  # planning cost kept separate
+        assert d["estimated_cost_usd"] == 0 and d["plan_cost_estimate_usd"] == plan_cost(2, 6)  # planning cost kept separate
         j = c.post("/api/jobs", json=ai_body())
         assert j.status_code == 200 and len(rec.requests) == 1  # cached plan reused
         det = wait(c, j.json()["job_id"])

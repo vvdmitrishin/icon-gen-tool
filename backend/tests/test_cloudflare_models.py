@@ -217,8 +217,8 @@ def test_pilot_job_on_free_plan_end_to_end(tmp_path):
         assert r.status_code == 200, r.text
         d = wait(c, r.json()["job_id"])
         assert d["status"] == "ready_for_review" and d["counts"]["done"] == 4
-        # images on the free plan cost nothing; only the tiny AI planning text call (~$0.002) is in the ledger
-        assert d["spent_estimated_usd"] == 0 and c.get("/api/models").json()["budget"]["spent_estimated_usd"] <= 0.002
+        # images on the free plan cost nothing; only the tiny AI planning text call (~$0.004) is in the ledger
+        assert d["spent_estimated_usd"] == 0 and c.get("/api/models").json()["budget"]["spent_estimated_usd"] <= 0.005
         card = next(k for k in d["variants"][0]["cards"] if k["artifact_id"])
         assert card["qa_status"] in ("passed", "flagged")
         meta = c.get(f"/api/artifacts/{card['artifact_id']}").json()

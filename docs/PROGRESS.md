@@ -31,6 +31,11 @@ Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 42
   the AI planner, override indicator, Mock jobs with override, edit again (old images keep their prompt), reset, refresh keeps overrides, new tab = defaults,
   View Prompt, Preview Prompts, My Selection + export; launcher cold start.
 - **Not verified:** real LLM plan quality (no paid text calls), effect of prompt changes on real artwork, Cloudflare Klein references live.
+- **Text planner model (fix after the first live Plan Only returned HTTP 404 for `gemini-2.5-flash`):** Plan Only and Generate now both use
+  `gemini-3.5-flash-lite` (stable; structured outputs supported per Google docs; `ListModels` for this project's key lists it with `generateContent`).
+  `temperature` removed from the request (deprecated on Gemini 3.x). Cost estimate now uses the real list price ($0.30/1M in, $2.50/1M out incl. thinking):
+  `base + per_card * variants * cards` (~$0.004 for 1x10, ~$0.015 for 5x10), served to the UI by `GET /api/models -> planner`. Offline tests only
+  (`tests/test_text_model.py`); the next live Plan Only run is yours to confirm (the real call has not been made by me).
 - Note: this machine shows rare random interpreter crashes (Python/Node segfaults, flaky pytest assertion rewriting); full suites pass on re-run
   (`pytest --assert=plain` avoids the rewrite path).
 
