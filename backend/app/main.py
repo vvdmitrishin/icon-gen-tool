@@ -6,7 +6,9 @@ from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,7 +24,9 @@ from .services.category_distribution import (
     default_counts,
     resolve_distribution,
 )
+from .services.connection_check import ConnectionInputError, ConnectionService
 from .services.cost_guard import CostGuard
+from .services.credentials import CredentialStore, KeyringCredentialStore, NullCredentialStore
 from .services.generation import GenerateCardRequest, GenerationFailure, GenerationService
 from .services.comparison import ComparisonService
 from .services.db import Db
@@ -36,6 +40,7 @@ from .services.prompt_library import LibraryError, PromptLibrary
 from .services.presets import PresetError, PresetStore
 from .services.planning import supported_genres
 from .services.prompt_compiler import check_wishes
+from .services.security import RateLimiter, install_log_redaction, is_allowed_host, is_allowed_origin, new_session_token, token_matches
 from .services.reference_manager import REF_TYPES, ReferenceError_, ReferenceManager, is_valid_ref_id
 from .services.storage import ArtifactStore, is_valid_id
 
@@ -75,6 +80,11 @@ class CollectionExportRequest(BaseModel):
     allow_partial: bool = False
 
 
+class ConnectionSaveRequest(BaseModel):
+    values: dict[str, Any]
+    test: bool = False
+
+
 class BatchJobRequest(JobCreateRequest):
     genre: str = "batch"  # ignored: one job is created per entry of `genres`
     genres: list[str]
@@ -89,9 +99,14 @@ def create_app(
     *,
     gemini_transport: httpx.AsyncBaseTransport | None = None,
     cloudflare_transport: httpx.AsyncBaseTransport | None = None,
+    credentials: CredentialStore | None = None,
+    enforce_local: bool = False,
 ) -> FastAPI:
+    install_log_redaction()
     s = settings or load_settings()
-    registry = ModelRegistry(s, gemini_transport=gemini_transport, cloudflare_transport=cloudflare_transport)
+    creds: CredentialStore = credentials if credentials is not None else NullCredentialStore()  # tests never touch the real vault
+    registry = ModelRegistry(s, gemini_transport=gemini_transport, cloudflare_transport=cloudflare_transport,
+                             credentials=creds)
     guard = CostGuard(s)
     store = ArtifactStore(s.artifact_root)
     refs = ReferenceManager(s.reference_root, s.max_upload_bytes)
@@ -109,10 +124,86 @@ def create_app(
     app = FastAPI(title="AI Collection Studio", version=__version__)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+        allow_origin_regex=r"^http://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$",
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    if enforce_local:
+        # Whole-API guard for the real app (the test client is exempt): a DNS-rebinding page could otherwise reach paid
+        # endpoints under its own Host name, and a cross-site form could post to them. Host must be loopback; mutating
+        # requests that carry an Origin must come from a loopback origin.
+        @app.middleware("http")
+        async def _local_only_api(request: Request, call_next):
+            if not is_allowed_host(request.headers.get("host")):
+                return JSONResponse(status_code=403, content={"detail": {"code": "forbidden_host",
+                                    "message": "This application only answers requests addressed to the local computer."}})
+            if request.method not in ("GET", "HEAD", "OPTIONS") and not is_allowed_origin(request.headers.get("origin")):
+                return JSONResponse(status_code=403, content={"detail": {"code": "forbidden_origin",
+                                    "message": "Requests from other websites are not accepted."}})
+            return await call_next(request)
+
+    # Never echo submitted values (a pasted secret) back in 422 responses.
+    @app.exception_handler(RequestValidationError)
+    async def _validation_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        detail = [{"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": e.get("msg")} for e in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": detail})
+
+    # ------------------------------------------------------------ connections
+    session_token = new_session_token()
+    conn_db = Db(s.database_path)
+    connections = ConnectionService(s, creds, conn_db, registry, cloudflare_transport=cloudflare_transport)
+    test_limiter = RateLimiter(limit=6, window_s=60.0)
+
+    def local_only(request: Request) -> None:
+        if not is_allowed_host(request.headers.get("host")):
+            raise _err(403, "forbidden_host", "This endpoint is only available on localhost.")
+        if not is_allowed_origin(request.headers.get("origin")):
+            raise _err(403, "forbidden_origin", "Cross-origin requests are not allowed here.")
+
+    def local_mutating(request: Request) -> None:
+        local_only(request)
+        if not token_matches(session_token, request.headers.get("x-studio-token")):
+            raise _err(403, "bad_token", "Missing or invalid session token. Reload the page and try again.")
+
+    def _known(provider: str) -> None:
+        if not connections.known(provider):
+            raise _err(404, "unknown_provider", "Unknown provider.")
+
+    @app.get("/api/session", dependencies=[Depends(local_only)])
+    def session() -> dict[str, str]:
+        return {"token": session_token}
+
+    @app.get("/api/connections", dependencies=[Depends(local_only)])
+    def connections_get() -> dict[str, Any]:
+        return connections.overview()
+
+    @app.put("/api/connections/{provider}", dependencies=[Depends(local_mutating)])
+    async def connections_put(provider: str, req: ConnectionSaveRequest) -> dict[str, Any]:
+        _known(provider)
+        if req.test and not test_limiter.allow(provider):
+            raise _err(429, "rate_limited", "Too many connection tests; wait a minute and try again.")
+        try:
+            connections.save(provider, req.values)
+        except ConnectionInputError as exc:
+            raise _err(503 if exc.code == "storage_unavailable" else 422, exc.code, exc.message) from None
+        if not req.test:
+            return connections.provider_view(provider)
+        result = await connections.test(provider)
+        return {**connections.provider_view(provider), "test": result}
+
+    @app.delete("/api/connections/{provider}", dependencies=[Depends(local_mutating)])
+    def connections_delete(provider: str) -> dict[str, Any]:
+        _known(provider)
+        connections.remove(provider)
+        return connections.provider_view(provider)
+
+    @app.post("/api/connections/{provider}/test", dependencies=[Depends(local_mutating)])
+    async def connections_test(provider: str) -> dict[str, Any]:
+        _known(provider)
+        if not test_limiter.allow(provider):
+            raise _err(429, "rate_limited", "Too many connection tests; wait a minute and try again.")
+        return await connections.test(provider)
 
     # ------------------------------------------------------------------ health
     @app.get("/api/health")
@@ -120,7 +211,7 @@ def create_app(
         return {
             "status": "ok",
             "version": __version__,
-            "gemini_configured": s.gemini_configured,
+            "gemini_configured": registry.effective.gemini_configured,
             "openai_enabled": s.openai_image_enabled,
             "mock_enabled": s.enable_mock_provider,
         }
@@ -149,8 +240,8 @@ def create_app(
 
     @app.post("/api/models/check-availability")
     async def check_availability() -> dict[str, Any]:
-        if not s.gemini_configured:
-            raise _err(400, "not_configured", "GEMINI_API_KEY is not set in your local .env.")
+        if not registry.effective.gemini_configured:
+            raise _err(400, "not_configured", "No Gemini API key is configured. Add one in Settings > API Connections.")
         try:
             return await registry.check_gemini_availability()
         except ProviderError as exc:
@@ -400,13 +491,14 @@ def create_app(
 
     @app.get("/api/settings")
     def settings_view() -> dict[str, Any]:
+        s = registry.effective  # credential manager > .env
         def rel(path: Any) -> str:
             try:
                 return path.relative_to(REPO_ROOT).as_posix()
             except ValueError:
                 return path.name
         return {
-            "version": __version__, "spec_version": "1.7",
+            "version": __version__, "spec_version": "1.9",
             "providers": {
                 "gemini": {"enabled": s.gemini_api_enabled, "key_configured": bool(s.gemini_api_key.strip()),
                            "default_model": s.default_model, "est_cost_per_image_usd": s.gemini_est_cost_per_image_usd},
@@ -422,7 +514,7 @@ def create_app(
                        "max_refs_per_request": s.max_refs_per_request, "max_upload_mb": s.max_upload_bytes // (1024 * 1024)},
             "storage": {"data": rel(s.data_root), "artifacts": rel(s.artifact_root), "references": rel(s.reference_root),
                         "database": rel(s.database_path), "exports": rel(s.data_root / "exports")},
-            "how_to_change": "Edit the local .env file and restart the backend. API keys are never shown or edited here.",
+            "how_to_change": "Connect providers in Settings > API Connections (kept in Windows Credential Manager); for development you can still use the .env file. API keys are never shown after saving.",
         }
 
     # ---- Phase 6: collection workflow, export, imports
@@ -516,4 +608,4 @@ def create_app(
 
 
 def app_factory() -> FastAPI:  # uvicorn --factory app.main:app_factory
-    return create_app()
+    return create_app(credentials=KeyringCredentialStore(), enforce_local=True)

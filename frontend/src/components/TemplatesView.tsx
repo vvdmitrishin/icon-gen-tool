@@ -38,7 +38,7 @@ export function TemplatesView({ current, onApply }: Props) {
       {m && <div className={`alert ${m.ok ? "ok" : "err"}`} role="status">{m.t}</div>}
       <section className="card-box">
         <h3>Save the current Generate settings</h3>
-        <div className="importform">
+        <div className="saverow">
           <input placeholder="Template name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} aria-label="Template name" />
           <button type="button" className="primary small" disabled={!name.trim()} onClick={save}>Save template</button>
         </div>

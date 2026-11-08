@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from ..config import Settings
+from ..services.credentials import CredentialStore, effective_settings
 from .base import (
     ImageProvider,
     ModelStatus,
@@ -16,6 +17,7 @@ from .base import (
     ProviderDisabled,
     ProviderError,
 )
+from .cloudflare_models import CLOUDFLARE_MODELS, estimate_usd as cf_estimate
 from .cloudflare_image import (
     CLOUDFLARE_CAPABILITIES,
     CLOUDFLARE_MODEL_ID,
@@ -86,8 +88,10 @@ class ModelRegistry:
         *,
         gemini_transport: httpx.AsyncBaseTransport | None = None,
         cloudflare_transport: httpx.AsyncBaseTransport | None = None,
+        credentials: CredentialStore | None = None,
     ) -> None:
-        self._s = settings
+        self._base = settings
+        self._credentials = credentials
         self._gemini_transport = gemini_transport
         self._cloudflare_transport = cloudflare_transport
         self._availability: dict[str, bool] = {}
@@ -96,11 +100,27 @@ class ModelRegistry:
         self.availability_error: str | None = None
         self._providers: dict[str, ImageProvider] = {}
 
+    # ------------------------------------------------------ effective credentials
+    @property
+    def _s(self) -> Settings:  # always the effective settings (credential store > .env)
+        return self.effective
+
+    @property
+    def effective(self) -> Settings:
+        return effective_settings(self._base, self._credentials)
+
+    def credentials_changed(self) -> None:
+        """Drop cached providers and key-bound availability so new credentials apply without a restart."""
+        self._providers.clear()
+        self._availability.clear()
+        self.availability_checked_at = None
+        self.availability_error = None
+
     # --------------------------------------------------------------- providers
     def provider(self, provider_id: str) -> ImageProvider:
         if provider_id in self._providers:
             return self._providers[provider_id]
-        s = self._s
+        s = self.effective
         if provider_id == "gemini":
             if not s.gemini_configured:
                 raise ProviderDisabled("Gemini is not configured: set GEMINI_API_KEY in your local .env.")
@@ -147,7 +167,7 @@ class ModelRegistry:
                 status = ModelStatus.DISABLED_NO_KEY if s.gemini_api_enabled else ModelStatus.DISABLED_BY_FLAG
                 reason = (
                     "GEMINI_API_ENABLED=false." if not s.gemini_api_enabled
-                    else "GEMINI_API_KEY is not set in your local .env."
+                    else "Connect Gemini in Settings > API Connections (or set GEMINI_API_KEY in .env)."
                 )
                 selectable = False
             else:
@@ -191,28 +211,33 @@ class ModelRegistry:
         s = self._s
         out = self._gemini_info()
         cf_ok = s.cloudflare_configured
-        if cf_ok:
-            cf_status, cf_reason = ModelStatus.EXTERNAL_REST_VERIFIED, None
-        else:
-            missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", s.cloudflare_account_id), ("CLOUDFLARE_API_TOKEN", s.cloudflare_api_token)) if not v.strip()]
-            cf_status, cf_reason = ModelStatus.DISABLED_NO_KEY, f"Set {' and '.join(missing)} in your local .env."
-        out.append(
-            ModelInfo(
-                provider_id="cloudflare",
-                provider_label="Cloudflare Workers AI",
-                model_id=CLOUDFLARE_MODEL_ID,
-                label="FLUX.2 Klein 4B",
-                role="fallback",
-                status=cf_status.value,
-                selectable=cf_ok,
-                disabled_reason=cf_reason,
-                capabilities=caps(CLOUDFLARE_CAPABILITIES, text_to_image=True, image_editing=None,
-                                  notes="Text and reference input verified in an external REST test. Adapter implemented and mock-tested; live app verification pending (needs CLOUDFLARE_ACCOUNT_ID)."),
-                runtime_requirements="Cloudflare account ID and API token in the local .env.",
-                est_cost_per_image_usd=0.0,
-                origin_badge="Live API · Cloudflare FLUX.2 Klein 4B",
+        missing = [n for n, v in (("Account ID (CLOUDFLARE_ACCOUNT_ID)", s.cloudflare_account_id), ("API token (CLOUDFLARE_API_TOKEN)", s.cloudflare_api_token)) if not v.strip()]
+        for spec in CLOUDFLARE_MODELS:
+            if cf_ok:
+                # "Live in app" only after a real generation succeeded; until then it is merely configured.
+                status = ModelStatus.APP_LIVE if ("cloudflare", spec.model_id) in self._live else ModelStatus.CONFIGURED_APP
+                reason = None
+            else:
+                status = ModelStatus.DISABLED_NO_KEY
+                reason = f"Connect Cloudflare in Settings > API Connections (missing: {' and '.join(missing)})."
+            out.append(
+                ModelInfo(
+                    provider_id="cloudflare",
+                    provider_label="Cloudflare Workers AI",
+                    model_id=spec.model_id,
+                    label=spec.label,
+                    role="fallback",
+                    status=status.value,
+                    selectable=cf_ok,
+                    disabled_reason=reason,
+                    capabilities={**spec.capabilities, "aspect_ratios": list(spec.aspect_ratios)},
+                    runtime_requirements="Cloudflare Account ID and an API token with Workers AI permission "
+                                         "(Settings > API Connections, or the .env file).",
+                    est_cost_per_image_usd=cf_estimate(spec.model_id, s),
+                    origin_badge=f"Live API · Cloudflare {spec.label}",
+                    price_note=f"{spec.price_note} Plan assumed by this app: {s.cloudflare_plan} (CLOUDFLARE_PLAN).",
+                )
             )
-        )
         out.append(planned_info(SEEDREAM_45))
         for model_id, label in OPENAI_MODELS:
             flagged = not s.openai_image_enabled

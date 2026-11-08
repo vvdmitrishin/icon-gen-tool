@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api/client";
 import { CategoryDistribution, type DistCounts, type DistMode } from "./components/CategoryDistribution";
-import { ModelSettings, keyOf } from "./components/ModelSettings";
+import { ModelSettings, ProviderAvailability, keyOf } from "./components/ModelSettings";
 import { ReferenceUploader } from "./components/ReferenceUploader";
 import { HistoryView } from "./components/HistoryView";
 import { ResultPanel } from "./components/ResultPanel";
 import { SetPanel } from "./components/SetPanel";
 import { SettingsView } from "./components/SettingsView";
+import { SetupWizard, useFirstRun } from "./components/SetupWizard";
 import { TemplatesView } from "./components/TemplatesView";
 import type {
   Artifact, Budget, GenerateRequest, GenreInfo, JobDetail, JobEvent, JobPreview, JobRequestPayload,
@@ -28,6 +29,11 @@ const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? `${e.
 export default function App() {
   const [mode, setMode] = useState<Mode>("set");
   const [view, setView] = useState<View>("generate");
+  // First-run setup guide / "Connect providers" dialog (credentials are handled by the backend; never stored in the browser).
+  const [setupOpen, setSetupOpen] = useState(false);
+  const { firstRun, refresh: refreshFirstRun } = useFirstRun();
+  useEffect(() => { if (firstRun) setSetupOpen(true); }, [firstRun]);
+  const [advOpen, setAdvOpen] = useState(false);
   const [models, setModels] = useState<ModelsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refs, setRefs] = useState<RefMeta[]>([]);
@@ -200,6 +206,28 @@ export default function App() {
     loadModels();
   }, [jobRequest, loadJobs, loadModels]);
 
+  /** "Generate similar set": reload the job's settings into the form with a new shuffled seed. Nothing is generated. */
+  const startSimilar = useCallback((j: JobDetail) => {
+    const r = j.request;
+    setMode("set");
+    setCollection(j.collection);
+    setGenre(j.genre);
+    setVariants(j.variants.length);
+    setScope(r.scope);
+    setWishes(r.wishes ?? "");
+    setAspect(r.aspect_ratio);
+    const key = `${r.provider}/${r.model}`;
+    if (models?.models.some((m) => keyOf(m) === key && m.selectable)) setModelKey(key);
+    const d = r.category_distribution;
+    if (d.mode === "custom") {
+      setDistMode("custom");
+      setCustomDist({ "1": d.counts["1"] ?? 1, "2": d.counts["2"] ?? 1, "3": d.counts["3"] ?? 1, "4": d.counts["4"] ?? 1 });
+    } else setDistMode("auto_balanced");
+    setSeed(Math.floor(Math.random() * 2 ** 31));
+    setJob(null); setEvents([]); setJobError(null);
+    setView("generate");
+  }, [models]);
+
   const singleValid = !!genre.trim() && !!objectName.trim() && !!model;
   const setValid = !!genre.trim() && !!model;
   const formValid = mode === "single" ? singleValid : setValid;
@@ -231,6 +259,7 @@ export default function App() {
   const est = mode === "single" ? (preview?.estimated_cost_usd ?? 0) : (jobPreview?.estimated_cost_usd ?? 0);
   const paid = est > 0;
   const needsPolicy = refIds.length > 0 && model?.provider_id !== "mock" && !policy;
+  const policyNeeded = refIds.length > 0 && model?.provider_id !== "mock";
   const previewBlock = mode === "single" ? preview?.blocked?.message : jobPreview?.blocked?.message;
   const blockedReason = previewBlock ?? (mode === "single" ? previewError : jobPreviewError) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
   const havePreview = mode === "single" ? !!preview : !!jobPreview;
@@ -296,141 +325,172 @@ export default function App() {
     setChecking(false);
   }
 
-  const buttonLabel = (() => {
-    if (generating || starting) return mode === "single" ? "Generating…" : "Starting…";
-    if (job?.active && mode === "set") return "Job running…";
-    if (mode === "single") {
-      return armed ? `Confirm & spend ≈ $${est.toFixed(3)}` : paid ? `Generate card · ≈ $${est.toFixed(3)}` : "Generate card (free)";
-    }
+  const buttonLabel: { main: string; sub?: string } = (() => {
+    if (generating || starting) return { main: mode === "single" ? "Generating…" : "Starting…" };
+    if (job?.active && mode === "set") return { main: "Job running…" };
+    if (armed) return { main: `Confirm & spend ≈ $${est.toFixed(3)}`, sub: "Click again to start; this uses the paid API" };
+    const cost = paid ? `≈ $${est.toFixed(3)} (local estimate)` : "free";
+    if (mode === "single") return { main: "Generate card", sub: cost };
     const n = jobPreview?.images_in_scope ?? 0;
-    const what = `Generate Sets (${variants} variant${variants > 1 ? "s" : ""}) · ${n} image${n === 1 ? "" : "s"}`;
-    return armed ? `Confirm & spend ≈ $${est.toFixed(3)}` : paid ? `${what} · ≈ $${est.toFixed(3)}` : `${what} (free)`;
+    const full = paid && jobPreview && jobPreview.images_in_scope < jobPreview.images_total ? ` · full set ≈ $${jobPreview.estimated_cost_full_usd.toFixed(2)}` : "";
+    return { main: `Generate Sets (${variants} variant${variants > 1 ? "s" : ""})`, sub: `${n} image${n === 1 ? "" : "s"} · ${cost}${full}` };
   })();
 
   return (
     <div className="app">
-      <Header budget={models?.budget} view={view} onView={setView} />
+      <Header budget={models?.budget} view={view} onView={setView} onConnect={() => setSetupOpen(true)} />
+      <SetupWizard open={setupOpen} onClose={() => setSetupOpen(false)}
+        onConnected={() => { loadModels(); refreshFirstRun(); }} />
       {loadError && <div className="alert err top" role="alert">{loadError}</div>}
-      {view === "history" && (
-        <HistoryView jobs={jobs} perImage={perImageSel} variants={variants} scope={scope} busy={!!job?.active || starting}
-          onOpen={(id) => { openJob(id); setMode("set"); setView("generate"); }} onBatch={onBatch} onRefresh={loadJobs} />
+      {view !== "generate" && (
+        <div className="page">
+          {view === "history" && (
+            <HistoryView jobs={jobs} perImage={perImageSel} variants={variants} scope={scope} busy={!!job?.active || starting}
+              onOpen={(id) => { openJob(id); setMode("set"); setView("generate"); }} onBatch={onBatch} onRefresh={loadJobs} />
+          )}
+          {view === "templates" && (
+            <TemplatesView onApply={applyPreset} current={() => ({
+              genre, number_of_variants: variants, scope, wishes: wishes.slice(0, 500),
+              category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? defaultDist) } },
+            })} />
+          )}
+          {view === "settings" && <SettingsView onOpenSetup={() => setSetupOpen(true)} />}
+        </div>
       )}
-      {view === "templates" && (
-        <TemplatesView onApply={applyPreset} current={() => ({
-          genre, number_of_variants: variants, scope, wishes: wishes.slice(0, 500),
-          category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? defaultDist) } },
-        })} />
-      )}
-      {view === "settings" && <SettingsView />}
       <main hidden={view !== "generate"}>
         <aside className="left" aria-label="Request settings">
-          <div className="seg modeseg" role="radiogroup" aria-label="Mode">
-            <button type="button" role="radio" aria-checked={mode === "set"} className={mode === "set" ? "on" : ""} onClick={() => setMode("set")}>Card sets</button>
-            <button type="button" role="radio" aria-checked={mode === "single"} className={mode === "single" ? "on" : ""} onClick={() => setMode("single")}>Single card (test)</button>
-          </div>
-
-          <Section n={1} title="Set & Theme">
-            <div className="row"><label className="lbl" htmlFor="coll">Collection</label>
-              <input id="coll" value={collection} onChange={(e) => setCollection(e.target.value)} maxLength={80} /></div>
-            {mode === "set" ? (
-              <>
-                <div className="row"><label className="lbl" htmlFor="genre">Genre / Set</label>
-                  <select id="genre" value={genre} onChange={(e) => { setGenre(e.target.value); setSeed(null); setVariants((v) => Math.min(v, genres.find((g) => g.genre === e.target.value)?.max_variants ?? 5)); }}>
-                    {(genres.length ? genres.map((g) => g.genre) : [genre]).map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select></div>
-                <div className="row two">
-                  <div><span className="lbl">Cards / set</span><input value="10 (fixed)" disabled aria-label="Cards per set" /></div>
-                  <div><label className="lbl" htmlFor="variants">Variants</label>
-                    <select id="variants" value={variants} onChange={(e) => { setVariants(Number(e.target.value)); setSeed(null); }}>
-                      {Array.from({ length: maxVariants }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
-                    </select></div>
-                </div>
-                <div className="row"><label className="lbl" htmlFor="scope">Run scope</label>
-                  <select id="scope" value={scope} onChange={(e) => setScope(e.target.value as "pilot" | "full")}>
-                    <option value="pilot">Pilot — 4 cards / variant (1 per category)</option>
-                    <option value="full">Full — all 10 cards / variant</option>
-                  </select></div>
-                <div className="row"><span className="lbl">Plan</span>
-                  <button type="button" className="ghost" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Shuffle plan{seed != null ? ` (seed ${seed})` : ""}</button></div>
-                <p className="hint">Objects come from curated per-genre pools (rules planner). Final deliverable: 3–5 variants per genre; fewer here keeps the €5 budget safe. You can <em>Continue</em> a pilot to the full set.</p>
-              </>
-            ) : (
-              <>
-                <div className="row"><label className="lbl" htmlFor="genre">Genre / Set</label>
-                  <input id="genre" list="genres" value={genre} onChange={(e) => setGenre(e.target.value)} maxLength={80} />
-                  <datalist id="genres"><option value="Science Fiction" /><option value="Detective" /><option value="Fantasy" /></datalist></div>
-                <div className="row"><label className="lbl" htmlFor="obj">Object</label>
-                  <input id="obj" placeholder="e.g. Retro Space Helmet" value={objectName} onChange={(e) => setObjectName(e.target.value)} maxLength={80} /></div>
-                <div className="row"><label className="lbl" htmlFor="objd">Details <small>(optional)</small></label>
-                  <input id="objd" placeholder="e.g. glass visor, brass rivets" value={objectDesc} onChange={(e) => setObjectDesc(e.target.value)} maxLength={300} /></div>
-                <p className="hint">Single-card mode is a diagnostic tool: one object, one provider call.</p>
-              </>
-            )}
-          </Section>
-
-          <Section n={2} title="Rules, Style & Brief">
+          <div className="left-scroll">
             {mode === "single" && (
-              <>
-                <span className="lbl">Card category</span>
-                <div className="cats" role="radiogroup" aria-label="Card category">
-                  {CATEGORIES.map((c) => (
-                    <label key={c.n} className={`cat ${category === c.n ? "on" : ""}`}>
-                      <input type="radio" name="cat" checked={category === c.n} onChange={() => setCategory(c.n)} />{c.label}
-                    </label>
-                  ))}
-                  <label className="cat locked" title="Golden cards are locked OFF for the Movie demo">
-                    <input type="radio" disabled />Golden cards (Cat. 5) — locked OFF
-                  </label>
-                </div>
-              </>
-            )}
-            <div className="row"><label className="lbl">Art style</label>
-              <select disabled><option>Reference Match v1 (draft Style Bible)</option></select></div>
-            <label className="lbl" htmlFor="wishes">Producer's free wishes <small>(optional)</small></label>
-            <textarea id="wishes" rows={3} maxLength={MAX_WISHES} value={wishes} onChange={(e) => setWishes(e.target.value)}
-              placeholder="Desired atmosphere, objects, era, forbidden motifs…" />
-            <div className="counter">{wishes.length} / {MAX_WISHES}</div>
-            {mode === "single" && preview?.warnings.map((w) => <div key={w} className="alert warn">{w}</div>)}
-            <div className="note">System rules stay fixed (style, categories, artwork-only). Wishes steer the image prompts; the rules planner picks objects from its curated pool.</div>
-          </Section>
-
-          <Section n={3} title="References">
-            <ReferenceUploader refs={refs} selected={refIds} maxRefs={models?.limits.max_refs_per_request ?? 5}
-              refTypes={models?.limits.ref_types ?? ["style"]} policyAccepted={policy}
-              onChange={loadRefs} onSelect={setSelectedRefs} onPolicy={setPolicy} />
-          </Section>
-
-          <Section n={4} title="Generation Setup">
-            <CategoryDistribution
-              mode={distMode}
-              counts={customDist ?? defaultDist}
-              defaults={defaultDist}
-              appliedToSets={mode === "set"}
-              onMode={(m) => { setDistMode(m); setSeed(null); if (m === "custom") setCustomDist((c) => c ?? { ...defaultDist }); }}
-              onCount={(cat, v) => setCustomDist((c) => ({ ...(c ?? defaultDist), [cat]: Math.max(0, Math.min(10, v)) }))}
-            />
-            {models ? (
-              <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} aspect={aspect} onAspect={setAspect}
-                checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />
-            ) : <p className="hint">Loading models…</p>}
-            <details className="adv"><summary>Advanced</summary>
-              <p className="hint">Automatic retries: <strong>{models?.budget.max_card_retries ?? 0}</strong> (off). Sequential generation, circuit breaker after 2 consecutive failures.</p>
-            </details>
-          </Section>
-
-          <div className="cta">
-            {blockedReason && formValid && <div className="alert warn">{blockedReason}</div>}
-            {mode === "set" && jobPreview?.warnings.map((w) => <div key={w} className="alert warn">{w}</div>)}
-            {paid && (
-              <div className="estimate">
-                Estimated cost: <strong>${est.toFixed(3)}</strong> <em>(local estimate)</em>
-                {mode === "set" && jobPreview && jobPreview.images_in_scope < jobPreview.images_total && (
-                  <> · full set ≈ ${jobPreview.estimated_cost_full_usd.toFixed(2)}</>
-                )}
+              <div className="modebar" role="status">
+                <span><strong>Single-card test mode</strong> (diagnostic: one object, one provider call)</span>
+                <button type="button" className="ghost sm" onClick={() => setMode("set")}>Back to card sets</button>
               </div>
             )}
+
+            <Section n={1} title="Set & Theme">
+              <div className="row"><label className="lbl" htmlFor="coll">Collection</label>
+                <input id="coll" value={collection} onChange={(e) => setCollection(e.target.value)} maxLength={80} /></div>
+              {mode === "set" ? (
+                <>
+                  <div className="row"><label className="lbl" htmlFor="genre">Genre / Set</label>
+                    <select id="genre" value={genre} onChange={(e) => { setGenre(e.target.value); setSeed(null); setVariants((v) => Math.min(v, genres.find((g) => g.genre === e.target.value)?.max_variants ?? 5)); }}>
+                      {(genres.length ? genres.map((g) => g.genre) : [genre]).map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select></div>
+                  <div className="row two">
+                    <div><span className="lbl">Number of cards</span><input value="10 (fixed)" disabled aria-label="Cards per set" /></div>
+                    <div><label className="lbl" htmlFor="variants">Variants</label>
+                      <select id="variants" value={variants} onChange={(e) => { setVariants(Number(e.target.value)); setSeed(null); }}>
+                        {Array.from({ length: maxVariants }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+                      </select></div>
+                  </div>
+                  <div className="field">
+                    <span className="lbl" id="scope-lbl">How much to generate</span>
+                    <div className="seg" role="radiogroup" aria-labelledby="scope-lbl">
+                      <button type="button" role="radio" aria-checked={scope === "pilot"} className={scope === "pilot" ? "on" : ""} onClick={() => setScope("pilot")}>Test run · 4 cards</button>
+                      <button type="button" role="radio" aria-checked={scope === "full"} className={scope === "full" ? "on" : ""} onClick={() => setScope("full")}>Full set · 10 cards</button>
+                    </div>
+                    <p className="hint">{scope === "pilot"
+                      ? "One card per category in each variant. Cheap check of the look; you can continue to the full set afterwards."
+                      : "All 10 cards in every variant."}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="row"><label className="lbl" htmlFor="genre">Genre / Set</label>
+                    <input id="genre" list="genres" value={genre} onChange={(e) => setGenre(e.target.value)} maxLength={80} />
+                    <datalist id="genres"><option value="Science Fiction" /><option value="Detective" /><option value="Fantasy" /></datalist></div>
+                  <div className="row"><label className="lbl" htmlFor="obj">Object</label>
+                    <input id="obj" placeholder="e.g. Retro Space Helmet" value={objectName} onChange={(e) => setObjectName(e.target.value)} maxLength={80} /></div>
+                  <div className="row"><label className="lbl" htmlFor="objd">Details <small>(optional)</small></label>
+                    <input id="objd" placeholder="e.g. glass visor, brass rivets" value={objectDesc} onChange={(e) => setObjectDesc(e.target.value)} maxLength={300} /></div>
+                </>
+              )}
+            </Section>
+
+            <Section n={2} title="Rules, Style & Brief">
+              {mode === "single" ? (
+                <>
+                  <span className="lbl">Card category</span>
+                  <div className="cats" role="radiogroup" aria-label="Card category">
+                    {CATEGORIES.map((c) => (
+                      <label key={c.n} className={`cat ${category === c.n ? "on" : ""}`}>
+                        <input type="radio" name="cat" checked={category === c.n} onChange={() => setCategory(c.n)} />{c.label}
+                      </label>
+                    ))}
+                    <label className="cat locked" title="Golden cards are locked OFF for the Movie demo">
+                      <input type="radio" disabled />Golden cards (Cat. 5) — locked OFF
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <CategoryDistribution
+                  mode={distMode}
+                  counts={customDist ?? defaultDist}
+                  defaults={defaultDist}
+                  appliedToSets
+                  onMode={(m) => { setDistMode(m); setSeed(null); if (m === "custom") setCustomDist((c) => c ?? { ...defaultDist }); }}
+                  onCount={(cat, v) => setCustomDist((c) => ({ ...(c ?? defaultDist), [cat]: Math.max(0, Math.min(10, v)) }))}
+                />
+              )}
+              <div className="field">
+                <label className="lbl" htmlFor="artstyle">Art style</label>
+                <select id="artstyle" disabled title="One style bible in this version: Reference Match v1 (draft)"><option>Reference Match v1 (draft)</option></select>
+              </div>
+              <div className="field">
+                <label className="lbl" htmlFor="wishes">Producer's free wishes <small>(optional)</small></label>
+                <div className="ta-wrap">
+                  <textarea id="wishes" rows={3} maxLength={MAX_WISHES} value={wishes} onChange={(e) => setWishes(e.target.value)}
+                    placeholder="Desired atmosphere, objects, era, forbidden motifs…" />
+                  <span className="counter" aria-live="off">{wishes.length} / {MAX_WISHES}</span>
+                </div>
+              </div>
+              {mode === "single" && preview?.warnings.map((w) => <div key={w} className="alert warn">{w}</div>)}
+              <div className="note"><span aria-hidden>ⓘ</span> System rules stay fixed (style, categories, artwork-only). Wishes steer the image prompts; the rules planner picks objects from its curated pool.</div>
+            </Section>
+
+            <Section n={3} title="References">
+              <ReferenceUploader refs={refs} selected={refIds} maxRefs={models?.limits.max_refs_per_request ?? 5}
+                refTypes={models?.limits.ref_types ?? ["style"]} policyAccepted={policy} policyNeeded={policyNeeded}
+                onChange={loadRefs} onSelect={setSelectedRefs} onPolicy={setPolicy} />
+            </Section>
+
+            <Section n={4} title="Generation Setup">
+              {models ? (
+                <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} aspect={aspect} onAspect={setAspect} />
+              ) : <p className="hint">Loading models…</p>}
+            </Section>
+
+            <details className="adv main" open={advOpen || mode === "single"} onToggle={(e) => setAdvOpen((e.currentTarget as HTMLDetailsElement).open)}>
+              <summary>Advanced settings</summary>
+              <div className="adv-body">
+                <div className="field">
+                  <span className="lbl" id="mode-lbl">Mode</span>
+                  <div className="seg" role="radiogroup" aria-labelledby="mode-lbl">
+                    <button type="button" role="radio" aria-checked={mode === "set"} className={mode === "set" ? "on" : ""} onClick={() => setMode("set")}>Card sets</button>
+                    <button type="button" role="radio" aria-checked={mode === "single"} className={mode === "single" ? "on" : ""} onClick={() => setMode("single")}>Single card (test)</button>
+                  </div>
+                </div>
+                {mode === "set" && (
+                  <div className="field">
+                    <span className="lbl">Plan shuffle</span>
+                    <button type="button" className="ghost" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Shuffle plan{seed != null ? ` (seed ${seed})` : ""}</button>
+                    <p className="hint">Picks a different set of objects from the curated pools. Changing genre or variants resets the seed.</p>
+                  </div>
+                )}
+                <p className="hint">Automatic retries: <strong>{models?.budget.max_card_retries ?? 0}</strong> (off). Sequential generation, circuit breaker after 2 consecutive failures.</p>
+                {models && <ProviderAvailability models={models.models} checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />}
+                <button type="button" className="ghost" onClick={() => setView("settings")}>Open Settings (read-only)</button>
+              </div>
+            </details>
+          </div>
+
+          <div className="cta">
+            {blockedReason && formValid && <div className="alert warn compact">{blockedReason}</div>}
+            {mode === "set" && jobPreview?.warnings.map((w) => <div key={w} className="alert warn compact">{w}</div>)}
             <div className="cta-row">
-              <button type="button" className={`primary ${armed ? "armed" : ""}`} onClick={onGenerate} disabled={!canGenerate}>{buttonLabel}</button>
+              <button type="button" className={`primary big ${armed ? "armed" : ""}`} onClick={onGenerate} disabled={!canGenerate}>
+                <span>{buttonLabel.main}</span>{buttonLabel.sub && <small>{buttonLabel.sub}</small>}
+              </button>
               {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
             </div>
             {!formValid && <p className="hint">{mode === "single" ? "Enter a genre and an object, and pick an available model." : "Pick an available model."}</p>}
@@ -439,10 +499,11 @@ export default function App() {
 
         {mode === "set" ? (
           <SetPanel job={job} preview={jobPreview} previewError={jobPreviewError} events={events} jobs={jobs}
+            models={models?.models ?? []} form={{ collection, genre, variants, provider: model?.provider_id ?? "", model: model?.model_id ?? "", aspect }}
             error={jobError} starting={starting} perImage={perImageJob} onJob={(d) => { setJob(d); loadJobs(); if (!d.active) loadModels(); }}
             onError={setJobError} onPickJob={openJob} onContinue={onContinue}
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
-            onNew={() => { setJob(null); setEvents([]); setJobError(null); }} />
+            onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")} />
         ) : (
           <ResultPanel artifact={artifact} history={history} onPick={setArtifact} preview={preview} generating={generating} error={genError} />
         )}
@@ -451,23 +512,40 @@ export default function App() {
   );
 }
 
-function Header({ budget, view, onView }: { budget?: Budget; view: View; onView: (v: View) => void }) {
+const NAV: { v: View; label: string; icon: string }[] = [
+  { v: "generate", label: "Generate", icon: "✦" },
+  { v: "history", label: "History", icon: "◷" },
+  { v: "templates", label: "Templates", icon: "❏" },
+  { v: "settings", label: "Settings", icon: "⚙" },
+];
+
+function Header({ budget, view, onView, onConnect }: { budget?: Budget; view: View; onView: (v: View) => void; onConnect: () => void }) {
   return (
     <header className="top">
       <div className="brand">
-        <span className="logo" aria-hidden>▣</span>
+        <span className="logo" aria-hidden>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2.5" y="6" width="19" height="12" rx="5" /><path d="M8 10v4M6 12h4" /><circle cx="15.5" cy="11" r=".8" fill="currentColor" /><circle cx="17.7" cy="13" r=".8" fill="currentColor" />
+          </svg>
+        </span>
         <strong>AI Collection Studio</strong>
         <span className="tag">Game Art Production for Collectible Card Sets</span>
       </div>
-      <nav>
-        {(["generate", "history", "templates", "settings"] as View[]).map((v) => (
+      <nav aria-label="Main">
+        {NAV.map(({ v, label, icon }) => (
           <button key={v} className={`pill ${view === v ? "on" : ""}`} aria-current={view === v ? "page" : undefined} onClick={() => onView(v)}>
-            {v === "generate" ? "✦ Generate" : v[0].toUpperCase() + v.slice(1)}
+            <span aria-hidden>{icon}</span> {label}
           </button>
         ))}
       </nav>
-      <div className="budget" title={budget?.note}>
-        {budget ? <>Est. spend <strong>${budget.spent_estimated_usd.toFixed(2)}</strong> / ${budget.total_budget_usd.toFixed(2)} cap <em>(local estimate)</em></> : "…"}
+      <div className="hright">
+        <div className="budget" title={budget?.note}>
+          {budget ? <>Est. spend <strong>${budget.spent_estimated_usd.toFixed(2)}</strong> / ${budget.total_budget_usd.toFixed(2)} <em className="hide-sm">(local estimate)</em></> : "…"}
+        </div>
+        <button type="button" className="connect" onClick={onConnect} title="Connect or check image providers (API keys stay on the server)">Connect providers</button>
+        <div className="user" title="Local single-user session">
+          <span className="avatar" aria-hidden>LU</span><span className="uname">Local User</span>
+        </div>
       </div>
     </header>
   );

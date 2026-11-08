@@ -128,7 +128,7 @@ def test_settings_never_expose_secrets(settings):
         assert d["providers"]["openai"] == {"enabled": False, "paid_calls_enabled": False, "key_configured": True}
         assert d["limits"]["max_card_retries"] == 0 and d["limits"]["max_regenerations_per_card"] == 2
         assert d["storage"]["artifacts"].endswith("artifacts") and ":" not in d["storage"]["database"]
-        assert d["spec_version"] == "1.7" and "never shown" in d["how_to_change"]
+        assert d["spec_version"] == "1.9" and "never shown" in d["how_to_change"]
 
 
 # ------------------------------------------------------------------------ Reference Compare

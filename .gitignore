@@ -43,3 +43,6 @@ Thumbs.db
 
 # Frozen local benchmarks (may contain confidential reference assets)
 benchmarks/
+
+# UI screenshots (may show confidential reference images)
+screenshots/

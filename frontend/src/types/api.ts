@@ -334,6 +334,8 @@ export interface ExportRecord {
   export_id: string;
   created_at: string;
   kind: "variant" | "collection";
+  /** jobs the export was built from (present on current backends) */
+  job_ids?: string[];
   size: number;
   download_url: string;
   filename: string;

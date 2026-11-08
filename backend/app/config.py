@@ -58,6 +58,10 @@ class Settings:
 
     cloudflare_account_id: str = ""
     cloudflare_api_token: str = field(default="", repr=False)
+    # "free" = Workers Free plan assumed (cost estimate 0, daily Neuron allocation applies);
+    # "paid" = Workers Paid assumed (estimates apply and calls need explicit confirmation). Never auto-changed.
+    cloudflare_plan: str = "free"
+    cloudflare_est_cost_per_image_usd: float | None = None  # optional override of the built-in estimate
 
     openai_image_enabled: bool = False
     openai_paid_calls_enabled: bool = False
@@ -111,6 +115,9 @@ class Settings:
             max_images_per_job=_int(g("MAX_IMAGES_PER_JOB"), 50),
             cloudflare_account_id=g("CLOUDFLARE_ACCOUNT_ID", "") or "",
             cloudflare_api_token=g("CLOUDFLARE_API_TOKEN", "") or "",
+            cloudflare_plan="paid" if (g("CLOUDFLARE_PLAN") or "free").strip().lower() == "paid" else "free",
+            cloudflare_est_cost_per_image_usd=(_float(g("CLOUDFLARE_EST_COST_PER_IMAGE_USD"), -1.0)
+                                               if g("CLOUDFLARE_EST_COST_PER_IMAGE_USD") else None),
             openai_image_enabled=_bool(g("OPENAI_IMAGE_ENABLED"), False),
             openai_paid_calls_enabled=_bool(g("OPENAI_PAID_CALLS_ENABLED"), False),
             openai_api_key=g("OPENAI_API_KEY", "") or "",

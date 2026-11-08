@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings
+from ..providers.cloudflare_models import estimate_usd as cf_estimate_usd
 
 
 class BudgetExceeded(Exception):
@@ -43,10 +44,13 @@ class CostGuard:
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ estimate
-    def estimate_usd(self, provider_id: str, n_images: int = 1) -> float:
+    def estimate_usd(self, provider_id: str, n_images: int = 1, model_id: str | None = None) -> float:
         if provider_id == "gemini":
             return round(self._s.gemini_est_cost_per_image_usd * n_images, 6)
-        return 0.0  # mock / cloudflare free tier; openai is blocked before reaching here
+        if provider_id == "cloudflare":
+            # free plan -> 0 (free Neuron allocation applies); paid plan -> published-price estimate
+            return round(cf_estimate_usd(model_id, self._s) * n_images, 6)
+        return 0.0  # mock; openai is blocked before reaching here
 
     # --------------------------------------------------------------------- ledger
     def _entries(self) -> list[dict[str, Any]]:
@@ -85,7 +89,7 @@ class CostGuard:
                 fh.write(json.dumps(entry) + "\n")
 
     # ---------------------------------------------------------------------- check
-    def check(self, provider_id: str, n_images: int = 1) -> float:
+    def check(self, provider_id: str, n_images: int = 1, model_id: str | None = None) -> float:
         """Raise BudgetExceeded if the call must not run. Returns the estimate otherwise."""
         s = self._s
         if n_images > s.max_images_per_job:
@@ -93,7 +97,7 @@ class CostGuard:
                 f"Job asks for {n_images} images; MAX_IMAGES_PER_JOB is {s.max_images_per_job}.",
                 "too_many_images",
             )
-        est = self.estimate_usd(provider_id, n_images)
+        est = self.estimate_usd(provider_id, n_images, model_id)
         if est <= 0:
             return est
         if not s.paid_image_calls_enabled:

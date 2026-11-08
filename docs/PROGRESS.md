@@ -1,55 +1,55 @@
 # Progress log and handoff
 
-Last updated: 2026-11-08 (end of session). Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.8.md` (status v1.8.1).
+Last updated: 2026-11-08 (end of sprint). Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.9.md` (v1.9: sections 6.15, 12.7.1, 19.1.1, ADR-017).
 
 ## Where things stand
-- **Working local MVP, Phases 0–7 implemented.** 171 backend tests pass (1 live test skipped), offline smoke test 16/16,
-  clean-checkout verification passes (venv, pip, tests, `npm ci`, build, smoke).
-- **Git:** all work is committed; the working tree is clean. `origin/main` is at `d7cce7a` (Phase 3).
-  **4 commits are local and NOT pushed:** `4b72606` (Phases 4–7), `13283e1` (spec v1.8 + Model Selector),
-  `79afea7` (spec v1.8.1 status), `9fca4e3` (docs test count). Push only when asked.
-- **Secrets:** none in the tree or Git history (scanned). Keys live in the git-ignored `.env` (Gemini key; Cloudflare token, no
-  account ID yet). `Downloads\API.txt` was overwritten and deleted. Optional: rotate both keys.
+- **Working local MVP, Phases 0–7 plus the API Connections / Cloudflare / UI-polish sprint.** Backend: 275 passed, 1 skipped
+  (the paid live Gemini test, `RUN_LIVE=1`). Frontend: typecheck + build only. Offline smoke test via `scripts/run_smoke_test.py`;
+  clean-checkout verifier `scripts/verify_clean_checkout.py`.
+- **Git:** nothing is pushed. `origin/main` is at the Phase 3 commit; later work is local commits (see `git log`).
+  Push only when asked.
+- **Secrets:** none in the tree or Git history (scanned earlier). Keys live in Windows Credential Manager (entered in the UI) or
+  the git-ignored `.env` (Gemini key; Cloudflare token, no Account ID on this machine).
 - **App:** `start.bat` → http://127.0.0.1:8000 (UI served by the backend).
 
-## What was done (by commit)
-| Commit | Content |
-|---|---|
-| `ac97cc4` | Phase 0–1: scaffold, Gemini adapter, provider registry, prompt compiler, references, cost guard, first UI |
-| `b6f4aed` | Spec v1.7 (Card Category Distribution) + code: Auto `[2,2,3,3]`/Custom, category prompt rules |
-| `d7cce7a` | Phase 3: rules planner, SQLite jobs, sequential runner, pilot→full, set UI |
-| `4b72606` | Phases 4–7: QA, versions, review/approval, regeneration, compare, Prompt Library, Templates, Settings, History, export, collection, batch, imports, Cloudflare adapter, start.bat, scripts, docs |
-| `13283e1` | Spec v1.8 + Model Selector grouped by runtime (Seedream 4.5 and 7 local models planned/disabled; capability metadata) |
-| `79afea7`, `9fca4e3` | Spec v1.8.1 status refresh; docs test count |
+## What this sprint delivered
+1. **API Connections (priority 1):** Settings > API Connections to add/replace/remove Gemini and Cloudflare credentials
+   (Windows Credential Manager, `.env` fallback), free "Test connection", loopback-only guarded endpoints with session token,
+   first-run setup guide (also "Run setup guide again" and header "Connect providers"). Verified in a real browser against an
+   isolated harness (18/18, no secret in storage/DOM/API responses); the real Credential Manager round trip has one Windows-only
+   test. No fake credentials were saved to the real store.
+2. **Cloudflare free-tier models (priority 3):** FLUX.2 Klein 4B (references up to 4) and FLUX.1 Schnell (text only), plan-aware cost
+   guard (`CLOUDFLARE_PLAN`), quota handling (`quota_exceeded`), `scripts/smoke_cloudflare.py`. **Not verified live.**
+3. **UI polish (priority 2):** UI follows the mockup closely (pipeline strip, title row, tabs, Set Summary, Quick Actions, Next Steps,
+   chips). Remaining deviations are deliberate; see [known issues](KNOWN_ISSUES.md).
+4. Spec v1.9, docs refreshed.
+No paid or live provider calls were made this sprint.
 
 ## Local, untracked state (not in Git by design)
 - `data/` — database, generated images, references, exports and `ledger.jsonl`. **Back it up if you care about it.**
-- `benchmarks/phase3_gemini_baseline/` — frozen read-only benchmark (4 Gemini images + prompts/params/refs/costs/SHA-256).
-- Estimated spend so far: **$0.804** (12 Gemini images) of the $4.00 local cap. It is an estimate; check Google AI Studio billing.
-  Two Gemini images were single smoke tests, 4 were the Phase 3 pilot, and the other 6 (the remaining Detective cards, via the
-  app's two-step Continue at 23:42) completed that set, so it is now the first full live 10-card set (Detective / Noir City Nights;
-  technical QA 10/10 passed; art not reviewed).
+- `benchmarks/phase3_gemini_baseline/` — frozen read-only benchmark. `screenshots/` — git-ignored, some show the confidential reference.
+- Estimated Gemini spend so far: **~$0.80** of the $4.00 local cap (local estimate; check Google AI Studio billing).
+  A first full live 10-card set exists (Detective / Noir City Nights; technical QA 10/10; art not reviewed).
 
 ## Open items (the backlog for the next session)
-1. **UI vs mockup gaps** (decision: not now): missing Set Summary, Quick Actions, Next Steps panels; title-row buttons
-   (Compare Variants / Prompt Library / Export) are tabs instead; 7 tabs vs the mockup's 4; variant selection and category
-   coverage chips; left panel uses selects/distribution control instead of the mockup's steppers/checkboxes; no avatar.
-   Deliberate differences (spec corrections): no style score / cost figures, no stars or frames, no creativity sliders, Cat. 5 locked.
+1. **Cloudflare live check:** add the Account ID (Settings > API Connections), then run `scripts/smoke_cloudflare.py --yes`
+   (one request, free allocation) with the user's explicit approval. Only then can the models become "Live in app".
 2. **Art tuning** (Cat. 3 scene drift + readable text, Cat. 4 too dark, only a Cat. 1 reference so far), Style Bible validation
    against the Playrix frames; compare each round with the benchmark.
 3. **Assignment deliverables not written:** `docs/REFERENCE_ANALYSIS.md`, `docs/ART_RUBRIC.md`, `docs/EXPERIMENT_LOG.md`,
    product/visual comparison, three approved final sets (Sci-Fi, Detective, Fantasy; 3–5 variants each), Miro placement (manual).
-4. **Budget:** full 3 genres × 3 variants ≈ $6 > €5. Decide: top-up, fewer variants, or staged.
-5. **Cloudflare:** add `CLOUDFLARE_ACCOUNT_ID` to `.env` for a live check of the fallback adapter (currently mock-tested only).
-6. **Post-MVP backlog:** ComfyUI adapter + local models, Seedream 4.5 (needs approval, billing check and its own cost rate),
-   TextPlanner, frontend tests.
+4. **Budget:** full 3 genres × 3 variants ≈ $6 > €5 on Gemini. Decide: top-up, fewer variants, staged, or the Cloudflare free allocation.
+5. **Verify with real keys:** UI connection flow against the real Credential Manager (only the harness and one automated test so far).
+6. **Post-MVP backlog:** ComfyUI adapter + local models, Seedream 4.5 (needs approval, billing check, own cost rate),
+   TextPlanner, frontend unit tests.
 
-## Resume tomorrow
+## Resume
 ```powershell
 .\start.bat                                                  # app on http://127.0.0.1:8000
 backend\.venv\Scripts\python scripts\check_env.py            # what is configured (no secret values printed)
-cd backend; .\.venv\Scripts\python -m pytest                 # 171 offline tests
+cd backend; .\.venv\Scripts\python -m pytest                 # offline tests (275 passed, 1 skipped)
+npm --prefix frontend run build                              # typecheck + build
 python scripts\verify_clean_checkout.py                      # re-prove it works from only the committable files
 ```
-Rules that still apply: never paste keys into chat; no paid generation without the in-app confirmation; OpenAI stays disabled;
-planned models stay disabled; do not push unless asked.
+Rules that still apply: never paste keys into chat; no paid or live generation without explicit approval/in-app confirmation;
+OpenAI stays disabled; planned models stay disabled; do not push unless asked.

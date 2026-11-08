@@ -123,7 +123,7 @@ def test_api_exposes_the_contract_fields_and_keeps_gemini_intact(tmp_path):
     with TestClient(create_app(s)) as c:
         data = c.get("/api/models").json()
         by = {(m["provider_id"], m["model_id"]): m for m in data["models"]}
-        assert len(by) == 16
+        assert len(by) == 17  # + FLUX.1 Schnell
         z = by[("local", "z-image-turbo")]
         for key in ("runtime", "runtime_label", "runtime_requirements", "options", "price_note", "capabilities", "label", "model_id", "status", "selectable", "disabled_reason"):
             assert key in z

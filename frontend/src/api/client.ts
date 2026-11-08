@@ -77,6 +77,7 @@ export const api = {
   preview: (req: GenerateRequest) => call<PreviewResponse>("/api/prompt/preview", json(req)),
   generate: (req: GenerateRequest) => call<Artifact>("/api/generate-card", json(req)),
   artifacts: () => call<Artifact[]>("/api/artifacts"),
+  artifact: (id: string) => call<Artifact>(`/api/artifacts/${id}`),
   importSample: (file: File, f: { provider: string; model: string; prompt: string; object: string }) => {
     const fd = new FormData();
     fd.append("file", file);

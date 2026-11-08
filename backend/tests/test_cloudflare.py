@@ -97,7 +97,7 @@ def test_registry_status_depends_on_both_credentials(tmp_path):
     with pytest.raises(ProviderDisabled):
         reg.provider("cloudflare")
     m, reg = cf(cloudflare_api_token=TOKEN, cloudflare_account_id="acct")
-    assert m.selectable and m.status == "external_rest_verified" and m.role == "fallback"
+    assert m.selectable and m.status == "configured_app" and m.role == "fallback"  # never "live" before a real request
     assert reg.provider("cloudflare").provider_id == "cloudflare"
 
 

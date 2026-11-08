@@ -8,6 +8,10 @@ import shutil
 import socket
 import subprocess
 import sys
+# console-safe output on Windows (cp1252)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
+    sys.stderr.reconfigure(errors='replace')
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +40,15 @@ def main() -> int:
     line(None, "Gemini", "configured" if s.gemini_configured else "no GEMINI_API_KEY (Gemini unavailable; Mock still works)")
     line(None, "Cloudflare fallback", "configured" if s.cloudflare_configured else
          f"token {'set' if s.cloudflare_api_token else 'missing'}, account id {'set' if s.cloudflare_account_id else 'missing'}")
+    from app.services.credentials import PROVIDER_FIELDS, KeyringCredentialStore  # noqa: E402
+
+    store = KeyringCredentialStore()
+    if store.available():
+        for prov, fields in PROVIDER_FIELDS.items():  # booleans only, never values
+            have = ", ".join(f"{f}={'yes' if store.get(prov, f) else 'no'}" for f in fields)
+            line(None, f"Credential manager ({store.backend_name}) - {prov}", have)
+    else:
+        line(None, "Credential manager", "not available (keys come from .env only)")
     line(None, "OpenAI GPT Image", f"disabled by design (enabled flag = {s.openai_image_enabled}); no calls are made")
     line(None, "Budget guard", f"cap ${s.total_budget_usd:.2f} total, ${s.job_budget_usd:.2f} per run, retries {s.max_card_retries}, "
                                f"regenerations/card {s.max_regenerations_per_card}")

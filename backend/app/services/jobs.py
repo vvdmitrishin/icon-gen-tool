@@ -420,16 +420,16 @@ class JobService:
     def _scope_cards(self, plan: SetPlan, scope: str) -> list[dict[str, Any]]:
         return self._scope_cards_for(self._cards_flat(plan, "preview"), scope)
 
-    def _estimate(self, provider_id: str, images: int) -> float:
-        return self.guard.estimate_usd(provider_id, images)
+    def _estimate(self, provider_id: str, images: int, model_id: str | None = None) -> float:
+        return self.guard.estimate_usd(provider_id, images, model_id)
 
     def preview(self, req: JobCreateRequest) -> dict[str, Any]:
         plan, counts, model, _ = self._plan(req)
         n = len(self._scope_cards(plan, req.scope))
-        est = self._estimate(model.provider_id, n)
+        est = self._estimate(model.provider_id, n, model.model_id)
         blocked = None
         try:
-            self.guard.check(model.provider_id, n)
+            self.guard.check(model.provider_id, n, **({"model_id": model.model_id} if model.provider_id == "cloudflare" else {}))
         except BudgetExceeded as exc:
             blocked = {"code": exc.code, "message": exc.reason}
         warnings = []
@@ -443,7 +443,7 @@ class JobService:
             "images_in_scope": n,
             "images_total": req.number_of_variants * 10,
             "estimated_cost_usd": est,
-            "estimated_cost_full_usd": self._estimate(model.provider_id, req.number_of_variants * 10),
+            "estimated_cost_full_usd": self._estimate(model.provider_id, req.number_of_variants * 10, model.model_id),
             "cost_is_estimate": True,
             "budget": self.guard.summary().__dict__,
             "blocked": blocked,
@@ -456,9 +456,9 @@ class JobService:
         job_id = f"job-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
         flat = self._cards_flat(plan, job_id)
         scope_ids = {c["card_id"] for c in self._scope_cards_for(flat, req.scope)}
-        est = self._estimate(model.provider_id, len(scope_ids))
+        est = self._estimate(model.provider_id, len(scope_ids), model.model_id)
         if not skip_gate:
-            self._gate(model.provider_id, len(scope_ids), est, req.confirmed)
+            self._gate(model.provider_id, len(scope_ids), est, req.confirmed, model.model_id)
 
         for c in flat:
             c["status"] = "queued" if c["card_id"] in scope_ids else "planned"
@@ -482,17 +482,17 @@ class JobService:
         planned = [self._plan(base.model_copy(update={"genre": g})) for g in genres]
         model = planned[0][2]
         images = sum(len(self._scope_cards(p[0], base.scope)) for p in planned)
-        est = self._estimate(model.provider_id, images)
-        self._gate(model.provider_id, images, est, base.confirmed)
+        est = self._estimate(model.provider_id, images, model.model_id)
+        self._gate(model.provider_id, images, est, base.confirmed, model.model_id)
         return [await self.create(base.model_copy(update={"genre": g}), skip_gate=True) for g in genres]
 
-    def _gate(self, provider_id: str, images: int, est: float, confirmed: bool) -> None:
+    def _gate(self, provider_id: str, images: int, est: float, confirmed: bool, model_id: str | None = None) -> None:
         if est > 0 and not confirmed:
             raise JobFailure(400, "confirmation_required",
                              f"This run is estimated at ${est:.3f} for {images} image(s). Confirm to proceed.",
                              {"estimated_cost_usd": est, "images": images})
         try:
-            self.guard.check(provider_id, images)
+            self.guard.check(provider_id, images, **({"model_id": model_id} if provider_id == "cloudflare" else {}))
         except BudgetExceeded as exc:
             raise JobFailure(402, exc.code, exc.reason) from exc
 
@@ -510,9 +510,9 @@ class JobService:
         cards = [c for c in self.store.cards(job_id) if c["status"] in wanted]
         if not cards:
             raise JobFailure(400, "nothing_to_do", "No pending cards to generate.")
-        provider = job["request"]["provider"]
-        est = self._estimate(provider, len(cards))
-        self._gate(provider, len(cards), est, req.confirmed)
+        provider, mid = job["request"]["provider"], job["request"]["model"]
+        est = self._estimate(provider, len(cards), mid)
+        self._gate(provider, len(cards), est, req.confirmed, mid)
         for c in cards:
             self.store.update_card(c["card_id"], status="queued", error=None)
         self.store.set_scope(job_id, "full")
@@ -594,9 +594,9 @@ class JobService:
         if card["artifact_id"] and card["regen_count"] >= self.s.max_regenerations_per_card:
             raise JobFailure(400, "regen_limit", f"This card already used its {self.s.max_regenerations_per_card} "
                                                  "regenerations (MAX_REGENERATIONS_PER_CARD).")
-        provider = job["request"]["provider"]
-        est = self._estimate(provider, 1)
-        self._gate(provider, 1, est, req.confirmed)
+        provider, mid = job["request"]["provider"], job["request"]["model"]
+        est = self._estimate(provider, 1, mid)
+        self._gate(provider, 1, est, req.confirmed, mid)
         self.store.update_card(card_id, status="queued", pending_note=req.note.strip() or None, error=None)
         self.store.set_cancel(job_id, False)
         self.store.set_status(job_id, "queued")
@@ -721,6 +721,8 @@ class JobService:
             is_regen = card["artifact_id"] is not None
             note = card["pending_note"] or ""
             ref_ids, ref_mode = select_references(metas, card["category"], cap)
+            if metas and cap == 0:  # model takes no reference images: none are sent, and provenance says so
+                ref_ids, ref_mode = [], "unsupported_by_model"
             store.update_card(card["card_id"], status="generating", attempts=card["attempts"] + 1,
                               reference_selection=ref_mode, error=None)
             req = GenerateCardRequest(
@@ -743,12 +745,13 @@ class JobService:
                     stop = "budget"
                     break
                 consecutive += 1
+                quota = exc.code == "quota_exceeded"  # daily free allocation used up: stop at once, no fallback
                 msg = f"[{exc.code}] {exc.message}"
                 # a failed regeneration keeps the previous good image current
                 store.update_card(card["card_id"], status="done" if is_regen else "failed", error=msg, pending_note=None)
                 store.add_event(job_id, f"Card {card['card_id']} {'regeneration ' if is_regen else ''}failed: {msg}", "error")
-                if consecutive >= MAX_CONSECUTIVE_FAILURES:
-                    store.add_event(job_id, f"Circuit breaker: {consecutive} consecutive failures; stopping.", "error")
+                if quota or consecutive >= MAX_CONSECUTIVE_FAILURES:
+                    store.add_event(job_id, ("Provider quota exhausted; stopping. No other provider was tried and no plan change was attempted." if quota else f"Circuit breaker: {consecutive} consecutive failures; stopping."), "error")
                     stop = "provider_errors"
                     break
                 continue
@@ -850,7 +853,7 @@ class JobService:
             "notes": job["plan"]["notes"], "variants": variants,
             "counts": {**counts, "total": len(cards)},
             "spent_estimated_usd": round(job["spent_est"], 6),
-            "pending_estimate_usd": self._estimate(provider, pending),
+            "pending_estimate_usd": self._estimate(provider, pending, job["request"].get("model")),
             "active": job["status"] in ACTIVE_STATES,
             "can_continue": job["status"] not in ACTIVE_STATES and (pending > 0 or counts["failed"] > 0),
             "approved_variant_id": next(iter(approvals), None),

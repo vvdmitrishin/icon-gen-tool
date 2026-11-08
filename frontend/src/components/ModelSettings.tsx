@@ -1,6 +1,6 @@
 import type { ModelCapabilities, ModelInfo } from "../types/api";
 
-const STATUS_LABEL: Record<string, string> = {
+export const STATUS_LABEL: Record<string, string> = {
   external_rest_verified: "REST-verified",
   app_live: "Live in app",
   available_in_account: "Available",
@@ -50,6 +50,10 @@ interface Props {
   onChange: (v: string) => void;
   aspect: string;
   onAspect: (v: string) => void;
+}
+
+interface AvailabilityProps {
+  models: ModelInfo[];
   checking: boolean;
   checkedAt: string | null;
   availabilityError: string | null;
@@ -108,14 +112,10 @@ export function ModelSettings(p: Props) {
       groups.set(label, g);
     });
   const current = p.models.find((m) => keyOf(m) === p.value);
-  const disabledByRuntime = RUNTIME_ORDER.map((rt) => ({
-    rt,
-    items: p.models.filter((m) => !m.selectable && runtimeOf(m) === rt),
-  })).filter((g) => g.items.length > 0);
 
   return (
-    <div>
-      <div className="row">
+    <div className="gensetup">
+      <div className="field">
         <label className="lbl" htmlFor="model">Image model</label>
         <select id="model" value={p.value} onChange={(e) => p.onChange(e.target.value)}>
           {[...groups.entries()].map(([label, g]) => (
@@ -128,14 +128,18 @@ export function ModelSettings(p: Props) {
             </optgroup>
           ))}
         </select>
+        {current && (
+          <div className="chips tight" aria-label="Selected model">
+            <span className={`chip st-${current.status}`}>{STATUS_LABEL[current.status] ?? current.status}</span>
+            <span className="chip">{current.runtime_label ?? RUNTIME_HEADING[runtimeOf(current)]}</span>
+            {current.origin_badge && <span className="chip">{current.origin_badge}</span>}
+          </div>
+        )}
       </div>
 
       {current && (
-        <div className="modeldetails" aria-label="Model details">
-          <div className="chips">
-            <span className={`chip st-${current.status}`}>{STATUS_LABEL[current.status] ?? current.status}</span>
-            <span className="chip">{current.origin_badge}</span>
-          </div>
+        <details className="modeldetails" aria-label="Model details">
+          <summary>Model details &amp; capabilities</summary>
           <dl>
             <dt>Identifier</dt><dd><code>{current.model_id}</code></dd>
             {(current.runtime_label || current.runtime) && <><dt>Runtime</dt><dd>{current.runtime_label ?? RUNTIME_HEADING[runtimeOf(current)]}</dd></>}
@@ -144,49 +148,61 @@ export function ModelSettings(p: Props) {
           <CapabilityChips c={current.capabilities} />
           {current.capabilities.notes && <p className="hint">{current.capabilities.notes}</p>}
           <OptionalToggles m={current} />
-        </div>
+        </details>
       )}
 
-      <div className="row">
-        <label className="lbl" htmlFor="aspect">Aspect ratio</label>
-        <select id="aspect" value={p.aspect} onChange={(e) => p.onAspect(e.target.value)}>
-          {(current?.capabilities.aspect_ratios ?? ["1:1"]).map((a) => (
-            <option key={a} value={a}>{a === "1:1" ? "1:1 (square card art)" : a}</option>
-          ))}
-        </select>
+      <div className="row two">
+        <div className="field">
+          <label className="lbl" htmlFor="planning">Planning</label>
+          <select id="planning" disabled title="Objects are planned by curated rules and templates (free, local). LLM planning is not part of this build."><option>Rules / Templates</option></select>
+        </div>
+        <div className="field">
+          <label className="lbl" htmlFor="aspect">Resolution / aspect</label>
+          <select id="aspect" value={p.aspect} onChange={(e) => p.onAspect(e.target.value)}>
+            {(current?.capabilities.aspect_ratios ?? ["1:1"]).map((a) => (
+              <option key={a} value={a}>{a === "1:1" ? "1:1 (square)" : a}</option>
+            ))}
+          </select>
+        </div>
       </div>
-      <div className="row">
-        <label className="lbl">Planning</label>
-        <select disabled><option>Rules / Templates (Phase 3)</option></select>
-      </div>
-
-      <details className="adv">
-        <summary>Provider availability &amp; disabled models</summary>
-        {disabledByRuntime.map(({ rt, items }) => (
-          <section key={rt} className="disabled-group">
-            <h4>{RUNTIME_HEADING[rt]}</h4>
-            <ul className="disabled-list">
-              {items.map((m) => (
-                <li key={keyOf(m)}>
-                  <strong>{m.provider_label} · {m.label} <span className={`chip st-${m.status}`}>{STATUS_LABEL[m.status] ?? m.status}</span></strong>
-                  <code>{m.model_id}</code>
-                  {m.disabled_reason && <span>Why disabled: {m.disabled_reason}</span>}
-                  {m.runtime_requirements && <span>Requires: {m.runtime_requirements}</span>}
-                  {m.price_note && <span>Price: {m.price_note}</span>}
-                  <CapabilityChips c={m.capabilities} />
-                  {m.capabilities.notes && <span>{m.capabilities.notes}</span>}
-                  <OptionalToggles m={m} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
-        <button type="button" className="ghost" onClick={p.onCheck} disabled={p.checking}>
-          {p.checking ? "Checking…" : "Check model availability (free)"}
-        </button>
-        {p.checkedAt && <p className="hint">Last checked {new Date(p.checkedAt).toLocaleTimeString()}</p>}
-        {p.availabilityError && <div className="alert err">{p.availabilityError}</div>}
-      </details>
     </div>
+  );
+}
+
+/** Provider availability + disabled models (lives inside the collapsed "Advanced settings"). */
+export function ProviderAvailability(p: AvailabilityProps) {
+  const disabledByRuntime = RUNTIME_ORDER.map((rt) => ({
+    rt,
+    items: p.models.filter((m) => !m.selectable && runtimeOf(m) === rt),
+  })).filter((g) => g.items.length > 0);
+
+  return (
+    <details className="adv nested">
+      <summary>Provider availability &amp; disabled models</summary>
+      {disabledByRuntime.map(({ rt, items }) => (
+        <section key={rt} className="disabled-group">
+          <h4>{RUNTIME_HEADING[rt]}</h4>
+          <ul className="disabled-list">
+            {items.map((m) => (
+              <li key={keyOf(m)}>
+                <strong>{m.provider_label} · {m.label} <span className={`chip st-${m.status}`}>{STATUS_LABEL[m.status] ?? m.status}</span></strong>
+                <code>{m.model_id}</code>
+                {m.disabled_reason && <span>Why disabled: {m.disabled_reason}</span>}
+                {m.runtime_requirements && <span>Requires: {m.runtime_requirements}</span>}
+                {m.price_note && <span>Price: {m.price_note}</span>}
+                <CapabilityChips c={m.capabilities} />
+                {m.capabilities.notes && <span>{m.capabilities.notes}</span>}
+                <OptionalToggles m={m} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      <button type="button" className="ghost" onClick={p.onCheck} disabled={p.checking}>
+        {p.checking ? "Checking…" : "Check model availability (free)"}
+      </button>
+      {p.checkedAt && <p className="hint">Last checked {new Date(p.checkedAt).toLocaleTimeString()}</p>}
+      {p.availabilityError && <div className="alert err">{p.availabilityError}</div>}
+    </details>
   );
 }

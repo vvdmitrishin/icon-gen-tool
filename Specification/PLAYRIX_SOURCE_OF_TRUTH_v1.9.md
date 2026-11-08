@@ -1,8 +1,8 @@
 # Playrix AI Producer — Collection Studio
 ## Source of Truth / Product Requirements + UX + Technical Design + Execution Plan
 
-**Версія:** 1.8.1 (статус оновлено до фактичного стану збірки; v1.7 + model roadmap: runtime-grouped Model Selector, future cloud/local model backlog, capability metadata; Card Category Distribution: `Auto (Balanced)` / `Custom`, Σ=10, Cat.5 locked 0; Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
-**Дата:** 8 листопада 2026 року (оновлення v1.8.1: status refresh; v1.8: model roadmap; v1.7: Card Category Distribution; v1.6: Gemini REST API and reference-input verified)  
+**Версія:** 1.9 (API Connections: безпечне збереження credentials; безкоштовні Cloudflare-моделі FLUX.2 Klein 4B + FLUX.1 Schnell; UI вирівняно з мокапом; v1.8.1 status refresh; v1.7 + model roadmap: runtime-grouped Model Selector, future cloud/local model backlog, capability metadata; Card Category Distribution: `Auto (Balanced)` / `Custom`, Σ=10, Cat.5 locked 0; Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
+**Дата:** 9 листопада 2026 року (оновлення v1.9: API Connections, Cloudflare free-tier models, UI alignment; v1.8.1: status refresh; v1.8: model roadmap; v1.7: Card Category Distribution; v1.6: Gemini REST API and reference-input verified)  
 **Статус:** **ПРАЦЮЮЧИЙ ЛОКАЛЬНИЙ MVP: Phases 0–7 реалізовано** (фактичний стан — README, «Implementation status»); цей документ лишається джерелом вимог. **Gemini Nano Banana 2.1 перевірено live** (text-to-image, reference-to-image, pilot із 4 карток у застосунку); **Cloudflare FLUX.2 Klein 4B**: adapter реалізовано й mock-tested, live-перевірка очікує `CLOUDFLARE_ACCOUNT_ID`; **OpenAI GPT Image: planned, disabled, без network-коду**; Seedream 4.5 і local-моделі — backlog (§12.7). **Художня якість не налаштована** (відомі проблеми Cat. 3/4 — `docs/KNOWN_ISSUES.md`).  
 **Власник концепції:** кандидат на роль AI Producer  
 **Мова робочого документа:** українська; назви кнопок, об'єктів та API — англійською  
@@ -38,6 +38,10 @@
 **Офіційна документація:** https://ai.google.dev/gemini-api/docs/image-generation ; https://ai.google.dev/gemini-api/docs/pricing ; https://developers.openai.com/api/docs/guides/image-generation ; https://developers.cloudflare.com/workers-ai/platform/pricing/ .
 
 ---
+
+## ОНОВЛЕННЯ v1.9 — API Connections, Cloudflare free-tier моделі, UI-вирівнювання (09.11.2026)
+
+Додано **Settings → API Connections** (§6.2, §19.1.1): користувач сам вводить, замінює й видаляє credentials Google Gemini (API key) і Cloudflare Workers AI (Account ID + API token); вони зберігаються **лише на боці Python backend у Windows Credential Manager (DPAPI)**, `.env` лишається fallback для розробки; секрети **ніколи** не повертаються API, не пишуться в browser storage, SQLite, логи чи Git; перевірка з'єднання **не генерує зображень**; endpoints захищені (loopback Host/Origin + per-session token). Додано **першозапускний setup guide**. У registry з'явилися **дві безкоштовні (free-tier) Cloudflare-моделі**: **FLUX.2 Klein 4B** (text-to-image + до 4 reference) і **FLUX.1 Schnell** (лише text-to-image, references недоступні) (§12.7.1). Безкоштовна квота ≠ необмежене безкоштовне використання: **ніякого автоматичного переходу на платний план і ніякого тихого fallback на інший провайдер**. UI підтягнуто до затвердженого мокапа (§6.15). Фази, наявна функціональність і Gemini-інтеграція **без змін**; Cloudflare-моделі **не вважаються live, доки реальний запит не пройшов** (потрібне окреме схвалення smoke test).
 
 ## ОНОВЛЕННЯ v1.8 — Model roadmap та Model Selector (08.11.2026)
 
@@ -144,6 +148,8 @@
 | Gold cards | В generic architecture optional; Movie demo **OFF** | No Category 5 у фінальних трьох наборах; Cat.5 = 0 locked (§3.4) |
 | Card Category Distribution (v1.7) | `Auto (Balanced)` default [2,2,3,3] або `Custom`; Σ=10, кожна Cat.1–4 ≥1 | [2,2,3,3] — наше припущення [D], не вимога Playrix; застосовується на Set Planning; однаковий для всіх 3–5 альтернатив (§3.4) |
 | Дизайн | **ПЕРШИЙ детальний UI-мокап** + нові поля `Free Wishes`, provider status та compare | Пізній спрощений UI не замінює перший reference |
+| API credentials (v1.9) | Вводяться в **Settings → API Connections**; зберігаються у **Windows Credential Manager** через Python backend; `.env` — dev-fallback | Ніколи в localStorage / SQLite / логах / Git / API-відповідях; перевірка з'єднання без платної генерації; endpoints лише для локального застосунку (§19.1.1) |
+| Безкоштовні моделі (v1.9) | Cloudflare **FLUX.2 Klein 4B** (перший пріоритет) і **FLUX.1 Schnell** | Free-tier квота (10 000 Neurons/день) обмежена; без auto-upgrade, без тихого fallback; не live до реального успішного запиту (§12.7.1) |
 | Scope | Працездатний PoC з 1 live image adapter, а не SaaS | Позначати `implemented / mock / future` |
 
 ### 0.3.1 Два рівні випробувань, які не можна підміняти один одним
@@ -446,7 +452,7 @@ Collection («Кіно», «Літо», «Подорожі»...)
 - **Generate** — почати нове замовлення / перейти до лівої панелі; не має бути окремим способом запуску з іншою логікою.
 - **History** — історія всіх запусків (`jobs`) з датою, моделлю, темою, результатом.
 - **Templates** — пресети правил і жанрів (можна відкласти до P1).
-- **Settings** — конфігурація API-ключів *на сервері*, default модель, budget cap, шляхи зберігання.
+- **Settings** — (v1.9) **API Connections** (додати / замінити / видалити credentials Gemini і Cloudflare, статус з'єднання, Test connection, setup guide; значення ніколи не показуються після збереження), default модель, budget cap, шляхи зберігання (лише перегляд).
 - **User indicator** — у локальному MVP це може бути просто `Local User`; логін необов'язковий.
 
 ## 6.3 Ліва панель: `1. Set & Theme`
@@ -676,6 +682,33 @@ Collection («Кіно», «Літо», «Подорожі»...)
 6. **Reference Compare:** три активні режими зі справжніми картинками — draggable Split, Side by Side та Grid. Статичний mockup позначити `UI-only demo`.
 7. **Review:** реальні результати відокремлені від sample/mock; статус artwork і provenance видно при натисканні на картку.
 8. **No card UI rendering:** у генераторі не малювати автоматично зірки, підписи й рамки — тільки artwork; в Miro вставити результат вручну.
+
+## 6.15 Вирівнювання UI з мокапом (v1.9) [U]/[D]
+
+Мокап `Specification/Mockup.png` лишається первинним дизайн-референсом. Обов'язкові області інтерфейсу (усі з реальною поведінкою, не декоративні):
+
+| Область | Вимога |
+|---|---|
+| Header | логотип, назва + підзаголовок, навігація `Generate / History / Templates / Settings`, індикатор витрат (**local estimate**), кнопка підключення провайдерів, індикатор користувача (`Local User`) |
+| Pipeline strip | `Plan → Generate → QA → Compare → Results → Export` зрозуміло для не-технічного користувача (кроки показують фактичний стан) |
+| Title row | `Generated Sets — <Collection>: <Genre>` + кнопки `Compare Variants`, `Prompt Library`, `Export` |
+| Variant rows | вибір варіанта, `N / 10 cards`, фактичні QA/review статуси, category coverage 1–4, ряд thumbnails |
+| **Set Summary** | Theme, Genre, Cards, Variants, Planning, Image model, Resolution, час (з часових міток job, коли відомий), **local estimate** вартості; прев'ю з реальних згенерованих зображень |
+| **Quick Actions** | `Regenerate selected`, `Edit set plan`, `Replace a card`, `Generate similar set` — працюють над вибраною карткою/варіантом; жодних витрат без наявного confirmation flow |
+| **Next Steps** | чеклист, що обчислюється зі стану: review & pick best set, tweak cards (optional), export final set, save to project/library |
+| Ліва панель | Set & Theme, Rules/Style/Brief (Card Category Distribution, Art style, Free Wishes), References, Generation Setup (Planning, Image model selector, resolution); технічні параметри — у згорнутому `Advanced settings` |
+
+Корекції мокапа з попередніх версій **зберігаються**: без вигаданих `Style score` / `Best match` / фіктивних cost-time, без зірок і рамок на artwork, без `Creativity/Consistency` sliders, Cat. 5 locked. UI має працювати на desktop/laptop роздільностях (≥1280×720) без горизонтального скролу сторінки; це production-інструмент для AI/Art Producer, а не workflow-редактор у стилі ComfyUI.
+
+**Реалізація v1.9 і свідомі відхилення від мокапа** (перевірено на 1672×940, 1366×768, 1280×720; без горизонтального скролу):
+
+- Pipeline strip має **6 кроків** (`Plan, Generate, QA, Compare, Results, Export`), а не 4 з мокапа, щоб `Compare` і `Export` були досяжні з стрічки; `Compare` позначено як опціональний.
+- Вкладки: `Results`, `Set Plans (JSON)`, `QA Report`, `Generation Log`; `Compare Variants` і `Prompt Library` відкриваються кнопками title row, `Reference Compare` — з Compare-режиму, картки й кроку Compare (нічого не стало недосяжним).
+- Cat. 1–4 подано як **steppers «карток на категорію» з `Auto/Custom`** (реальна функція Card Category Distribution, §3.4) замість чекбоксів мокапа; Cat. 5 — locked `0`.
+- `Collection` — текстове поле, `Art style` — один draft Style Bible (це реальні дані); `Image model` і `Planning` складені в стовпчик/дві колонки, щоб уникнути обрізання.
+- Немає `Style score`, `Best match`, `Creativity/Consistency` та вигаданих cost/time (див. вище); час запуску береться з журналу job («from job log»), вартість — **local estimate**.
+- Іконки — прості гліфи, а не індивідуальні ілюстрації мокапа; багатоваріантний вигляд (3 рядки) перевірено структурно, візуально — на одному варіанті.
+- UI-перевірка виконана в реальному браузері (Playwright + Edge) на ізольованому harness із мок-провайдерами та на реальних даних; screenshots зберігаються поза Git (можуть містити конфіденційний reference).
 
 # 7. End-to-end user journey — очима звичайного користувача
 
@@ -1511,7 +1544,8 @@ cost_per_accepted_set = total_cost / accepted_sets
 | Runtime | UI label | `provider_id` / `model_id` | Статус у v1.8 | Примітки щодо capabilities |
 |---|---|---|---|---|
 | Cloud API | Google Gemini · Nano Banana 2.1 | `gemini` / `gemini-nano-banana-2.1` | **Active** (наявна інтеграція, без змін) | text-to-image ✓ (перевірено live); editing і references за документацією (до 14 refs у Gemini 3 family) |
-| Cloud API | Cloudflare · FLUX.2 Klein 4B | `cloudflare` / `@cf/black-forest-labs/flux-2-klein-4b` | **Pending live verification**: adapter реалізований у збірці v1.7 за задокументованим REST-контрактом і mock-tested; потрібен `CLOUDFLARE_ACCOUNT_ID` | text-to-image ✓ (зовнішній smoke test); reference через `input_image_0` (в adapter max 1) |
+| Cloud API | Cloudflare · FLUX.2 Klein 4B | `cloudflare` / `@cf/black-forest-labs/flux-2-klein-4b` | (v1.9) **Configured** після підключення credentials; **не live до реального успішного запиту** (adapter реалізований за документацією, mock-tested; live smoke test — після схвалення) | text-to-image ✓; reference-images до 4 (multipart `input_image_0..3`) — очікування з документації, `verified: false` |
+| Cloud API | Cloudflare · FLUX.1 Schnell | `cloudflare` / `@cf/black-forest-labs/flux-1-schnell` | (v1.9) **Configured** після підключення credentials; не live до реального запиту | **лише text-to-image**; references **недоступні** (`max_reference_images: 0`) |
 | Cloud API | ByteDance Seedream 4.5 (через Cloudflare) | `cloudflare` / `bytedance/seedream-4.5` | **Planned** (visible, disabled) | capabilities — лише очікування (`verified: false`; editing `null`, references не припускаються); опублікована ціна ≈ $0.04 / image |
 | Cloud API | OpenAI GPT Image | `openai` / `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` | **Not configured, disabled** (без key/billing/викликів) | за документацією: generation, edits, кілька refs |
 | Local (planned) | FLUX.2 Klein 4B | `local` / `flux-2-klein-4b` | **Planned** | очікується text-to-image і reference-editing (hosted-версія приймає reference); локально не перевірено (`verified: false`) |
@@ -1548,6 +1582,25 @@ cost_per_accepted_set = total_cost / accepted_sets
 | `runtime_requirements` | напр. «local inference runtime (потенційно ComfyUI API) + ваги моделі; не встановлено» |
 | `options` | напр. ERNIE: `[{key: "prompt_enhancement", label: "Prompt Enhancement", default: false, status: "planned"}]` |
 | `price_note` | напр. Seedream 4.5: «опублікована ціна ≈ $0.04 / image; не перевірено» |
+
+### 12.7.1 Безкоштовні Cloudflare-моделі: FLUX.2 Klein 4B і FLUX.1 Schnell (v1.9)
+
+**Джерело фактів:** публічна документація Cloudflare Workers AI (сторінки моделей, pricing, errors); нічого з цього ще **не перевірено live** (`verified: false`).
+
+| | FLUX.2 Klein 4B | FLUX.1 Schnell |
+|---|---|---|
+| Запит | `multipart/form-data` навіть без зображень: `prompt`, `input_image_0..3` (до 4, кожне < 512×512), `width`/`height` (256–1920), `seed`; `steps` фіксовано | JSON `{prompt, steps (≤8), seed}`; без розміру й без image input |
+| Відповідь | base64-зображення (`result.image`), нормалізується в PNG | base64 JPEG, нормалізується в PNG |
+| References | **так**, до 4 (адаптер зменшує кожне до < 512×512) | **ні**: у job references не надсилаються, provenance фіксує `reference_selection = unsupported_by_model`; пряма картка з references відхиляється з поясненням |
+| Орієнтовна вартість (опублікована) | ≈ 110 Neurons (~$0.0012) / 1024² зображення | ≈ 58 Neurons (~$0.0006) / зображення |
+
+**Правила безпеки free-tier (обов'язкові):**
+1. Безкоштовне — це **добова квота 10 000 Neurons** (скидання 00:00 UTC) на плані Workers Free; поза нею запити **відхиляються** на Free і **тарифікуються** на Workers Paid. Модель **не позначається «безумовно безкоштовною»**; у `price_note` це сказано явно.
+2. Застосунок **ніколи не змінює й не активує платний план Cloudflare**.
+3. **Немає тихого fallback**: помилка/квота Cloudflare зупиняє job із чітким повідомленням; інший провайдер не викликається автоматично.
+4. Квотна помилка (`3036`, HTTP 429) → `quota_exceeded`: не retryable, не billable, повідомлення «добова безкоштовна квота вичерпана, нічого не списано, зміну плану не виконано; зачекайте до 00:00 UTC або оберіть іншу модель». Інші 429 — звичайний rate limit; `3040` — тимчасова нестача потужності; `5035` — модель потребує Workers Paid (`plan_required`).
+5. Налаштування `CLOUDFLARE_PLAN` (`free` за замовчуванням): `free` → оцінка 0, без confirmation; `paid` → оцінка за опублікованою ціною, діють confirmation і budget caps як для Gemini.
+6. Перші live-запити (smoke test) виконуються **лише після явного схвалення користувача**, мінімальним обсягом (`scripts/smoke_cloudflare.py`, один запит на модель).
 
 ### Seedream 4.5 (через Cloudflare)
 
@@ -2049,6 +2102,16 @@ TEXT_PLANNER_PROVIDER=
 - Не відправляти secrets у Miro / screenshots / public logs.
 - Не логувати повні request headers.
 
+### 19.1.1 API Connections — збереження credentials (v1.9)
+
+1. **Хто вводить:** користувач у **Settings → API Connections**; підтримуються Google Gemini (API key) і Cloudflare Workers AI (Account ID + API token). Є додавання, заміна й видалення.
+2. **Де зберігаються:** лише **Python backend**, у **Windows Credential Manager** (DPAPI-захищено; сервіс `AICollectionStudio`). **`.env` лишається dev-fallback**: пріоритет — значення з Credential Manager, інакше `.env`, інакше не налаштовано; видалення збереженого значення повертає до `.env`. Зміни діють одразу, без перезапуску.
+3. **Заборонено** зберігати секрети в browser localStorage/sessionStorage, plaintext SQLite, логах, Git або frontend-конфігурації; у SQLite — лише **не секретний** статус перевірки.
+4. **API ніколи не повертає credentials** (навіть маскованими): лише булеві `stored` / `from_env`. Помилки валідації (422) не повторюють надіслані значення; логи не містять значень (httpx-URL з Account ID редагується).
+5. **Перевірка з'єднання не запускає платну генерацію**: Gemini — перелік моделей (metadata), Cloudflare — пошук у каталозі моделей (metadata). Статуси: `not_configured / unverified / connected / invalid / unreachable`, з чіткими повідомленнями.
+6. **Захист endpoints для credentials:** лише loopback `Host` (захист від DNS rebinding), loopback `Origin` (якщо присутній), per-session token у заголовку для змінюючих запитів, rate limit на тест; для реального застосунку той самий `Host/Origin` guard діє на весь API.
+7. **Перший запуск:** setup guide з трьох кроків (вітання з варіантом «спробувати demo без ключа» → підключення провайдерів → підсумок); його можна відкрити повторно з Settings.
+
 ## 19.2 Reference/IP handling
 
 - Завантажені референси можуть бути робочими матеріалами роботодавця.
@@ -2319,6 +2382,7 @@ TEXT_PLANNER_PROVIDER=
 | ADR-013 | **€5 Gemini prepaid + per-job spend guard**, local Windows app; Cloudflare Free fallback; **OpenAI paid disabled** | Quality-first з контрольованими витратами; desktop GPU optional | Якщо Gemini quality, price чи quota не підійдуть |
 | ADR-014 | **OpenAI GPT Image everywhere in specification, UI and registry, runtime disabled** | Майбутнє розширення без перероблення ядра і без передчасних витрат | Лише після явної активації API та витрат |
 | ADR-015 | **Card Category Distribution: `Auto (Balanced)` [2,2,3,3] / `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 locked** | Playrix не фіксує кількість по категоріях; конфігурований розподіл дає контроль без вигаданої вимоги; застосовується на Set Planning до генерації й однаковий для всіх альтернатив | Якщо аналіз референсів покаже фактичний розподіл, або зміниться ТЗ щодо Cat.5 |
+| ADR-017 | **API Connections (v1.9): credentials у Windows Credential Manager через Python backend; `.env` — dev-fallback; безкоштовні Cloudflare-моделі без auto-upgrade і без тихого fallback; whole-API loopback guard** | Не-технічний користувач підключає провайдерів сам; секрети не потрапляють у browser/SQLite/логи/Git; free-квота не вважається безкоштовним необмеженим використанням | Якщо з'явиться multi-user/хмарне розгортання (потрібне інше сховище секретів) або Cloudflare змінить схему моделей |
 | ADR-016 | **Model roadmap (v1.8): селектор за runtime; Seedream 4.5 + 7 local-моделей як visible-but-disabled backlog; capability metadata; ERNIE Prompt Enhancement — опція; Qwen-Image-Edit-2511 — editing-модель** | Видимий roadmap без розширення scope MVP; ніколи не показувати недоступне як робоче; єдина provider abstraction для cloud і local (ComfyUI API) | Після MVP: оцінка якості на Phase 3 benchmark; явне схвалення перед будь-якими платними викликами Seedream |
 
 ---
@@ -2510,6 +2574,7 @@ Show implementation/test status clearly, commit in small milestones.
 | **1.6** | **2026-11-07** | **Real Gemini Nano Banana 2.1 external REST proof:** text-to-image + Playrix-reference-to-image PNG succeeded; €5 prepaid. **Gemini = target primary image provider; Cloudflare = verified fallback; OpenAI GPT Image = everywhere in design/architecture/UI but disabled, not paid/connected.** Correct prior 400 diagnosis; revise default model, env, cost controls, UI statuses, architecture, coding-agent instructions and roadmap. |
 | **1.7** | **2026-11-07** | **Card Category Distribution** (new §3.4): `Auto (Balanced)` default [2,2,3,3] (our assumption, not Playrix-mandated) / `Custom`; Σ=10, each Cat.1–4 ≥1, Cat.5 locked 0 for Movie demo; applied at Set Planning, identical across 3–5 alternatives; category-specific prompt logic documented. Targeted edits only (header, §0.2/0.3, §3.2, §6.4/6.6, §8.4, Stages 1–4, §10.3, §11.1, HR-08, phases, tests, OQ-01, ADR-015, handoff prompt, UX criteria); no change to providers, budget, scope or approved UI layout. |
 | **1.8** | **2026-11-08** | **Model roadmap** (new §12.7): Model Selector grouped by runtime (Cloud API / Local planned / Development-testing); Seedream 4.5 (`bytedance/seedream-4.5`, via Cloudflare, ≈ $0.04/image, not enabled) and 7 local models (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) as visible-but-disabled backlog; capability metadata contract (`runtime`, `planned` status, tri-state capabilities, `options`, `price_note`); ERNIE Prompt Enhancement as optional config; Qwen-Image-Edit-2511 = editing model; Cloudflare FLUX status stated honestly (adapter implemented + mock-tested, live verification pending account ID). Targeted edits only (header, v1.8 notice, §0.3, §6.6, §8.3, §12.2, §12.3.1, §12.7, §17 backlog list, §26 ADR-016, §27 prompt, §28, this log); no change to phases 0-7, architecture, Gemini functionality or approved UI layout. |
+| **1.9** | **2026-11-09** | **API Connections** (§6.2, §19.1.1): credentials у Windows Credential Manager, `.env` fallback, free connection test, protected endpoints, first-run setup guide; **Cloudflare FLUX.2 Klein 4B + FLUX.1 Schnell** (§12.7.1) з free-tier safety rules (без auto-upgrade, без тихого fallback, квотні помилки); **UI aligned to mockup** (§6.15: Set Summary, Quick Actions, Next Steps, title-row actions); whole-API local-only guard. Пізніші вимоги збережено; фази 0–7 без змін; Cloudflare-моделі не live до схваленого smoke test. |
 | **1.8.1** | **2026-11-08** | **Status refresh only** (no requirement changes): header status, credibility note and Final status now describe the working local MVP (Phases 0–7 implemented; Gemini verified live; Cloudflare mock-tested; art quality untuned) instead of «APP NOT IMPLEMENTED». File name stays `..._v1.8.md`. |
 
 ## Final status

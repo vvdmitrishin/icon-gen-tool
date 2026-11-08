@@ -111,7 +111,7 @@ class GenerationService:
             compiled.template_versions = versions  # type: ignore[attr-defined]
         except ValueError as exc:
             raise GenerationFailure(422, "invalid_card", str(exc)) from exc
-        estimate = self.guard.estimate_usd(model.provider_id, 1)
+        estimate = self.guard.estimate_usd(model.provider_id, 1, model.model_id)
         return model, compiled, refs, estimate
 
     def preview(self, req: GenerateCardRequest) -> dict[str, Any]:
@@ -119,7 +119,7 @@ class GenerationService:
         model, compiled, refs, estimate = self._prepare(req)
         blocked = None
         try:
-            self.guard.check(model.provider_id, 1)
+            self.guard.check(model.provider_id, 1, **({"model_id": model.model_id} if model.provider_id == "cloudflare" else {}))
         except BudgetExceeded as exc:
             blocked = {"code": exc.code, "message": exc.reason}
         return {
@@ -149,7 +149,7 @@ class GenerationService:
             )
         async with self._lock:
             try:
-                self.guard.check(model.provider_id, 1)
+                self.guard.check(model.provider_id, 1, **({"model_id": model.model_id} if model.provider_id == "cloudflare" else {}))
             except BudgetExceeded as exc:
                 raise GenerationFailure(402, exc.code, exc.reason) from exc
 
@@ -178,7 +178,7 @@ class GenerationService:
                         )
                     if exc.retryable and not exc.billable and attempts < max_attempts:
                         try:
-                            self.guard.check(model.provider_id, 1)
+                            self.guard.check(model.provider_id, 1, **({"model_id": model.model_id} if model.provider_id == "cloudflare" else {}))
                         except BudgetExceeded as be:
                             raise GenerationFailure(402, be.code, be.reason) from be
                         continue
@@ -246,7 +246,10 @@ class GenerationService:
                 "estimated_usd": estimate,
                 "is_estimate": True,
                 "usage_metadata": result.usage,
-                "note": "Local estimate; Google Billing is the source of truth.",
+                "note": ("Local estimate; the Cloudflare dashboard is the source of truth (Workers Free allocation "
+                         "10,000 Neurons/day; this app never changes the plan)."
+                         if model.provider_id == "cloudflare"
+                         else "Local estimate; Google Billing is the source of truth."),
             },
             "timing": {"latency_ms": result.latency_ms, "attempts": attempts},
             "review": {

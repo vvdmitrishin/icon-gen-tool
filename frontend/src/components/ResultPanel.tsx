@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Artifact, PreviewResponse } from "../types/api";
+import { PipelineStrip } from "./Pipeline";
 
 type Tab = "results" | "prompt" | "metadata";
 
@@ -18,12 +19,12 @@ export function ResultPanel({ artifact, history, onPick, preview, generating, er
 
   return (
     <section className="results">
-      <div className="steps" aria-label="Pipeline status">
-        <Step n={1} title="Plan" sub="Prompt compiled" done={!!preview} />
-        <Step n={2} title="Generate" sub={generating ? "Calling provider…" : "One image"} active={generating} done={!!artifact && !generating} />
-        <Step n={3} title="QA" sub="Technical QA: not run" />
-        <Step n={4} title="Results" sub="Art review: pending" done={!!artifact} />
-      </div>
+      <PipelineStrip steps={[
+        { key: "plan", title: "Plan", sub: preview ? "Prompt compiled" : "Fill in the form", done: !!preview, current: tab === "prompt", onClick: () => setTab("prompt") },
+        { key: "gen", title: "Generate", sub: generating ? "Calling provider…" : "One image", active: generating, done: !!artifact && !generating, current: tab === "results", onClick: () => setTab("results") },
+        { key: "qa", title: "QA", sub: "Technical QA: not run (single-card test)", optional: true },
+        { key: "res", title: "Results", sub: artifact ? `Art review: ${artifact.review.art_review}` : "Art review: pending", done: !!artifact, onClick: () => setTab("results") },
+      ]} />
 
       <div className="tabs" role="tablist">
         {(["results", "prompt", "metadata"] as Tab[]).map((t) => (
@@ -31,14 +32,19 @@ export function ResultPanel({ artifact, history, onPick, preview, generating, er
             {t === "results" ? "Results" : t === "prompt" ? "Effective Prompt" : "Metadata (JSON)"}
           </button>
         ))}
-        <button role="tab" disabled title="Phase 5">Reference Compare</button>
-        <button role="tab" disabled title="Phase 3">Set Plans</button>
       </div>
 
       <div className="banner">
-        <strong>This tool generates object illustrations for collectible cards (not full game windows).</strong>
-        <span>Artwork only — frames, stars and badges are never part of the generated image.</span>
+        <div className="banner-main">
+          <span className="banner-ic" aria-hidden>▨</span>
+          <div>
+            <strong>Single-card diagnostic mode: one object, one provider call.</strong>
+            <span>Artwork only. Frames, stars and badges are never part of the generated image.</span>
+          </div>
+        </div>
       </div>
+
+      <div className="titlerow"><h1>Single Card Test</h1></div>
 
       {error && <div className="alert err" role="alert">{error}</div>}
 
@@ -121,14 +127,5 @@ export function ResultPanel({ artifact, history, onPick, preview, generating, er
         </div>
       )}
     </section>
-  );
-}
-
-function Step(p: { n: number; title: string; sub: string; done?: boolean; active?: boolean }) {
-  return (
-    <div className={`step ${p.done ? "done" : ""} ${p.active ? "active" : ""}`}>
-      <span className="num">{p.done ? "✓" : p.n}</span>
-      <div><strong>{p.title}</strong><small>{p.sub}</small></div>
-    </div>
   );
 }

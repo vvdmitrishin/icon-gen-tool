@@ -12,6 +12,10 @@ import argparse
 import asyncio
 import json
 import sys
+# console-safe output on Windows (cp1252)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
+    sys.stderr.reconfigure(errors='replace')
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]

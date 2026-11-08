@@ -12,6 +12,10 @@ import hashlib
 import io
 import json
 import sys
+# console-safe output on Windows (cp1252)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
+    sys.stderr.reconfigure(errors='replace')
 import tempfile
 import time
 import zipfile
