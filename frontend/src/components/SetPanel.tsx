@@ -10,6 +10,9 @@ import { PlanNotice, type PlanError } from "./PlanNotice";
 import { STATUS_LABEL } from "./ModelSettings";
 import { PipelineStrip, type PipeStep } from "./Pipeline";
 import { PromptLibrary } from "./PromptLibrary";
+import { MySelection } from "./MySelection";
+import { PlanOnlyPanel, type PlanOnlyState } from "./PlanOnlyPanel";
+import { themeKey, useFavorites, type FavItem } from "../lib/favorites";
 
 /** Tabs shown in the tab bar; "variants", "compare" and "library" are opened from the title-row buttons / quick actions. */
 type View = "results" | "plans" | "qa" | "log" | "variants" | "compare" | "library";
@@ -21,6 +24,7 @@ export interface FormSummary {
   variants: number;
   numberOfCards: number;
   gold: number;
+  setType: "standard" | "grand";
   outputSize: number;
   provider: string;
   model: string;
@@ -50,6 +54,8 @@ interface Props {
   onOpenHistory: () => void;
   onJob: (d: JobDetail) => void;
   onError: (m: string | null) => void;
+  planOnly?: PlanOnlyState | null;
+  onClosePlanOnly?: () => void;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -96,6 +102,33 @@ export function SetPanel(p: Props) {
   const variantsRef = useRef<HTMLDivElement>(null);
   const job = p.job;
   const [keepKey, setKeepKey] = useState<string | null>(null);
+
+  // ---- My Selection (session favorites), scoped to Collection + Set + Set type of the set that is shown
+  const shownSetType: "standard" | "grand" = job ? ((job.set_type ?? job.request.set_type) === "grand" ? "grand" : "standard") : p.form.setType;
+  const shownCollection = job?.collection ?? p.form.collection;
+  const shownGenre = job?.genre ?? p.form.genre;
+  const favKey = themeKey(shownCollection, shownGenre, shownSetType);
+  const favs = useFavorites(favKey);
+  /** Batch number = order of the job among all jobs of this Collection + Set + Set type. */
+  const batchOf = (jobId: string): number | null => {
+    const mine = p.jobs.filter((j) => themeKey(j.collection, j.genre, j.set_type ?? "standard") === favKey)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const i = mine.findIndex((j) => j.job_id === jobId);
+    return i < 0 ? null : i + 1;
+  };
+  const makeFav = (c: JobCard, variantId: string, artifactId: string, imageUrl: string, version: number | null): FavItem => ({
+    artifact_id: artifactId, job_id: job!.job_id, card_id: c.card_id, variant_id: variantId, version,
+    object_name: c.object_name, category: c.category, position: c.position,
+    provider: job!.request.provider, model: job!.request.model, batch: batchOf(job!.job_id),
+    image_url: imageUrl, added_at: Date.now(),
+  });
+  const starCard = (c: JobCard, variantId: string) => {
+    if (!job || !c.artifact_id || !c.image_url) return;
+    favs.toggle(makeFav(c, variantId, c.artifact_id, c.image_url, c.versions.find((x) => x.is_current)?.version ?? null));
+  };
+  const starVersion = (c: JobCard, variantId: string, v: { artifact_id: string; image_url: string; version: number }) => {
+    if (job) favs.toggle(makeFav(c, variantId, v.artifact_id, v.image_url, v.version));
+  };
 
   const pct = job && job.counts.total ? Math.round((job.counts.done / job.counts.total) * 100) : 0;
   const picked = job?.variants.flatMap((v) => v.cards).find((c) => c.card_id === pickedId) ?? null;
@@ -270,9 +303,11 @@ export function SetPanel(p: Props) {
 
       {view === "results" && (
         <div className="stage flat">
+          {p.planOnly && (p.planOnly.busy || p.planOnly.result || p.planOnly.error) && <PlanOnlyPanel state={p.planOnly} onClose={() => p.onClosePlanOnly?.()} />}
           {job && (
             <div className="jobbar">
               <div className="jobhead">
+                {batchOf(job.job_id) != null && <span className="chip batch" title="Consecutive generations of this Collection + Set">Batch #{batchOf(job.job_id)} — {job.counts.total} image{job.counts.total === 1 ? "" : "s"}</span>}
                 <span className={`chip ${job.status === "ready_for_review" ? "ok" : job.status === "failed" || job.status === "partial_success" ? "warn" : ""}`}>{STATUS_TEXT[job.status] ?? job.status}</span>
                 {job.scope === "pilot" && <span className="chip" title="Older job created with the removed test-run option">Pilot run (old job)</span>}
                 <span className="chip">Cat. split {[1, 2, 3, 4].map((c) => job.distribution[c] ?? 0).join(" / ")}{(job.distribution[5] ?? 0) > 0 ? <> / <b className="goldtxt">★ {job.distribution[5]}</b></> : null}</span>
@@ -320,7 +355,8 @@ export function SetPanel(p: Props) {
           <div ref={variantsRef} className="variants" role="radiogroup" aria-label="Variants">
             {job && job.variants.map((v) => (
               <VariantRow key={v.variant_id} job={job} v={v} selected={selV?.variant_id === v.variant_id} onSelect={setSelVariantId}
-                pickedId={pickedId} onPick={pickCard} onJob={p.onJob} onError={p.onError} onExport={(id) => exportVariant(id, false)} exportBusy={expBusy} />
+                pickedId={pickedId} onPick={pickCard} onJob={p.onJob} onError={p.onError} onExport={(id) => exportVariant(id, false)} exportBusy={expBusy}
+                isFav={favs.has} onStar={starCard} />
             ))}
             {!job && p.preview && (
               <>
@@ -338,9 +374,12 @@ export function SetPanel(p: Props) {
             <div ref={detailRef}>
               <CardDetail job={job} card={picked} variant={pickedVariant} perImage={p.perImage} onJob={p.onJob} onError={p.onError}
                 replaceToken={replaceReq} regenToken={regenReq}
+                isFav={favs.has} onStarVersion={starVersion}
                 onClose={() => setPickedId(null)} onCompare={() => setView("compare")} />
             </div>
           )}
+
+          <MySelection favs={favs} collection={shownCollection} genre={shownGenre} setType={shownSetType} onOpenJob={p.onPickJob} />
 
           <div className="bottomrow">
             <SetSummary stale={stale} job={job} preview={p.preview} form={p.form} models={p.models} events={p.events} selV={selV} />
@@ -449,9 +488,10 @@ function CoverageChips({ cards }: { cards: { category: number; status: string }[
   );
 }
 
-function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onError, onExport, exportBusy }: {
+function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onError, onExport, exportBusy, isFav, onStar }: {
   job: JobDetail; v: JobVariant; selected: boolean; onSelect: (id: string) => void; pickedId: string | null; onPick: (id: string) => void;
   onJob: (d: JobDetail) => void; onError: (m: string | null) => void; onExport: (variantId: string) => void; exportBusy: boolean;
+  isFav: (artifactId: string) => boolean; onStar: (c: JobCard, variantId: string) => void;
 }) {
   const [showQA, setShowQA] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -495,12 +535,15 @@ function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onErr
         </div>
         {showQA && <CheckList checks={qa.checks} />}
       </div>
-      <Slots cards={v.cards} pickedId={pickedId} onPick={onPick} />
+      <Slots cards={v.cards} variantId={v.variant_id} pickedId={pickedId} onPick={onPick} isFav={isFav} onStar={onStar} />
     </div>
   );
 }
 
-function Slots({ cards, pickedId, onPick }: { cards: JobCard[]; pickedId: string | null; onPick: (id: string) => void }) {
+function Slots({ cards, variantId, pickedId, onPick, isFav, onStar }: {
+  cards: JobCard[]; variantId: string; pickedId: string | null; onPick: (id: string) => void;
+  isFav: (artifactId: string) => boolean; onStar: (c: JobCard, variantId: string) => void;
+}) {
   return (
     <ol className="slots">
       {cards.map((c) => (
@@ -515,6 +558,12 @@ function Slots({ cards, pickedId, onPick }: { cards: JobCard[]; pickedId: string
             {c.art_review === "rejected" && <span className="rvmark bad">✕</span>}
             {c.versions.length > 1 && <span className="vmark">v{c.versions.find((x) => x.is_current)?.version}</span>}
           </button>
+          {c.image_url && c.artifact_id && (
+            <button type="button" className={`starbtn ${isFav(c.artifact_id) ? "on" : ""}`} aria-pressed={isFav(c.artifact_id)}
+              aria-label={isFav(c.artifact_id) ? `Remove ${c.object_name} from My Selection` : `Add ${c.object_name} to My Selection`}
+              title={isFav(c.artifact_id) ? "In My Selection (click to remove)" : "Add this exact image to My Selection"}
+              onClick={() => onStar(c, variantId)}>{isFav(c.artifact_id) ? "★" : "☆"}</button>
+          )}
         </li>
       ))}
     </ol>
@@ -704,10 +753,12 @@ function PlansView({ job, preview, selV, onSelectVariant, onEdit }: {
 }
 
 // -------------------------------------------------------------------------------- card detail
-function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onCompare, replaceToken, regenToken }: {
+function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onCompare, replaceToken, regenToken, isFav, onStarVersion }: {
   job: JobDetail; card: JobCard; variant: JobVariant; perImage: number;
   onJob: (d: JobDetail) => void; onError: (m: string | null) => void; onClose: () => void; onCompare: () => void;
   replaceToken: number; regenToken: number;
+  isFav: (artifactId: string) => boolean;
+  onStarVersion: (c: JobCard, variantId: string, v: { artifact_id: string; image_url: string; version: number }) => void;
 }) {
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(false);
@@ -722,6 +773,8 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
   const locked = job.active || busy;
   const shownVersion = viewV != null ? card.versions.find((v) => v.version === viewV) : undefined;
   const img = shownVersion?.image_url ?? card.image_url;
+  const curVersion = card.versions.find((x) => x.is_current);
+  const starTarget = shownVersion ?? (curVersion ?? null);
   const noRegenLeft = hasImage && card.regen_remaining <= 0;
   const canRegen = !locked && !noRegenLeft && card.status !== "queued" && card.status !== "generating";
 
@@ -770,6 +823,12 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
           <span className="chip">Variant {vlabel(variant.variant_id)} · #{card.position}</span><span className={`chip ${card.category === 5 ? "gold" : ""}`}>{card.category === 5 ? "★ Gold" : `Cat. ${card.category}`}</span>
           <QABadge status={card.qa_status} /><ReviewBadge review={card.art_review} />
           <span className="chip">refs: {card.reference_selection ?? "none"}</span>
+          {starTarget && (
+            <button type="button" className={`chip starchip ${isFav(starTarget.artifact_id) ? "on" : ""}`} aria-pressed={isFav(starTarget.artifact_id)}
+              onClick={() => onStarVersion(card, variant.variant_id, starTarget)}>
+              {isFav(starTarget.artifact_id) ? "★ In My Selection" : "☆ Add this image to My Selection"}
+            </button>
+          )}
         </div>
         {card.error && <div className="alert warn">{card.error}</div>}
         {shownVersion?.note && <p className="hint">Version note: {shownVersion.note}</p>}

@@ -1,4 +1,4 @@
-"""TextPlanner: AI set planner for custom themes (any Collection/Set that the curated RulesPlanner does not cover).
+"""TextPlanner: semantic AI set planner for ANY Collection / Set (the curated RulesPlanner only covers the Movie presets).
 
 ONE Gemini TEXT call (structured JSON output) analyses the meaning of Collection + Set and returns, per variant, a
 micro-theme and the cards (object name + description per category slot). The answer is validated strictly (pydantic +
@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ..providers.model_registry import ModelRegistry
 from .category_distribution import ALL_CATEGORIES, GOLDEN_CATEGORY, assign_slots
+from .semantic_planning import forbidden_terms, near_duplicates, violates
 from .planning import VARIANT_IDS, PlanCard, PlanningError, PlanVariant, SetPlan, default_seed, validate_plan
 
 PLAN_COST_ESTIMATE_USD = 0.002  # rough cost of one small Gemini text call (local estimate, not an invoice)
@@ -32,11 +33,13 @@ CATEGORY_MEANINGS = {
 }
 
 _SYSTEM = (
-    "You are the set planner of a casual mobile game's collectible-card art pipeline. Each collection has several "
-    "sets; each set is a group of cards, one illustrated object (or, for golden cards, one scene with key characters) "
-    "per card. You plan WHICH objects/scenes are illustrated; you do not draw. Be concrete, visual and family-friendly: "
-    "no weapons, no violence, no real brands, no existing franchise names or copyrighted characters, nothing that needs "
-    "lettering in the image. Write all names and descriptions in English."
+    "You are the semantic set planner of a casual mobile game's collectible-card art pipeline. A COLLECTION is a broad "
+    "theme (Winter, Summer, Technology, Movies); a SET is a specific sub-theme inside it (Forest, Music Festival, "
+    "Two-Wheeled Vehicles, Science Fiction). The SET is the semantic boundary: every card must meaningfully belong to "
+    "the Set, not merely to the broader Collection. Each card is one illustrated subject. You plan WHICH subjects are "
+    "illustrated; you do not draw. Be concrete, visual and family-friendly: no weapons, no violence, no real brands, no "
+    "existing franchise names or copyrighted characters, nothing that needs lettering in the image. "
+    "Write all names and descriptions in English."
 )
 
 _RESPONSE_SCHEMA: dict[str, Any] = {
@@ -99,8 +102,12 @@ class PlannerResult:
 
 
 class TextPlanner:
-    def __init__(self, registry: ModelRegistry, *, cache_size: int = CACHE_SIZE) -> None:
+    def __init__(self, registry: ModelRegistry, *, cache_size: int = CACHE_SIZE,
+                 backend: Callable[[Any, str, str, int | None], dict[str, Any]] | None = None) -> None:
+        """`backend(settings, model, prompt, seed) -> parsed JSON dict` is the only provider-specific piece (default:
+        Gemini text). A Cloudflare or other text LLM can be plugged in here without touching the planning logic."""
         self.registry = registry
+        self._backend = backend or self._call
         self._cache: OrderedDict[tuple, SetPlan] = OrderedDict()
         self._cache_size = cache_size
         self._lock = threading.Lock()
@@ -109,28 +116,42 @@ class TextPlanner:
     # ------------------------------------------------------------------ prompt
     @staticmethod
     def build_prompt(collection: str, set_name: str, variants: int, counts: dict[int, int], wishes: str,
-                     grand: bool = False) -> str:
+                     grand: bool = False, history: list[str] | None = None) -> str:
         total = sum(counts.get(c, 0) for c in ALL_CATEGORIES)
         slots = assign_slots(counts)
         dist = "\n".join(f"- {CATEGORY_MEANINGS[c]}: exactly {counts.get(c, 0)} card(s)" for c in ALL_CATEGORIES
                          if counts.get(c, 0) > 0)
         lines = [
-            f"COLLECTION (broad theme, free text): {collection!r}",
-            f"SET (narrower theme inside the collection, free text): {set_name!r}",
-            "First interpret BOTH fields and what they mean together: the Collection is the broad theme and the Set narrows "
-            "it down (for example Collection 'Summer' + Set 'Sports' -> summer sports gear; Collection 'Movies' + Set "
-            "'Detective' -> detective-film props). Keep every object clearly on that combined theme and do not drift to "
-            "an unrelated theme or to a stock genre that was not asked for.",
-            "Choose objects that are good standalone illustrations. Avoid objects whose look depends on text or lettering "
-            "(signs, posters, book covers, labels, scoreboards, banknotes, flags with writing).",
+            f"COLLECTION (broad theme): {collection!r}",
+            f"SET (specific sub-theme, the semantic boundary): {set_name!r}",
+            "Step 1 - understand the Set inside the Collection. Decide what the Set is: an activity, a place, an event, "
+            "an experience, a kind of object, a creature habitat... Then work out which DIFFERENT relevant aspects it has "
+            "(for example Winter + Forest -> woodland animals, plants and berries, snow and ice features, forest "
+            "atmosphere; Technology + Two-Wheeled Vehicles -> the vehicles themselves, safety gear, repair tools, "
+            "accessories, infrastructure; Summer + Music Festival -> instruments, stage and sound equipment, visitor "
+            "gear, memorabilia). These are examples of HOW to think, not fixed quotas: the right variety depends on the Set.",
+            "Step 2 - choose subjects. Every subject must clearly belong to THIS Set. Do not add objects that only fit the "
+            "broad Collection (no generic Christmas items for Winter + Forest, no generic gadgets for Two-Wheeled "
+            "Vehicles). Each subject must be distinct and instantly recognisable; never return synonyms, near-duplicates "
+            "or ten variations of one object. Mix the aspects of the Set so the cards show real visual variety.",
+            "Choose subjects that are good standalone illustrations. Avoid subjects whose look depends on text or "
+            "lettering (signs, posters, book covers, labels, scoreboards, banknotes, flags with writing).",
             f"Create {variants} DISTINCT alternative variant(s) of the set. Each variant has its own micro-theme: a short "
             f"`title` and a one-sentence `concept`. Each variant has exactly {total} cards.",
-            "Per variant the cards must follow this category distribution EXACTLY:",
+            "Per variant the cards must follow this category distribution EXACTLY (the category only controls how the "
+            "picture is composed - floating object, object on a surface, scene...; the subject still has to fit the Set):",
             dist,
             f"Card order inside a variant: positions 1..{total} follow these category slots: {slots}.",
             "Every `object_name` must be unique across ALL variants (no repeats anywhere). `object_name` max 80 chars; "
             "`object_description` one short visual sentence (max 200 chars).",
         ]
+        if history:
+            lines.append(
+                "ALREADY GENERATED in earlier batches of this same Collection + Set (subject - hint):\n"
+                + "\n".join(f"- {h}" for h in history)
+                + "\nPrefer FRESH subjects: explore other relevant ideas instead of repeating these. Reuse one only if the "
+                "Set really has too few different subjects left."
+            )
         if grand:
             lines.append(
                 "GRAND SET (All Golden): this is the FINALE of the collection - the culmination of its theme. Every card is "
@@ -148,16 +169,20 @@ class TextPlanner:
                 "Name = the characters + situation, description = the visual scene. Characters must be original designs."
             )
         if wishes.strip():
-            lines.append(f"Producer wishes (honour them for theme, mood and style, but never break the rules above): {wishes.strip()[:500]}")
+            lines.append(
+                "Producer's free wishes. Apply them to subject choice when they talk about content (focus, exclusions such as "
+                "'no buildings'), and to mood and atmosphere in the descriptions. Exclusions are strict. Never let the wishes "
+                f"break the Set boundary, the category rules or the safety rules above: {wishes.strip()[:500]}"
+            )
         lines.append("Return JSON only, matching the response schema.")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------- cache
     @staticmethod
     def cache_key(collection: str, set_name: str, variants: int, counts: dict[int, int], seed: int | None,
-                  wishes: str, grand: bool = False) -> tuple:
+                  wishes: str, grand: bool = False, history: tuple[str, ...] = ()) -> tuple:
         return (collection.strip().lower(), set_name.strip().lower(), variants,
-                tuple(counts.get(c, 0) for c in ALL_CATEGORIES), seed, wishes.strip(), grand)
+                tuple(counts.get(c, 0) for c in ALL_CATEGORIES), seed, wishes.strip(), grand, tuple(history))
 
     def _get(self, key: tuple) -> SetPlan | None:
         with self._lock:
@@ -177,10 +202,11 @@ class TextPlanner:
     # -------------------------------------------------------------------- plan
     def plan(self, collection: str, set_name: str, variants: int, counts: dict[int, int], *,
              seed: int | None = None, wishes: str = "", pre_call: Callable[[], None] | None = None,
-             grand: bool = False) -> PlannerResult:
+             grand: bool = False, history: list[str] | None = None) -> PlannerResult:
         s = self.registry.effective
         model = s.gemini_text_model
-        key = self.cache_key(collection, set_name, variants, counts, seed, wishes, grand)
+        history = list(history or [])
+        key = self.cache_key(collection, set_name, variants, counts, seed, wishes, grand, tuple(history))
         hit = self._get(key)
         if hit is not None:
             return PlannerResult(hit, True, 0.0, model)
@@ -193,8 +219,8 @@ class TextPlanner:
             )
         if pre_call is not None:
             pre_call()  # e.g. budget guard; runs only when a real call is about to be made
-        data = self._call(s, model, self.build_prompt(collection, set_name, variants, counts, wishes, grand), seed)
-        plan = self._build(data, set_name, variants, counts, seed, model)
+        data = self._backend(s, model, self.build_prompt(collection, set_name, variants, counts, wishes, grand, history), seed)
+        plan = self._build(data, set_name, variants, counts, seed, model, wishes=wishes, history_used=len(history))
         self._put(key, plan)
         return PlannerResult(plan.model_copy(deep=True), False, PLAN_COST_ESTIMATE_USD, model)
 
@@ -249,7 +275,7 @@ class TextPlanner:
     # ------------------------------------------------------------- validation
     @staticmethod
     def _build(data: dict[str, Any], set_name: str, variants: int, counts: dict[int, int], seed: int | None,
-               model: str) -> SetPlan:
+               model: str, wishes: str = "", history_used: int = 0) -> SetPlan:
         try:
             parsed = _AIResponse.model_validate(data)
         except ValidationError as exc:
@@ -283,6 +309,20 @@ class TextPlanner:
                    "AI-suggested, not from curated pools. Check them before generating images."],
         )
         issues = validate_plan(plan, counts)
+        # semantic checks that need no second model call: near-duplicate subjects and Producer exclusions
+        every = [c.object_name for v in plan.variants for c in v.cards]
+        for a, b in near_duplicates(every)[:2]:
+            issues.append(f"near-duplicate subjects '{a}' and '{b}'")
+        banned = forbidden_terms(wishes)
+        for v in plan.variants:
+            for c in v.cards:
+                hit = violates(f"{c.object_name} {c.object_description}", banned)
+                if hit:
+                    issues.append(f"'{c.object_name}' breaks the wish to avoid '{hit}'")
+                    break
         if issues:
             raise PlanningError("The AI plan breaks the rules: " + "; ".join(issues[:4]), "ai_plan_invalid")
+        if history_used:
+            plan.notes.append(f"Earlier batches of this Collection/Set were passed to the planner ({history_used} subjects) "
+                              "so that it prefers fresh subjects.")
         return plan

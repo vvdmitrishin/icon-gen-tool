@@ -3,6 +3,7 @@ import { api, ApiError } from "./api/client";
 import { CategoryDistribution, distributionErrors, type DistMode } from "./components/CategoryDistribution";
 import { GoldSlider } from "./components/GoldSlider";
 import { PlanNotice, type PlanError } from "./components/PlanNotice";
+import type { PlanOnlyState } from "./components/PlanOnlyPanel";
 import { ModelSettings, ProviderAvailability, keyOf } from "./components/ModelSettings";
 import { DEFAULT_CARDS, DEFAULT_SIZE, balancedSplit, fitCounts, type Cat, type DistCounts } from "./lib/cards";
 import { ReferenceUploader } from "./components/ReferenceUploader";
@@ -18,6 +19,8 @@ import type {
 } from "./types/api";
 
 const MAX_WISHES = 500;
+/** One tiny AI text call plans a custom Collection/Set (local estimate; matches the backend PLAN_COST_ESTIMATE_USD). */
+const AI_PLAN_COST = 0.002;
 const CATEGORIES: { n: 1 | 2 | 3 | 4; label: string }[] = [
   { n: 1, label: "Cat. 1 — floating, simple background" },
   { n: 2, label: "Cat. 2 — on a surface" },
@@ -85,6 +88,7 @@ export default function App() {
   const [continueArmed, setContinueArmed] = useState(false);
 
   const [armed, setArmed] = useState(false);
+  const [planOnly, setPlanOnly] = useState<PlanOnlyState | null>(null);
   const [checking, setChecking] = useState(false);
   const armTimer = useRef<number | undefined>(undefined);
   const contTimer = useRef<number | undefined>(undefined);
@@ -352,13 +356,17 @@ export default function App() {
   useEffect(() => () => { window.clearTimeout(armTimer.current); window.clearTimeout(contTimer.current); }, []);
   useEffect(() => { setArmed(false); }, [mode, modelKey, objectName, genre, category, wishes, aspect, outputSize, refIds.length, variants, numberOfCards, goldEff, distMode, customDist]);
 
-  const est = mode === "single" ? (preview?.estimated_cost_usd ?? 0) : (jobPreview?.estimated_cost_usd ?? 0);
-  const paid = est > 0;
+  // A custom Collection/Set is planned by the AI automatically when Generate is clicked (one tiny text call, ~$0.002).
+  // The free preview cannot show that plan yet, so Generate stays available and the cost is estimated locally.
+  const aiAuto = mode === "set" && jobPreviewError?.code === "ai_plan_required";
+  const planCost = mode === "set" ? (jobPreview?.plan_cost_estimate_usd ?? (aiAuto ? AI_PLAN_COST : 0)) : 0;
+  const est = mode === "single" ? (preview?.estimated_cost_usd ?? 0) : (jobPreview?.estimated_cost_usd ?? (aiAuto ? variants * numberOfCards * perImageSel : 0));
+  const paid = est > 0 || planCost > 0; // the confirmation click covers planning AND images; planning never bypasses it
   const needsPolicy = refIds.length > 0 && model?.provider_id !== "mock" && !policy;
   const policyNeeded = refIds.length > 0 && model?.provider_id !== "mock";
   const previewBlock = mode === "single" ? preview?.blocked?.message : jobPreview?.blocked?.message;
-  const blockedReason = previewBlock ?? distErrs[0] ?? (mode === "single" ? previewError : jobPreviewError?.message) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
-  const havePreview = mode === "single" ? !!preview : !!jobPreview;
+  const blockedReason = previewBlock ?? distErrs[0] ?? (mode === "single" ? previewError : aiAuto ? null : jobPreviewError?.message) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
+  const havePreview = mode === "single" ? !!preview : (!!jobPreview || aiAuto);
   const busy = generating || starting || !!job?.active;
   const canGenerate = formValid && !busy && !blockedReason && havePreview;
 
@@ -386,7 +394,7 @@ export default function App() {
       setStarting(true);
       setJobError(null);
       try {
-        const d = await api.createJob(jobRequest(true, undefined, aiPlanned));
+        const d = await api.createJob(jobRequest(true, undefined, true)); // Generate authorises the AI planning call
         setJob(d);
         setEvents(await api.jobEvents(d.job_id));
         loadJobs();
@@ -414,6 +422,21 @@ export default function App() {
     try { setJob(await api.cancelJob(job.job_id)); } catch (e) { setJobError(errText(e, "Could not cancel")); }
   }
 
+  /** "Test planner": the real semantic planner, never an image provider. Optional: Generate does not need it. */
+  async function onPlanOnly() {
+    const form = `${collection.trim() || "Movie Collection"} · ${genre.trim()} (${grand ? "Grand Set" : "Standard Set"}, ${numberOfCards} cards)`;
+    setPlanOnly({ busy: true, result: null, error: null, form });
+    try {
+      const r = await api.planTest({
+        collection: collection.trim() || "Movie Collection", genre: genre.trim(), wishes, number_of_variants: variants,
+        number_of_cards: numberOfCards, gold_cards: goldEff, set_type: setType, planner: "ai", seed,
+        category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
+      });
+      setPlanOnly({ busy: false, result: r, error: null, form });
+      loadModels();
+    } catch (e) { setPlanOnly({ busy: false, result: null, error: errText(e, "Planner test failed"), form }); }
+  }
+
   async function onCheck() {
     setChecking(true);
     try { await api.checkAvailability(); } catch { /* error surfaces via availability.error */ }
@@ -421,18 +444,17 @@ export default function App() {
     setChecking(false);
   }
 
-  const planCost = jobPreview?.plan_cost_estimate_usd ?? 0;
   const buttonLabel: { main: string; sub?: string; sub2?: string } = (() => {
     if (generating || starting) return { main: mode === "single" ? "Generating…" : "Starting…" };
     if (job?.active && mode === "set") return { main: "Job running…" };
-    if (armed) return { main: `Confirm & spend ≈ $${est.toFixed(3)}`, sub: "Click again to start; this uses the paid API" };
-    const cost = paid ? `≈ $${est.toFixed(3)} (local estimate)` : "free";
+    if (armed) return { main: `Confirm & spend ≈ $${(est + planCost).toFixed(3)}`, sub: planCost > 0 ? `Images ≈ $${est.toFixed(3)} + AI planning ≈ $${planCost.toFixed(3)}. Click again to start` : "Click again to start; this uses the paid API" };
+    const cost = est > 0 ? `≈ $${est.toFixed(3)} (local estimate)` : "free";
     if (mode === "single") return { main: "Generate card", sub: `Images: ${cost}` };
     const n = jobPreview?.images_in_scope ?? variants * numberOfCards;
     return {
       main: `Generate Sets (${variants} variant${variants > 1 ? "s" : ""})`,
       sub: `Images: ${cost} · ${n} image${n === 1 ? "" : "s"}, paid separately from planning`,
-      sub2: planCost > 0 ? `Planning (AI text): ≈ $${planCost.toFixed(3)}, one time` : undefined,
+      sub2: planCost > 0 ? `AI plans the cards automatically: text ≈ $${planCost.toFixed(3)}, one time` : undefined,
     };
   })();
 
@@ -589,6 +611,12 @@ export default function App() {
               </button>
               {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
             </div>
+            {mode === "set" && (
+              <button type="button" className="ghost sm planbtn" onClick={onPlanOnly} disabled={!genre.trim() || distBad || !!planOnly?.busy || busy}
+                title="Runs only the planner on the current Collection / Set / Free Wishes: no image provider is called. A real text call costs about $0.002.">
+                🧪 Test planner (no images)
+              </button>
+            )}
             {!formValid && <p className="hint">{mode === "single" ? "Enter a set and an object, and pick an available model." : "Pick an available model."}</p>}
           </div>
         </aside>
@@ -596,12 +624,13 @@ export default function App() {
         {mode === "set" ? (
           <SetPanel job={job} preview={jobPreview} previewError={jobPreviewError} events={events} jobs={jobs}
             models={models?.models ?? []}
-            form={{ collection, genre, variants, numberOfCards, gold: goldEff, outputSize, provider: model?.provider_id ?? "", model: model?.model_id ?? "" }}
+            form={{ collection, genre, variants, numberOfCards, gold: goldEff, setType, outputSize, provider: model?.provider_id ?? "", model: model?.model_id ?? "" }}
             error={jobError} starting={starting} perImage={perImageJob} onJob={(d) => { setJob(d); loadJobs(); if (!d.active) loadModels(); }}
             onError={setJobError} onPickJob={openJob} onContinue={onContinue}
             planningAi={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)}
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
-            onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")} />
+            onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")}
+            planOnly={planOnly} onClosePlanOnly={() => setPlanOnly(null)} />
         ) : (
           <ResultPanel artifact={artifact} history={history} onPick={setArtifact} preview={preview} generating={generating} error={genError} />
         )}

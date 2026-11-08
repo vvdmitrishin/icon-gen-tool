@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from pydantic import BaseModel, Field
@@ -35,7 +35,7 @@ from .services.exporter import ExportError, Exporter
 from .services.imports import ImportError_, import_sample
 from .services.jobs import (
     ApproveVariantRequest, ContinueRequest, JobCreateRequest, JobFailure, JobService, JobStore,
-    PatchCardRequest, RegenerateRequest, ReviewRequest,
+    PatchCardRequest, PlanOnlyRequest, RegenerateRequest, ReviewRequest,
 )
 from .services.prompt_library import LibraryError, PromptLibrary
 from .services.presets import PresetError, PresetStore
@@ -72,6 +72,19 @@ class ExportRequest(BaseModel):
     variant_id: str | None = None
     include_unapproved: bool = False
     allow_mock: bool = False
+
+
+class SelectionItem(BaseModel):
+    job_id: str
+    card_id: str
+    artifact_id: str
+
+
+class SelectionExportRequest(BaseModel):
+    collection: str = Field(default="", max_length=80)
+    genre: str = Field(default="", max_length=80)
+    set_type: Literal["standard", "grand"] = "standard"
+    items: list[SelectionItem] = Field(default_factory=list, max_length=200)
 
 
 class CollectionExportRequest(BaseModel):
@@ -562,6 +575,22 @@ def create_app(
             raise _job_err(exc) from exc
         except ExportError as exc:
             raise _export_err(exc) from exc
+
+    @app.post("/api/exports/selection")
+    def exports_selection(req: SelectionExportRequest) -> dict[str, Any]:
+        """Export exactly the starred images of 'My Selection' (may span several jobs). Warns, never blocks, on compliance."""
+        try:
+            return exporter.export_selection(req.collection, req.genre, req.set_type, [i.model_dump() for i in req.items])
+        except ExportError as exc:
+            raise _export_err(exc) from exc
+
+    @app.post("/api/plan/test")
+    def plan_test(req: PlanOnlyRequest) -> dict[str, Any]:
+        """Planner-only test: the real semantic planner, no image provider, no job. A real text call is budgeted."""
+        try:
+            return jobs.plan_only(req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
 
     @app.get("/api/exports")
     def exports_list() -> list[dict[str, Any]]:

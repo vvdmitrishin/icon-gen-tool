@@ -4,6 +4,9 @@ import type {
   CollectionOverview,
   ComparisonGrid,
   ExportRecord,
+  PlanOnlyRequest,
+  PlanOnlyResult,
+  SelectionExportItem,
   GenerateRequest,
   GenreInfo,
   JobDetail,
@@ -133,6 +136,9 @@ export const api = {
   exports: () => call<ExportRecord[]>("/api/exports"),
   exportVariant: (job_id: string, variant_id: string, flags: { include_unapproved?: boolean; allow_mock?: boolean } = {}) =>
     call<ExportRecord>("/api/exports", json({ job_id, variant_id, ...flags })),
+  exportSelection: (body: { collection: string; genre: string; set_type: "standard" | "grand"; items: SelectionExportItem[] }) =>
+    call<ExportRecord>("/api/exports/selection", json(body)),
+  planTest: (req: PlanOnlyRequest) => call<PlanOnlyResult>("/api/plan/test", json(req)),
   exportCollection: (flags: { include_unapproved?: boolean; allow_mock?: boolean; allow_partial?: boolean } = {}) =>
     call<ExportRecord>("/api/collection/export", json({ collection: "Movie Collection", ...flags })),
 };

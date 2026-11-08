@@ -141,7 +141,7 @@ def test_ai_request_body_and_summer_sports_objects(settings):
                 assert f"Category {cat}" in prompt and f"exactly {n} card(s)" in prompt
         assert "SIMPLE object floating" in prompt and "KEY CHARACTERS" in prompt
         low = (prompt + sys_text).lower()
-        assert "both" in low and "lettering" in low and "producer wishes" in low
+        assert "semantic boundary" in low and "lettering" in low and "producer's free wishes" in low
         assert d["estimated_cost_usd"] == 0 and d["plan_cost_estimate_usd"] == 0.002  # planning cost kept separate
         j = c.post("/api/jobs", json=ai_body())
         assert j.status_code == 200 and len(rec.requests) == 1  # cached plan reused

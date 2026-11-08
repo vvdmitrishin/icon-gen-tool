@@ -41,6 +41,7 @@ from .generation import GenerateCardRequest, GenerationFailure, GenerationServic
 from .planning import PlanningError, SetPlan, curated_genre_for, plan_set, validate_plan
 from .qa import qa_card, qa_variant
 from .reference_manager import ReferenceError_, ReferenceManager
+from .semantic_planning import history_summary, theme_key
 from .text_planner import PLAN_COST_ESTIMATE_USD, TextPlanner
 
 ACTIVE_STATES = {"created", "planning", "plan_qa", "queued", "generating", "image_qa", "set_qa",
@@ -80,10 +81,35 @@ class JobCreateRequest(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     confirmed: bool = False
     set_type: Literal["standard", "grand"] = SET_STANDARD  # grand = Grand Set (All Golden), finale set
+    # auto = curated pools for the Movie presets (Sci-Fi / Detective / Fantasy), semantic AI planner for everything else;
+    # ai = always the semantic AI planner, even for the Movie presets
+    planner: Literal["auto", "ai"] = "auto"
 
     @model_validator(mode="after")
     def _grand_set_rules(self) -> "JobCreateRequest":
         if self.set_type == SET_GRAND:  # Gold = Number of Cards, Cat.1-4 = 0 (the server enforces it, not only the UI)
+            self.gold_cards = self.number_of_cards
+            self.category_distribution = None
+        return self
+
+
+class PlanOnlyRequest(BaseModel):
+    """Planner-only test: the real semantic planner, no image provider, no job, no images."""
+    collection: str = Field(default="Movie Collection", min_length=1, max_length=80)
+    genre: str = Field(min_length=1, max_length=80)  # = Set
+    wishes: str = Field(default="", max_length=2000)
+    number_of_variants: int = Field(default=1, ge=1, le=5)
+    number_of_cards: int = Field(default=CARDS_PER_SET, ge=1, le=CARDS_PER_SET)
+    gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)
+    category_distribution: CategoryDistribution | None = None
+    set_type: Literal["standard", "grand"] = SET_STANDARD
+    planner: Literal["auto", "ai"] = "ai"  # a test of the semantic planner defaults to the AI planner
+    allow_ai_plan: bool = True  # the Producer pressed the explicit "Plan only" button
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+
+    @model_validator(mode="after")
+    def _grand_set_rules(self) -> "PlanOnlyRequest":
+        if self.set_type == SET_GRAND:
             self.gold_cards = self.number_of_cards
             self.category_distribution = None
         return self
@@ -360,6 +386,8 @@ class JobService:
         self.s, self.gen, self.guard, self.refs, self.store = settings, gen, guard, refs, store
         self.text_planner = text_planner or TextPlanner(gen.registry)
         self._worker_lock: asyncio.Lock | None = None
+        self._last_text_model: str | None = None
+        self._last_cached = False
         self._tasks: set[asyncio.Task] = set()
         self._backfill()
 
@@ -431,9 +459,33 @@ class JobService:
         if metas and model.provider_id != "mock" and not req.reference_policy_accepted:
             raise JobFailure(400, "reference_policy_required",
                              "Confirm that you may send these reference images to the external AI provider.")
+        plan, cost, _history = self._run_planner(req, counts)
+        issues = validate_plan(plan, counts)
+        if issues:
+            raise JobFailure(422, "plan_invalid", "; ".join(issues))
+        return plan, counts, model, metas, cost
+
+    # -- semantic planning ---------------------------------------------------------------------
+    def previous_subjects(self, collection: str, genre: str, set_type: str = SET_STANDARD) -> list[str]:
+        """Compact summary of subjects planned in earlier batches of the SAME Collection + Set + Set type (never of other
+        themes), newest first, deduplicated and capped so the planning context cannot grow without bound."""
+        want = theme_key(collection, genre, set_type)
+        entries: list[tuple[str, str]] = []
+        for j in self.store.list_jobs(200):  # newest first
+            rq = json.loads(j["request_json"])
+            if theme_key(rq.get("collection", ""), rq.get("genre", ""), rq.get("set_type", SET_STANDARD)) != want:
+                continue
+            for c in sorted(self.store.cards(j["job_id"]), key=lambda x: (x["variant_id"], x["position"])):
+                entries.append((c["object_name"], c["object_description"]))
+        return history_summary(entries)
+
+    def _run_planner(self, req: Any, counts: dict[int, int]) -> tuple[SetPlan, float, list[str]]:
+        """Curated rules planner for the Movie presets (planner='auto'), semantic AI planner for everything else.
+        Returns (plan, text_cost_estimate_usd, history_lines_passed_to_the_planner)."""
         # a Grand Set is a story finale: always planned by the AI planner (the curated pools have no finale scenes)
-        curated = None if req.set_type == SET_GRAND else curated_genre_for(req.collection, req.genre)
+        curated = None if (req.set_type == SET_GRAND or req.planner == "ai") else curated_genre_for(req.collection, req.genre)
         cost = 0.0
+        history: list[str] = []
         try:
             if curated:  # movies collection + a curated set -> deterministic rules planner (free)
                 plan = plan_set(curated, req.number_of_variants, counts, req.seed)
@@ -441,24 +493,50 @@ class JobService:
                 if not req.allow_ai_plan:
                     raise JobFailure(
                         422, "ai_plan_required",
-                        f"'{req.collection}' / '{req.genre}' is a custom theme. Custom themes are planned by AI "
-                        "(a Gemini text model, tiny cost, about $0.002 per plan) and this must be requested "
-                        "explicitly (allow_ai_plan=true).",
+                        f"'{req.collection}' / '{req.genre}' is planned by AI (a Gemini text model, tiny cost, about $0.002 "
+                        "per plan). Generate does this automatically; a free preview needs allow_ai_plan=true.",
                         {"plan_cost_estimate_usd": PLAN_COST_ESTIMATE_USD})
                 cost = PLAN_COST_ESTIMATE_USD
+                history = self.previous_subjects(req.collection, req.genre, req.set_type)
                 res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
-                                                     seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget,
-                                                     grand=req.set_type == SET_GRAND)
+                                             seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget,
+                                             grand=req.set_type == SET_GRAND, history=history)
                 plan = res.plan
                 if not res.cached:  # honest accounting: a real text call was made
                     self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
                                       est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan")
+                self._last_text_model, self._last_cached = res.model, res.cached
         except PlanningError as exc:
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
+        return plan, cost, history
+
+    def plan_only(self, req: PlanOnlyRequest) -> dict[str, Any]:
+        """Planner-only test: runs the real planner and returns the plan. Never resolves or calls an image model,
+        never creates a job; a real text call is recorded in the normal budget ledger."""
+        try:
+            counts = resolve_distribution(req.category_distribution, number_of_cards=req.number_of_cards,
+                                          gold_cards=req.gold_cards, set_type=req.set_type)
+        except DistributionError as exc:
+            raise JobFailure(422, exc.code, exc.message) from exc
+        self._last_text_model, self._last_cached = None, False
+        plan, cost, history = self._run_planner(req, counts)
         issues = validate_plan(plan, counts)
         if issues:
             raise JobFailure(422, "plan_invalid", "; ".join(issues))
-        return plan, counts, model, metas, cost
+        return {
+            "plan": plan.model_dump(mode="json"),
+            "distribution": {str(k): v for k, v in counts.items()},
+            "set_type": req.set_type,
+            "planning_mode": plan.planning_mode,
+            "text_model": self._last_text_model if plan.planning_mode == "ai" else "rules (curated pools, no LLM)",
+            "cached": bool(plan.planning_mode == "ai" and self._last_cached),
+            "text_cost_estimate_usd": 0.0 if self._last_cached else round(cost, 6),
+            "cost_is_estimate": True,
+            "history_subjects_used": len(history),
+            "history": history,
+            "image_provider_called": False,
+            "budget": self.guard.summary().__dict__,
+        }
 
     @staticmethod
     def _cards_flat(plan: SetPlan, job_id: str) -> list[dict[str, Any]]:

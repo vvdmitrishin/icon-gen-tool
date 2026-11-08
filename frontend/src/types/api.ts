@@ -131,6 +131,8 @@ export interface JobRequestPayload {
   output_size: number;
   /** true = the user agreed to one small AI text call to plan custom themes */
   allow_ai_plan: boolean;
+  /** auto = curated pools for the Movie presets, AI for everything else; ai = always the semantic AI planner */
+  planner?: "auto" | "ai";
   category_distribution: DistributionPayload;
   provider: string;
   model: string;
@@ -263,6 +265,7 @@ export interface JobSummary {
   gold_cards?: number;
   output_size?: number;
   planning_mode?: PlanningMode;
+  set_type?: "standard" | "grand";
   spent_est: number;
   approved_variant_id: string | null;
 }
@@ -365,7 +368,7 @@ export interface CollectionOverview { collection: string; genres: CollectionGenr
 export interface ExportRecord {
   export_id: string;
   created_at: string;
-  kind: "variant" | "collection";
+  kind: "variant" | "collection" | "selection";
   /** jobs the export was built from (present on current backends) */
   job_ids?: string[];
   size: number;
@@ -376,4 +379,36 @@ export interface ExportRecord {
   approved?: boolean;
   partial?: boolean;
   contains_mock_images: boolean;
+  /** selection exports: number of images, compliance warnings (never blocking) */
+  count?: number;
+  warnings?: string[];
+  standard_ten_card_set?: boolean | null;
+}
+
+export interface SelectionExportItem { job_id: string; card_id: string; artifact_id: string }
+
+export interface PlanOnlyRequest {
+  collection: string;
+  genre: string;
+  wishes: string;
+  number_of_variants: number;
+  number_of_cards: number;
+  gold_cards: number;
+  set_type: "standard" | "grand";
+  category_distribution?: unknown;
+  planner: "auto" | "ai";
+  seed: number | null;
+}
+
+export interface PlanOnlyResult {
+  plan: JobPreview["plan"];
+  distribution: Record<string, number>;
+  set_type: "standard" | "grand";
+  planning_mode: PlanningMode;
+  text_model: string | null;
+  cached: boolean;
+  text_cost_estimate_usd: number;
+  history_subjects_used: number;
+  history: string[];
+  image_provider_called: boolean;
 }

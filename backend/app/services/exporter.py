@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw
 from .. import __version__
 from ..config import Settings
 from .db import Db
+from .category_distribution import STANDARD_CATEGORIES, compliance
 from .jobs import JobService
 from .planning import supported_genres
 
@@ -183,6 +184,118 @@ class Exporter:
             "job_ids": [job_id], "genre": detail["genre"], "variant_id": vid, "approved": variant["approved"],
             "final_eligible": detail.get("final_eligible", True), "final_ineligible_reason": detail.get("final_ineligible_reason"),
             "contains_mock_images": manifest["contains_mock_images"]})
+
+    # ---------------------------------------------------------------------- "My Selection"
+    def export_selection(self, collection: str, genre: str, set_type: str, items: list[dict[str, str]]) -> dict[str, Any]:
+        """ZIP of exactly the starred images, possibly from several jobs. Uses the stored original files (no re-encoding),
+        never blocks on compliance: problems are reported as warnings in the response, README and selection-report.json."""
+        if not items:
+            raise ExportError(400, "empty_selection", "Nothing is selected.")
+        if len(items) > 200:
+            raise ExportError(400, "too_many", "At most 200 images per export.")
+        store, jstore = self.jobs.gen.store, self.jobs.store
+        seen: set[str] = set()
+        rows: list[dict[str, Any]] = []
+        for it in items:
+            job_id, card_id, art = it.get("job_id", ""), it.get("card_id", ""), it.get("artifact_id", "")
+            if art in seen:
+                continue
+            seen.add(art)
+            card = jstore.card(job_id, card_id)
+            job = jstore.get_job(job_id)
+            if card is None or job is None:
+                raise ExportError(404, "not_found", f"Selected image not found (job {job_id[:24]}, card {card_id[:32]}).")
+            versions = jstore.versions_for_job(job_id).get(card_id, [])
+            ver = next((v for v in versions if v["artifact_id"] == art), None)
+            path, meta = store.image_path(art), store.metadata(art)
+            if ver is None or path is None or meta is None:
+                raise ExportError(404, "not_found", f"The image file for '{card['object_name']}' is missing; it cannot be exported.")
+            rows.append({"card": card, "job": job, "ver": ver, "path": path, "meta": meta, "art": art})
+
+        # batch number = order of the job among all jobs of the same Collection + Set + Set type
+        all_jobs = sorted(jstore.list_jobs(500), key=lambda j: j["created_at"])
+        def theme(rq: dict[str, Any]) -> tuple[str, str, str]:
+            return ((rq.get("collection") or "").strip().lower(), (rq.get("genre") or "").strip().lower(), rq.get("set_type", "standard"))
+        order: dict[str, int] = {}
+        for j in all_jobs:
+            same = [k for k in all_jobs if theme(json.loads(k["request_json"])) == theme(json.loads(j["request_json"]))]
+            order[j["job_id"]] = [k["job_id"] for k in same].index(j["job_id"]) + 1
+
+        files: dict[str, bytes] = {}
+        manifest_items, thumbs = [], []
+        for i, r in enumerate(sorted(rows, key=lambda x: (x["job"]["created_at"], x["card"]["variant_id"], x["card"]["position"])), 1):
+            c, meta, art = r["card"], r["meta"], r["art"]
+            png = r["path"].read_bytes()
+            stem = f"{i:02d}_{slug(c['object_name'])}_cat{c['category']}_b{order.get(c['job_id'], 0)}{c['variant_id']}"
+            files[f"artwork/{stem}.png"] = png
+            orig = r["path"].with_name(f"{art}.original.png")
+            original_file = None
+            if orig.exists():
+                original_file = f"originals/{stem}.original.png"
+                files[original_file] = orig.read_bytes()
+            thumbs.append((png, f"{i:02d} cat{c['category']} {c['object_name']}"))
+            manifest_items.append({
+                "file": f"artwork/{stem}.png", "original_file": original_file, "object": c["object_name"],
+                "description": c["object_description"], "category": c["category"], "position": c["position"],
+                "job_id": c["job_id"], "batch": order.get(c["job_id"]), "variant_id": c["variant_id"], "card_id": c["card_id"],
+                "artifact_id": art, "version": r["ver"]["version"], "sha256": hashlib.sha256(png).hexdigest(),
+                "pixel_size": f"{meta['image']['width']}x{meta['image']['height']}",
+                "native_pixel_size": f"{meta['image'].get('native_width')}x{meta['image'].get('native_height')}",
+                "provider": meta["provider"]["id"], "model": meta["provider"]["model"], "is_mock": meta.get("is_mock", False),
+                "prompt": meta["prompt"]["effective"], "free_wishes": meta["prompt"]["free_wishes"],
+                "references": meta["references"], "created_at": meta["created_at"],
+                "technical_qa": c["qa_status"] if "qa_status" in c else None, "art_review": c.get("art_review"),
+            })
+
+        counts = {cat: sum(1 for m in manifest_items if m["category"] == cat) for cat in (*STANDARD_CATEGORIES, 5)}
+        n = len(manifest_items)
+        warnings: list[str] = []
+        mock = any(m["is_mock"] for m in manifest_items)
+        if mock:
+            warnings.append("The selection contains MOCK placeholder images, not AI artwork.")
+        report: dict[str, Any] = {"set_type": set_type, "count": n, "category_counts": {str(k): v for k, v in counts.items()}}
+        if set_type == "grand":
+            if any(m["category"] != 5 for m in manifest_items):
+                warnings.append("A Grand Set (All Golden) should contain only golden (Category 5) cards.")
+            report["standard_ten_card_set"] = None
+        else:
+            std = sum(counts[c] for c in STANDARD_CATEGORIES)
+            ok_cov, cov_note = compliance({**counts})
+            report["standard_ten_card_set"] = n == 10 and counts[5] == 0 and ok_cov
+            report["matches_default_distribution_2_2_3_3"] = [counts[c] for c in STANDARD_CATEGORIES] == [2, 2, 3, 3]
+            if n != 10:
+                warnings.append(f"This selection has {n} image(s); a standard Set has exactly 10 cards.")
+            if counts[5]:
+                warnings.append(f"{counts[5]} golden card(s) selected: golden cards are not part of a standard 10-card Set "
+                                "or of the Movie Collection deliverables.")
+            if std and not ok_cov:
+                warnings.append((cov_note or "Not all four standard categories are covered.") +
+                                " Categories 1-4 are checked separately from the overall count.")
+            if n == 10 and counts[5] == 0 and ok_cov and not report["matches_default_distribution_2_2_3_3"]:
+                warnings.append("All four categories are covered, but the split differs from the default 2/2/3/3 distribution.")
+            positions = [(m["job_id"], m["variant_id"]) for m in manifest_items]
+            if n == 10 and len(set(positions)) > 1:
+                warnings.append("The ten images come from different variants/batches; check that they work together as one Set.")
+        report["warnings"] = warnings
+        manifest = {
+            "format": "playrix-collection-studio-selection/1", "spec_version": SPEC_VERSION, "app_version": __version__,
+            "generated_at": datetime.now(timezone.utc).isoformat(), "collection": collection, "set": genre, "set_type": set_type,
+            "count": n, "job_ids": sorted({m["job_id"] for m in manifest_items}), "contains_mock_images": mock,
+            "report": report, "limitations": LIMITATIONS, "images": manifest_items,
+        }
+        files["manifest.json"] = json.dumps(manifest, indent=2, ensure_ascii=False).encode()
+        files["selection-report.json"] = json.dumps(report, indent=2, ensure_ascii=False).encode()
+        files["contact-sheet.png"] = contact_sheet(thumbs)
+        files["README.txt"] = (
+            f"My Selection - {collection} - {genre} ({'Grand Set' if set_type == 'grand' else 'Standard Set'}) - {n} image(s)\n"
+            + ("".join(f"WARNING: {w}\n" for w in warnings) if warnings else "No warnings.\n")
+            + "\nartwork/     the delivered PNGs (exact output size)\noriginals/   the untouched provider images, where stored\n"
+              "manifest.json provider, model, prompt, job / batch / variant / card of every image\n"
+              "selection-report.json  counts per category and the compliance warnings\n\n" + LIMITATIONS + "\n").encode()
+        filename = f"{slug(collection, 20)}_{slug(genre, 20)}_{'Grand' if set_type == 'grand' else 'Standard'}_MySelection_{n}img.zip"
+        return self._write("selection", filename, files, {
+            "job_ids": manifest["job_ids"], "genre": genre, "count": n, "warnings": warnings,
+            "standard_ten_card_set": report["standard_ten_card_set"], "contains_mock_images": mock})
 
     # -------------------------------------------------------------------------- collection
     def overview(self, collection: str = "Movie Collection") -> dict[str, Any]:
