@@ -85,7 +85,7 @@ def test_override_changes_the_compiled_prompt_and_reset_restores_default(setting
         reset = c.post("/api/prompt/preview", json=CARD).json()  # "reset" = the browser stops sending the override
         assert reset["effective_prompt"] == base["effective_prompt"] and reset["session_overrides"] == []
         # nothing permanent changed: still version 1 of every template
-        assert [i["version"] for i in c.get("/api/prompts").json()] == [2] * 7 + [1] and all(i["is_default_text"] for i in c.get("/api/prompts").json())
+        assert [i["version"] for i in c.get("/api/prompts").json()] == [3] * 7 + [1] and all(i["is_default_text"] for i in c.get("/api/prompts").json())
 
 
 def test_override_validation_and_mandatory_warnings(settings):
@@ -114,14 +114,14 @@ def test_job_applies_overrides_to_every_card_and_records_provenance(settings):
             p = meta(c, k["artifact_id"])["prompt"]
             assert SESSION_STYLE in p["effective"]  # affects the REAL request text, not just the UI
             assert p["session_overrides"] == ["category_1", "system_style"]
-            assert p["bundle"]["system_style"] == {"source": "session_override", "version": None, "base_version": 2}
-            assert p["bundle"]["category_2"] == {"source": "library", "version": 2, "base_version": 2}
+            assert p["bundle"]["system_style"] == {"source": "session_override", "version": None, "base_version": 3}
+            assert p["bundle"]["category_2"] == {"source": "library", "version": 3, "base_version": 3}
             assert p["effective_texts"]["system_style"] == SESSION_STYLE and p["effective_texts"]["image_closing"]
             assert p["effective_texts"]["category_rule"] == (SESSION_CAT1 if k["category"] == 1 else p["effective_texts"]["category_rule"])
             assert (SESSION_CAT1 in p["effective"]) == (k["category"] == 1)
             assert p["mandatory_block_appended"] is True
         assert [e for e in c.get(f"/api/jobs/{d['job_id']}/events").json() if "SESSION overrides" in e["message"]]
-        assert [i["version"] for i in c.get("/api/prompts").json()] == [2] * 7 + [1]  # no permanent version was created
+        assert [i["version"] for i in c.get("/api/prompts").json()] == [3] * 7 + [1]  # no permanent version was created
 
 
 def test_snapshot_is_immutable_for_the_whole_job_even_if_the_library_changes_while_it_runs(settings):
@@ -144,7 +144,7 @@ def test_snapshot_is_immutable_for_the_whole_job_even_if_the_library_changes_whi
         for k in done_cards(d):
             p = meta(c, k["artifact_id"])["prompt"]
             assert "NEW PERMANENT CLOSING" not in p["effective"] and "NEW CAT2" not in p["effective"]  # snapshot, not live
-            assert SESSION_STYLE in p["effective"] and p["bundle"]["image_closing"]["version"] == 2
+            assert SESSION_STYLE in p["effective"] and p["bundle"]["image_closing"]["version"] == 3
         # a regeneration of a card of that job still uses the job's original snapshot
         card = done_cards(d)[0]
         before = meta(c, card["artifact_id"])["prompt"]["effective"]
@@ -160,7 +160,7 @@ def test_snapshot_is_immutable_for_the_whole_job_even_if_the_library_changes_whi
         # a NEW job picks up the new permanent versions
         d3 = run(c, genre="Mountains")
         p3 = meta(c, done_cards(d3)[0]["artifact_id"])["prompt"]
-        assert "NEW PERMANENT CLOSING v2." in p3["effective"] and p3["bundle"]["image_closing"]["version"] == 3  # v1 built-in, v2 = Prompt System v0.5, v3 = this save
+        assert "NEW PERMANENT CLOSING v2." in p3["effective"] and p3["bundle"]["image_closing"]["version"] == 4  # v1 built-in, v2 = v0.5, v3 = v0.6, v4 = this save
 
 
 def test_variant_title_concept_and_rationale_reach_every_image_prompt(settings):

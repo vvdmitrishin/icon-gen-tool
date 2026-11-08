@@ -19,11 +19,25 @@ V05_AUTHOR = "Prompt System v0.5"
 V05_NOTE = "Prompt System v0.5 (producer-reviewed): production default"
 
 
+V06_AUTHOR = "Prompt System v0.6"
+V06_NOTE = "Prompt System v0.6: production default"
+
+
+def _load_release(filename: str) -> dict[str, str]:
+    data = yaml.safe_load((CONFIG_DIR / filename).read_text(encoding="utf-8"))
+    return {k: str(v).strip() for k, v in data["templates"].items()}
+
+
 @lru_cache(maxsize=1)
 def v05_templates() -> dict[str, str]:
     """The seven Prompt System v0.5 image templates, verbatim (config/prompt_system_v05.yaml)."""
-    data = yaml.safe_load((CONFIG_DIR / "prompt_system_v05.yaml").read_text(encoding="utf-8"))
-    return {k: str(v).strip() for k, v in data["templates"].items()}
+    return _load_release("prompt_system_v05.yaml")
+
+
+@lru_cache(maxsize=1)
+def v06_templates() -> dict[str, str]:
+    """The seven Prompt System v0.6 image templates, verbatim (config/prompt_system_v06.yaml)."""
+    return _load_release("prompt_system_v06.yaml")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS prompt_templates (
@@ -53,7 +67,7 @@ class PromptLibrary:
         self.db = db
         db.script(_SCHEMA)
         self.seed()
-        self.apply_v05()
+        self.apply_releases()
 
     def seed(self) -> None:
         defaults = default_templates()
@@ -61,19 +75,21 @@ class PromptLibrary:
             if not self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=?", (name,)):
                 self._insert(name, 1, defaults[name], "system", "built-in default")
 
-    def apply_v05(self) -> list[str]:
-        """Save the v0.5 texts as NEW permanent versions and activate them, ONCE per template. Older versions stay for rollback.
-        A template the Producer has already edited (active version is not the untouched built-in v1) is never overridden, and a
-        template that already has a v0.5 version is never saved again (so a later rollback to v1 sticks)."""
-        applied = []
-        for name, text in v05_templates().items():
-            if self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=? AND author=?", (name, V05_AUTHOR)):
-                continue
-            row = self.active().get(name)
-            if row is None or row["version"] != 1 or row["author"] != "system":
-                continue
-            self.save(name, text, V05_AUTHOR, V05_NOTE)
-            applied.append(name)
+    def apply_releases(self) -> list[str]:
+        """Prompt System releases in order (v0.5 -> v0.6): each is saved ONCE as a NEW permanent version and activated. Older versions
+        stay for rollback. A template is only upgraded while its active version is still the untouched previous release, so
+        Producer edits and deliberate rollbacks are never overridden, and a release that already has a version is never saved again."""
+        applied: list[str] = []
+        for texts, author, note, previous in ((v05_templates(), V05_AUTHOR, V05_NOTE, "system"),
+                                              (v06_templates(), V06_AUTHOR, V06_NOTE, V05_AUTHOR)):
+            for name, text in texts.items():
+                if self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=? AND author=?", (name, author)):
+                    continue
+                row = self.active().get(name)
+                if row is None or row["author"] != previous or (previous == "system" and row["version"] != 1):
+                    continue
+                self.save(name, text, author, note)
+                applied.append(f"{name}:{author}")
         return applied
 
     def _insert(self, name: str, version: int, text: str, author: str, note: str) -> None:
@@ -151,12 +167,12 @@ class PromptLibrary:
         out = []
         active = self.active()
         defaults = default_templates()
-        v05 = v05_templates()
+        shipped = (v05_templates(), v06_templates())
         for name in TEMPLATE_NAMES:
             a = active[name]
             out.append({"name": name, "label": LABELS[name], "version": a["version"], "text": a["text"],
                         "author": a["author"], "created_at": a["created_at"], "note": a["note"],
-                        "is_default_text": a["text"] in (defaults[name], v05.get(name)),  # a shipped default (v1 or v0.5), i.e. not hand-edited
+                        "is_default_text": a["text"] == defaults[name] or any(a["text"] == r.get(name) for r in shipped),  # a shipped default, not hand-edited
                         "versions": [v["version"] for v in self.versions(name)]})
         return out
 
