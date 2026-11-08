@@ -78,6 +78,8 @@ export interface GenerateRequest {
   reference_ids: string[];
   reference_policy_accepted: boolean;
   aspect_ratio: string;
+  /** Target icon size in px (square). Models render natively; smaller sizes are downscaled. */
+  output_size?: number;
   confirmed: boolean;
 }
 
@@ -119,16 +121,23 @@ export interface JobRequestPayload {
   genre: string;
   wishes: string;
   number_of_variants: number;
+  number_of_cards: number;
+  gold_cards: number;
+  output_size: number;
+  /** true = the user agreed to one small AI text call to plan custom themes */
+  allow_ai_plan: boolean;
   category_distribution: DistributionPayload;
   provider: string;
   model: string;
   reference_ids: string[];
   reference_policy_accepted: boolean;
   aspect_ratio: string;
-  scope: "pilot" | "full";
+  scope: "full";
   seed: number | null;
   confirmed: boolean;
 }
+
+export type PlanningMode = "rules" | "ai";
 
 export interface PlanCardLite { position: number; category: number; object_name: string; object_description: string }
 export interface PlanVariantLite { variant_id: string; title: string; concept: string; cards: PlanCardLite[] }
@@ -136,6 +145,11 @@ export interface PlanVariantLite { variant_id: string; title: string; concept: s
 export interface JobPreview {
   plan: { genre: string; seed: number; variants: PlanVariantLite[]; notes: string[] };
   distribution: Record<string, number>;
+  number_of_cards?: number;
+  gold_cards?: number;
+  output_size?: number;
+  planning_mode?: PlanningMode;
+  plan_cost_estimate_usd?: number;
   scope: "pilot" | "full";
   images_in_scope: number;
   images_total: number;
@@ -211,6 +225,10 @@ export interface JobDetail {
   genre: string;
   collection: string;
   seed: number;
+  number_of_cards?: number;
+  gold_cards?: number;
+  output_size?: number;
+  planning_mode?: PlanningMode;
   distribution: Record<string, number>;
   notes: string[];
   variants: JobVariant[];
@@ -231,6 +249,10 @@ export interface JobSummary {
   genre: string;
   collection: string;
   variants: number;
+  number_of_cards?: number;
+  gold_cards?: number;
+  output_size?: number;
+  planning_mode?: PlanningMode;
   spent_est: number;
   approved_variant_id: string | null;
 }

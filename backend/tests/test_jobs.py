@@ -105,7 +105,7 @@ def test_mock_provider_full_set_is_free(settings, rec):
 
 def test_job_validation_errors(settings, rec):
     with client(settings, rec) as c:
-        assert c.post("/api/jobs", json=body(genre="Western")).json()["detail"]["code"] == "unknown_genre"
+        assert c.post("/api/jobs", json=body(genre="Western")).json()["detail"]["code"] == "ai_plan_required"
         r = c.post("/api/jobs", json=body(provider="openai", model="gpt-image-2.5-flare"))
         assert r.status_code == 400 and r.json()["detail"]["code"] == "model_unavailable"
         r = c.post("/api/jobs", json=body(category_distribution={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 0, "4": 0}}))

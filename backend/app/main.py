@@ -297,8 +297,10 @@ def create_app(
             "mode": dist.mode,
             "counts": {str(k): v for k, v in counts.items()},
             "slots": assign_slots(counts),
-            "note": "[2,2,3,3] is our design assumption, not a Playrix-mandated ratio."
-            if dist.mode == "auto_balanced" else "Custom producer distribution.",
+            "number_of_cards": dist.number_of_cards,
+            "gold_cards": dist.gold_cards,
+            "note": "[2,2,3,3] (scaled for other set sizes) is our design assumption, not a Playrix-mandated ratio."
+            if dist.mode == "auto_balanced" else "Custom producer distribution (Cat.1-4; golden count = gold_cards).",
         }
 
     @app.post("/api/wishes/check")
@@ -317,6 +319,7 @@ def create_app(
         return _err(exc.status, exc.code, exc.message, **exc.extra)
 
     @app.get("/api/planner/genres")
+    @app.get("/api/genres")
     def planner_genres() -> list[dict[str, Any]]:
         return supported_genres()
 

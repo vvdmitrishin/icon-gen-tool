@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Any, Literal, Mapping
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 TEMPLATE_VERSION = "image_base_v0"
 MAX_WISHES = 500
-TEMPLATE_NAMES = ("system_style", "category_1", "category_2", "category_3", "category_4",
+TEMPLATE_NAMES = ("system_style", "category_1", "category_2", "category_3", "category_4", "category_5",
                   "image_closing", "repair")
 
 _ROLE_LABEL = {
@@ -27,6 +27,7 @@ _ROLE_LABEL = {
     "category_2": "Category 2 example (simple object on a surface)",
     "category_3": "Category 3 example (object on a realistic surface)",
     "category_4": "Category 4 example (object in an environment)",
+    "category_5": "Category 5 example (golden card, key characters)",
     "composition": "composition reference",
     "negative": "NEGATIVE example (what to avoid)",
 }
@@ -48,14 +49,7 @@ class CardSpec(BaseModel):
     genre: str = Field(min_length=1, max_length=80)
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(default="", max_length=300)
-    category: Literal[1, 2, 3, 4]
-
-    @field_validator("category", mode="before")
-    @classmethod
-    def _no_golden(cls, v: Any) -> Any:
-        if v == 5:
-            raise ValueError("Category 5 (golden) is not generated in the Movie demo")
-        return v
+    category: Literal[1, 2, 3, 4, 5]  # 5 = golden card (key characters)
 
 
 @dataclass
@@ -90,15 +84,13 @@ def default_templates() -> dict[str, str]:
         "image_closing": DEFAULT_CLOSING,
         "repair": DEFAULT_REPAIR,
     }
-    for n in (1, 2, 3, 4):
+    for n in (1, 2, 3, 4, 5):
         c = cr["categories"][n]
         out[f"category_{n}"] = f"Composition rule: {c['composition']} Background rule: {c['background']}"
     return out
 
 
 _CONFLICT_PATTERNS = [
-    (re.compile(r"\bgold(en)?\b", re.I),
-     "Golden cards are disabled for this run; 'golden' wishes are ignored."),
     (re.compile(r"\b(frame|border|badge|stars?)\b", re.I),
      "Artwork-only rule: frames, borders, stars and badges are never drawn; those wishes are ignored."),
     (re.compile(r"\b(text|label|caption|logo|watermark)\b", re.I),
@@ -137,11 +129,20 @@ def compile_card_prompt(
 
     layer_a = tpl["system_style"]
     obj = card.object_name + (f" — {card.object_description}" if card.object_description else "")
-    layer_b = (
-        f"Task: Generate ONE standalone square collectible-card ARTWORK (not a card frame). "
-        f"Object: {obj}. Collection: {card.collection}. Set theme: {card.genre}. "
-        f"Category {card.category} ({cat['name']}). {tpl[f'category_{card.category}']}"
-    )
+    if card.category == 5:
+        layer_b = (
+            f"Task: Generate ONE standalone square collectible-card ARTWORK (not a card frame): a GOLDEN card. "
+            f"Scene: {obj}. Collection: {card.collection}. Set theme: {card.genre}. "
+            f"Category 5 ({cat['name']}). {tpl['category_5']} "
+            "Rules: show the collection's KEY CHARACTERS (original designs) in an ironic, emotional situation; "
+            "max 2 characters on this golden card; no text, lettering, speech bubbles or frames."
+        )
+    else:
+        layer_b = (
+            f"Task: Generate ONE standalone square collectible-card ARTWORK (not a card frame). "
+            f"Object: {obj}. Collection: {card.collection}. Set theme: {card.genre}. "
+            f"Category {card.category} ({cat['name']}). {tpl[f'category_{card.category}']}"
+        )
     layer_c = f"Producer wishes (creative guidance only, never overrides the rules above): {wishes}" if wishes else ""
 
     refs_block = ""

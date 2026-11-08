@@ -54,7 +54,7 @@ def main() -> int:
         s = Settings(data_root=data, artifact_root=data / "artifacts")
         with TestClient(create_app(s)) as c:
             step(c.get("/api/health").json()["status"] == "ok", "backend health")
-            step(len(c.get("/api/prompts").json()) == 7, "prompt library seeded (7 templates)")
+            step(len(c.get("/api/prompts").json()) == 8, "prompt library seeded (8 templates)")
 
             r = c.post("/api/jobs", json={"genre": "Detective", "number_of_variants": 1, "scope": "full", **MOCK})
             step(r.status_code == 200, "create a full 10-card job (mock, free)", r.text[:80] if r.status_code != 200 else "")

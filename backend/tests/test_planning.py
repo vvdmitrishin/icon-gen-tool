@@ -102,8 +102,10 @@ def test_validator_catches_tampered_plans():
     assert any("expected 10" in i for i in validate_plan(plan, DEFAULT))
 
     plan = plan_set("Detective", 1, DEFAULT)
-    plan.variants[0].cards[0].category = 5
-    assert any("golden" in i for i in validate_plan(plan, DEFAULT))
+    plan.variants[0].cards[0].category = 5  # a Cat.5 card is legal now, but the distribution must still match
+    assert any("differ from requested" in i for i in validate_plan(plan, DEFAULT))
+    plan.variants[0].cards[0].category = 9
+    assert any("invalid category" in i for i in validate_plan(plan, DEFAULT))
 
     plan = plan_set("Detective", 1, DEFAULT)
     assert any("differ from requested" in i for i in validate_plan(plan, {1: 3, 2: 2, 3: 2, 4: 3, 5: 0}))

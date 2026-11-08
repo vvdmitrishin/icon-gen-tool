@@ -26,17 +26,20 @@ from pydantic import BaseModel, Field
 
 from ..config import Settings
 from ..providers.base import ProviderDisabled
-from .category_distribution import CategoryDistribution, DistributionError, resolve_distribution
+from .category_distribution import CARDS_PER_SET, CategoryDistribution, DistributionError, resolve_distribution
 from .cost_guard import BudgetExceeded, CostGuard
 from .generation import GenerateCardRequest, GenerationFailure, GenerationService
-from .planning import PlanningError, SetPlan, plan_set, validate_plan
+from .planning import PlanningError, SetPlan, curated_genre_for, plan_set, validate_plan
 from .qa import qa_card, qa_variant
 from .reference_manager import ReferenceError_, ReferenceManager
+from .text_planner import PLAN_COST_ESTIMATE_USD, TextPlanner
 
 ACTIVE_STATES = {"created", "planning", "plan_qa", "queued", "generating", "image_qa", "set_qa",
                  "cancel_requested"}
 MAX_CONSECUTIVE_FAILURES = 2
 UNIVERSAL_REF_TYPES = {"style", "composition", "negative"}
+ALLOWED_OUTPUT_SIZES = (24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
+_PLAN_ERROR_STATUS = {"gemini_key_missing": 400, "ai_plan_failed": 502}
 
 
 def now() -> str:
@@ -54,13 +57,17 @@ class JobCreateRequest(BaseModel):
     genre: str = Field(min_length=1, max_length=80)
     wishes: str = Field(default="", max_length=2000)
     number_of_variants: int = Field(default=1, ge=1, le=5)
-    category_distribution: CategoryDistribution | None = None
+    category_distribution: CategoryDistribution | None = None  # Custom mode: counts for Cat.1-4
+    number_of_cards: int = Field(default=CARDS_PER_SET, ge=1, le=CARDS_PER_SET)  # cards per set, 10 = golden standard
+    gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)  # Category 5 cards inside the set (<= number_of_cards)
+    output_size: int = 1024  # icon side in px, one of ALLOWED_OUTPUT_SIZES (422 bad_output_size otherwise)
+    allow_ai_plan: bool = False  # explicit opt-in for the AI (Gemini text) planner on custom themes
     provider: str
     model: str
     reference_ids: list[str] = Field(default_factory=list)
     reference_policy_accepted: bool = False
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"] = "1:1"
-    scope: Literal["pilot", "full"] = "pilot"
+    scope: Literal["pilot", "full"] = "full"
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     confirmed: bool = False
 
@@ -306,7 +313,7 @@ class JobStore:
 
 # ----------------------------------------------------------------------------------------- helpers
 def pilot_card_ids(cards: list[dict[str, Any]]) -> set[str]:
-    """First card of each category per variant (4 per variant)."""
+    """First card of each category per variant (Cat.5 golden counts as its own category). Legacy pilot scope."""
     seen: set[tuple[str, int]] = set()
     out: set[str] = set()
     for c in sorted(cards, key=lambda x: (x["variant_id"], x["position"])):
@@ -332,8 +339,9 @@ def select_references(metas: list[dict[str, Any]], category: int, cap: int) -> t
 # ----------------------------------------------------------------------------------------- service
 class JobService:
     def __init__(self, settings: Settings, gen: GenerationService, guard: CostGuard,
-                 refs: ReferenceManager, store: JobStore) -> None:
+                 refs: ReferenceManager, store: JobStore, text_planner: TextPlanner | None = None) -> None:
         self.s, self.gen, self.guard, self.refs, self.store = settings, gen, guard, refs, store
+        self.text_planner = text_planner or TextPlanner(gen.registry)
         self._worker_lock: asyncio.Lock | None = None
         self._tasks: set[asyncio.Task] = set()
         self._backfill()
@@ -366,12 +374,28 @@ class JobService:
 
     # -- planning ------------------------------------------------------------------------------
     def _plan(self, req: JobCreateRequest) -> tuple[SetPlan, dict[int, int], Any, list[dict[str, Any]]]:
+        plan, counts, model, metas, _ = self._plan_ex(req)
+        return plan, counts, model, metas
+
+    def _check_plan_budget(self) -> None:
+        if not self.s.paid_image_calls_enabled:
+            raise JobFailure(402, "paid_disabled", "Paid calls are disabled (PAID_IMAGE_CALLS_ENABLED=false); "
+                                                   "the AI planner is a paid Gemini text call.")
+        if self.guard.spent_usd() + PLAN_COST_ESTIMATE_USD > self.s.total_budget_usd:
+            raise JobFailure(402, "total_cap", "The total budget cap would be exceeded by the AI planner call.")
+
+    def _plan_ex(self, req: JobCreateRequest) -> tuple[SetPlan, dict[int, int], Any, list[dict[str, Any]], float]:
+        """-> (plan, resolved {1..5} distribution, model, reference metas, plan_cost_estimate_usd)."""
         try:
             model = self.gen.registry.resolve(req.provider, req.model)
         except ProviderDisabled as exc:
             raise JobFailure(400, "model_unavailable", exc.message) from exc
+        if req.output_size not in ALLOWED_OUTPUT_SIZES:
+            raise JobFailure(422, "bad_output_size",
+                             f"Output size must be one of {', '.join(str(x) for x in ALLOWED_OUTPUT_SIZES)} px.")
         try:
-            counts = resolve_distribution(req.category_distribution)
+            counts = resolve_distribution(req.category_distribution, number_of_cards=req.number_of_cards,
+                                          gold_cards=req.gold_cards)
         except DistributionError as exc:
             raise JobFailure(422, exc.code, exc.message) from exc
         if len(req.reference_ids) != len(set(req.reference_ids)):
@@ -390,14 +414,32 @@ class JobService:
         if metas and model.provider_id != "mock" and not req.reference_policy_accepted:
             raise JobFailure(400, "reference_policy_required",
                              "Confirm that you may send these reference images to the external AI provider.")
+        curated = curated_genre_for(req.collection, req.genre)
+        cost = 0.0
         try:
-            plan = plan_set(req.genre, req.number_of_variants, counts, req.seed)
+            if curated:  # movies collection + a curated set -> deterministic rules planner (free)
+                plan = plan_set(curated, req.number_of_variants, counts, req.seed)
+            else:
+                if not req.allow_ai_plan:
+                    raise JobFailure(
+                        422, "ai_plan_required",
+                        f"'{req.collection}' / '{req.genre}' is a custom theme. Custom themes are planned by AI "
+                        "(a Gemini text model, tiny cost, about $0.002 per plan) and this must be requested "
+                        "explicitly (allow_ai_plan=true).",
+                        {"plan_cost_estimate_usd": PLAN_COST_ESTIMATE_USD})
+                cost = PLAN_COST_ESTIMATE_USD
+                res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
+                                                     seed=req.seed, wishes=req.wishes, pre_call=self._check_plan_budget)
+                plan = res.plan
+                if not res.cached:  # honest accounting: a real text call was made
+                    self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
+                                      est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan")
         except PlanningError as exc:
-            raise JobFailure(422, exc.code, exc.message) from exc
+            raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
         issues = validate_plan(plan, counts)
         if issues:
             raise JobFailure(422, "plan_invalid", "; ".join(issues))
-        return plan, counts, model, metas
+        return plan, counts, model, metas, cost
 
     @staticmethod
     def _cards_flat(plan: SetPlan, job_id: str) -> list[dict[str, Any]]:
@@ -424,8 +466,9 @@ class JobService:
         return self.guard.estimate_usd(provider_id, images, model_id)
 
     def preview(self, req: JobCreateRequest) -> dict[str, Any]:
-        plan, counts, model, _ = self._plan(req)
+        plan, counts, model, _, plan_cost = self._plan_ex(req)
         n = len(self._scope_cards(plan, req.scope))
+        total = req.number_of_variants * req.number_of_cards
         est = self._estimate(model.provider_id, n, model.model_id)
         blocked = None
         try:
@@ -440,10 +483,15 @@ class JobService:
             "plan": plan.model_dump(mode="json"),
             "distribution": {str(k): v for k, v in counts.items()},
             "scope": req.scope,
+            "number_of_cards": req.number_of_cards,
+            "gold_cards": req.gold_cards,
+            "output_size": req.output_size,
+            "planning_mode": plan.planning_mode,
+            "plan_cost_estimate_usd": plan_cost,
             "images_in_scope": n,
-            "images_total": req.number_of_variants * 10,
+            "images_total": total,
             "estimated_cost_usd": est,
-            "estimated_cost_full_usd": self._estimate(model.provider_id, req.number_of_variants * 10, model.model_id),
+            "estimated_cost_full_usd": self._estimate(model.provider_id, total, model.model_id),
             "cost_is_estimate": True,
             "budget": self.guard.summary().__dict__,
             "blocked": blocked,
@@ -452,7 +500,7 @@ class JobService:
 
     # -- lifecycle -----------------------------------------------------------------------------
     async def create(self, req: JobCreateRequest, *, skip_gate: bool = False) -> dict[str, Any]:
-        plan, counts, model, _metas = self._plan(req)
+        plan, counts, model, _metas = await asyncio.to_thread(self._plan, req)
         job_id = f"job-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
         flat = self._cards_flat(plan, job_id)
         scope_ids = {c["card_id"] for c in self._scope_cards_for(flat, req.scope)}
@@ -467,10 +515,12 @@ class JobService:
         self.store.add_event(job_id, f"Job created: {req.genre}, {req.number_of_variants} variant(s), "
                                      f"scope={req.scope} ({len(scope_ids)} images, est ${est:.3f}).")
         self.store.set_status(job_id, "planning")
-        self.store.add_event(job_id, f"Planned with rules planner (seed {plan.seed}, distribution "
-                                     f"{[counts[c] for c in (1, 2, 3, 4)]}).")
+        planner = "AI planner (Gemini text)" if plan.planning_mode == "ai" else "rules planner"
+        self.store.add_event(job_id, f"Planned with {planner} (seed {plan.seed}, distribution "
+                                     f"{[counts[c] for c in (1, 2, 3, 4, 5)]} = Cat.1-4 + golden).")
         self.store.set_status(job_id, "plan_qa")
-        self.store.add_event(job_id, "Plan QA passed: 10 cards/variant, unique objects, distribution matched, no Cat. 5.")
+        self.store.add_event(job_id, f"Plan QA passed: {req.number_of_cards} cards/variant ({req.gold_cards} golden), "
+                                     "unique objects, distribution matched.")
         self.store.set_status(job_id, "queued")
         self._schedule(job_id)
         return self.detail(job_id)
@@ -479,7 +529,7 @@ class JobService:
         """Create one job per genre under a SINGLE confirmation and a combined budget check."""
         if not 1 <= len(genres) <= 3 or len(set(g.lower() for g in genres)) != len(genres):
             raise JobFailure(400, "bad_genres", "Choose 1-3 distinct genres.")
-        planned = [self._plan(base.model_copy(update={"genre": g})) for g in genres]
+        planned = [await asyncio.to_thread(self._plan, base.model_copy(update={"genre": g})) for g in genres]
         model = planned[0][2]
         images = sum(len(self._scope_cards(p[0], base.scope)) for p in planned)
         est = self._estimate(model.provider_id, images, model.model_id)
@@ -562,8 +612,8 @@ class JobService:
         if variant is None:
             raise JobFailure(404, "not_found", "Variant not found.")
         blockers = []
-        if variant["set_qa"]["generated"] < 10:
-            blockers.append(f"only {variant['set_qa']['generated']}/10 cards are generated")
+        if variant["set_qa"]["generated"] < variant["set_qa"]["total"]:
+            blockers.append(f"only {variant['set_qa']['generated']}/{variant['set_qa']['total']} cards are generated")
         if variant["set_qa"]["status"] == "failed":
             blockers.append("set QA failed: " + "; ".join(c["name"] for c in variant["set_qa"]["checks"] if c["status"] == "fail"))
         if any(c["art_review"] == "rejected" for c in variant["cards"]):
@@ -730,13 +780,13 @@ class JobService:
                 object_description=card["object_description"], category=card["category"],
                 wishes=rq["wishes"], provider=rq["provider"], model=rq["model"], reference_ids=ref_ids,
                 reference_policy_accepted=rq["reference_policy_accepted"], aspect_ratio=rq["aspect_ratio"],
-                confirmed=True, repair_note=note,
+                output_size=rq.get("output_size", 1024), confirmed=True, repair_note=note,
                 context={"job_id": job_id, "variant_id": card["variant_id"], "position": card["position"],
                          "card_id": card["card_id"], "reference_selection": ref_mode,
                          "regeneration": is_regen, "spec_version": card["spec_version"]},
             )
             try:
-                meta = await self.gen.generate(req)
+                meta = await self.gen.generate(req, allow_golden=True)
             except GenerationFailure as exc:
                 if exc.status == 402:  # budget guard: stop before spending more
                     store.update_card(card["card_id"], status="done" if is_regen else "planned", error=exc.message,
@@ -845,11 +895,16 @@ class JobService:
                              "cards": by_variant.get(vid, []),
                              "approved": ap is not None, "approved_at": ap["approved_at"] if ap else None,
                              "set_qa": qa_variant(vid, qa_rows.get(vid, []), distribution)})
+        rq = job["request"]
         return {
             "job_id": job_id, "status": job["status"], "error": job["error"], "scope": job["scope"],
             "created_at": job["created_at"], "updated_at": job["updated_at"],
             "genre": job["plan"]["genre"], "collection": job["request"]["collection"], "request": job["request"],
             "seed": job["plan"]["seed"], "distribution": job["plan"]["distribution"],
+            "number_of_cards": rq.get("number_of_cards") or sum(distribution.values()) or CARDS_PER_SET,
+            "gold_cards": rq.get("gold_cards", distribution.get(5, 0)),
+            "output_size": rq.get("output_size", 1024),
+            "planning_mode": job["plan"].get("planning_mode", "rules"),
             "notes": job["plan"]["notes"], "variants": variants,
             "counts": {**counts, "total": len(cards)},
             "spent_estimated_usd": round(job["spent_est"], 6),
@@ -866,6 +921,9 @@ class JobService:
         for j in self.store.list_jobs(limit):
             rq = json.loads(j.pop("request_json"))
             j["genre"], j["variants"], j["collection"] = rq["genre"], rq["number_of_variants"], rq["collection"]
+            j["number_of_cards"] = rq.get("number_of_cards", CARDS_PER_SET)
+            j["gold_cards"] = rq.get("gold_cards", 0)
+            j["output_size"] = rq.get("output_size", 1024)
             j["approved_variant_id"] = next(iter(self.store.approvals(j["job_id"])), None)
             out.append(j)
         return out

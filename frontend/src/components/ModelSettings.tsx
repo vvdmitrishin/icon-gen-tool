@@ -1,4 +1,10 @@
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
+import { connectionsApi, ConnError } from "../api/connections";
+import { OUTPUT_SIZES } from "../lib/cards";
+import type { ProviderId } from "../types/connections";
 import type { ModelCapabilities, ModelInfo } from "../types/api";
+import { useConnections } from "./ConnectionsPanel";
 
 export const STATUS_LABEL: Record<string, string> = {
   external_rest_verified: "REST-verified",
@@ -50,6 +56,12 @@ interface Props {
   onChange: (v: string) => void;
   aspect: string;
   onAspect: (v: string) => void;
+  outputSize: number;
+  onOutputSize: (v: number) => void;
+  /** open the API Connections settings */
+  onManage: () => void;
+  /** a credential was removed: reload models */
+  onConnectionChanged: () => void;
 }
 
 interface AvailabilityProps {
@@ -100,9 +112,9 @@ function OptionalToggles({ m }: { m: ModelInfo }) {
   );
 }
 
-export function ModelSettings(p: Props) {
+function modelGroups(models: ModelInfo[]) {
   const groups = new Map<string, { rt: Runtime; items: ModelInfo[] }>();
-  [...p.models]
+  [...models]
     .sort((a, b) => RUNTIME_ORDER.indexOf(runtimeOf(a)) - RUNTIME_ORDER.indexOf(runtimeOf(b)))
     .forEach((m) => {
       const rt = runtimeOf(m);
@@ -111,23 +123,149 @@ export function ModelSettings(p: Props) {
       g.items.push(m);
       groups.set(label, g);
     });
+  return [...groups.entries()];
+}
+
+const optId = (k: string) => `mopt-${k.replace(/[^a-z0-9_-]/gi, "_")}`;
+
+/** Custom listbox: connected models get a light green tint + dot, unavailable ones are greyed with a "Not connected" badge. */
+function ModelPicker({ models, value, onChange }: { models: ModelInfo[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<string>(value);
+  const wrap = useRef<HTMLDivElement>(null);
+  const groups = modelGroups(models);
+  const selectable = models.filter((m) => m.selectable).map(keyOf);
+  const current = models.find((m) => keyOf(m) === value);
+  const startActive = () => (selectable.includes(value) ? value : selectable[0] ?? value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  useEffect(() => {
+    if (open) document.getElementById(optId(active))?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const move = (delta: number | "first" | "last") => {
+    if (!selectable.length) return;
+    const i = selectable.indexOf(active);
+    const next = delta === "first" ? 0 : delta === "last" ? selectable.length - 1 : Math.max(0, Math.min(selectable.length - 1, (i < 0 ? 0 : i) + delta));
+    setActive(selectable[next]);
+  };
+  const choose = (k: string) => { onChange(k); setOpen(false); };
+
+  function onKey(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { setActive(startActive()); setOpen(true); } else move(e.key === "ArrowDown" ? 1 : -1);
+    } else if (e.key === "Home" && open) { e.preventDefault(); move("first"); }
+    else if (e.key === "End" && open) { e.preventDefault(); move("last"); }
+    else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (!open) { setActive(startActive()); setOpen(true); }
+      else if (selectable.includes(active)) choose(active);
+    } else if (e.key === "Escape" && open) { e.preventDefault(); setOpen(false); }
+    else if (e.key === "Tab") setOpen(false);
+  }
+
+  return (
+    <div className="mpick" ref={wrap}>
+      <button type="button" id="model" className={`mpick-btn ${current?.selectable ? "live" : ""}`} role="combobox" aria-haspopup="listbox"
+        aria-expanded={open} aria-controls="model-list" aria-activedescendant={open ? optId(active) : undefined} onKeyDown={onKey}
+        onClick={() => { if (!open) setActive(startActive()); setOpen(!open); }}>
+        {current ? (
+          <>
+            <i className={`mdot ${current.selectable ? "on" : ""}`} aria-hidden />
+            <span className="mpick-label">{current.label}</span>
+            {!current.selectable && <span className="mbadge">Not connected</span>}
+          </>
+        ) : <span className="mpick-label muted">Select a model</span>}
+        <span className="caret" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <ul id="model-list" className="mpick-list" role="listbox" aria-label="Image model">
+          {groups.map(([label, g]) => (
+            <li key={label} role="presentation" className="mgroup">
+              <span className="mgroup-h" role="presentation">{label}</span>
+              <ul role="group" aria-label={label}>
+                {g.items.map((m) => {
+                  const k = keyOf(m);
+                  const sel = k === value;
+                  return (
+                    <li key={k} id={optId(k)} role="option" aria-selected={sel} aria-disabled={!m.selectable}
+                      className={`mopt ${m.selectable ? "live" : "off"} ${sel ? "sel" : ""} ${active === k ? "act" : ""}`}
+                      title={!m.selectable ? (m.disabled_reason ?? STATUS_LABEL[m.status] ?? m.status) : undefined}
+                      onMouseEnter={() => { if (m.selectable) setActive(k); }} onClick={() => { if (m.selectable) choose(k); }}>
+                      <i className={`mdot ${m.selectable ? "on" : ""}`} aria-hidden />
+                      <span className="mopt-main">
+                        <span className="mopt-name">{m.label}</span>
+                        <small>{STATUS_LABEL[m.status] ?? m.status}{m.role && ROLE_LABEL[m.role] && ROLE_LABEL[m.role] !== STATUS_LABEL[m.status] ? ` · ${ROLE_LABEL[m.role]}` : ""}</small>
+                      </span>
+                      {!m.selectable && <span className="mbadge">Not connected</span>}
+                      {sel && <span className="mcheck" aria-hidden>✓</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const CONN_PROVIDERS: string[] = ["gemini", "cloudflare"];
+
+/** Connection line under the model picker: status + Manage / Revoke. Never shows or stores secret values. */
+function ModelConnection({ model, refreshKey, onManage, onChanged }: { model: ModelInfo; refreshKey: unknown; onManage: () => void; onChanged: () => void }) {
+  const conn = useConnections();
+  const { refresh } = conn;
+  useEffect(() => { void refresh(); }, [refresh, refreshKey]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const managed = CONN_PROVIDERS.includes(model.provider_id);
+  const pc = conn.state?.providers.find((x) => x.id === model.provider_id);
+  const hasVault = pc?.source === "credential_manager";
+  const connected = model.selectable;
+  const label = model.provider_label;
+
+  async function revoke() {
+    if (!window.confirm(`Remove the stored credential for ${label}? Generation with it stops until you reconnect.`)) return;
+    setBusy(true); setErr(null);
+    try {
+      await connectionsApi.remove(model.provider_id as ProviderId);
+      await refresh();
+      onChanged();
+    } catch (e) { setErr(e instanceof ConnError ? e.message : "Could not remove the credential."); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="connline" aria-label={`Connection for ${label}`}>
+      <span className={`cn-chip ${connected ? "cn-ok" : "cn-none"}`}><span aria-hidden>{connected ? "✓" : "○"}</span> {label}: {connected ? "Connected" : "Not connected"}</span>
+      {managed && (
+        <>
+          <button type="button" className="ghost sm" onClick={onManage}>Manage connection</button>
+          {hasVault && <button type="button" className="ghost sm cn-danger" disabled={busy} onClick={() => void revoke()}>{busy ? "Removing…" : "Revoke"}</button>}
+        </>
+      )}
+      {err && <div className="alert err compact" role="alert">{err}</div>}
+    </div>
+  );
+}
+
+export function ModelSettings(p: Props) {
   const current = p.models.find((m) => keyOf(m) === p.value);
 
   return (
     <div className="gensetup">
       <div className="field">
         <label className="lbl" htmlFor="model">Image model</label>
-        <select id="model" value={p.value} onChange={(e) => p.onChange(e.target.value)}>
-          {[...groups.entries()].map(([label, g]) => (
-            <optgroup key={label} label={label}>
-              {g.items.map((m) => (
-                <option key={keyOf(m)} value={keyOf(m)} disabled={!m.selectable}>
-                  {m.label} — {STATUS_LABEL[m.status] ?? m.status}{m.role && ROLE_LABEL[m.role] && ROLE_LABEL[m.role] !== STATUS_LABEL[m.status] ? ` · ${ROLE_LABEL[m.role]}` : ""}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <ModelPicker models={p.models} value={p.value} onChange={p.onChange} />
+        {current && <ModelConnection model={current} refreshKey={p.models} onManage={p.onManage} onChanged={p.onConnectionChanged} />}
         {current && (
           <div className="chips tight" aria-label="Selected model">
             <span className={`chip st-${current.status}`}>{STATUS_LABEL[current.status] ?? current.status}</span>
@@ -153,11 +291,13 @@ export function ModelSettings(p: Props) {
 
       <div className="row two">
         <div className="field">
-          <label className="lbl" htmlFor="planning">Planning</label>
-          <select id="planning" disabled title="Objects are planned by curated rules and templates (free, local). LLM planning is not part of this build."><option>Rules / Templates</option></select>
+          <label className="lbl" htmlFor="outsize">Resolution</label>
+          <select id="outsize" value={p.outputSize} onChange={(e) => p.onOutputSize(Number(e.target.value))}>
+            {OUTPUT_SIZES.map((n) => <option key={n} value={n}>{n} × {n} px</option>)}
+          </select>
         </div>
         <div className="field">
-          <label className="lbl" htmlFor="aspect">Resolution / aspect</label>
+          <label className="lbl" htmlFor="aspect">Aspect</label>
           <select id="aspect" value={p.aspect} onChange={(e) => p.onAspect(e.target.value)}>
             {(current?.capabilities.aspect_ratios ?? ["1:1"]).map((a) => (
               <option key={a} value={a}>{a === "1:1" ? "1:1 (square)" : a}</option>
@@ -165,11 +305,12 @@ export function ModelSettings(p: Props) {
           </select>
         </div>
       </div>
+      <p className="hint">Models render at their native size; smaller icons are downscaled.</p>
     </div>
   );
 }
 
-/** Provider availability + disabled models (lives inside the collapsed "Advanced settings"). */
+/** Provider availability + disabled models (collapsible, inside Generation Setup). */
 export function ProviderAvailability(p: AvailabilityProps) {
   const disabledByRuntime = RUNTIME_ORDER.map((rt) => ({
     rt,

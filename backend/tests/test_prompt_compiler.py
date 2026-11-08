@@ -20,9 +20,10 @@ def test_compiles_three_layers_and_category_rules():
     assert c.template_version == "image_base_v0"
 
 
-def test_category_5_rejected():
+def test_category_5_is_accepted_and_bad_category_rejected():
+    assert card(category=5).category == 5
     with pytest.raises(ValidationError):
-        card(category=5)
+        card(category=6)
 
 
 @pytest.mark.parametrize("cat", [1, 2, 3, 4])
@@ -44,7 +45,7 @@ def test_no_reference_block_without_refs():
 
 
 def test_wishes_conflicts_warn_but_never_change_rules():
-    c = compile_card_prompt(card(), "make it a golden card with a fancy frame")
+    c = compile_card_prompt(card(), "make it with a fancy frame and a text label")
     assert len(c.warnings) >= 2
     assert "no collection window" in c.text  # rules unchanged
 

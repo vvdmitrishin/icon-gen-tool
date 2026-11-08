@@ -13,7 +13,9 @@ const msg = (e: unknown, f: string) => (e instanceof ApiError ? e.message : f);
 function describe(p: Record<string, unknown>) {
   const d = p.category_distribution as { mode?: string; counts?: Record<string, number> } | undefined;
   const dist = d?.mode === "custom" && d.counts ? `custom ${[1, 2, 3, 4].map((c) => d.counts![String(c)]).join("/")}` : "auto balanced";
-  return `${p.genre ?? "any genre"} · ${p.number_of_variants ?? 1} variant(s) · ${p.scope ?? "pilot"} · ${dist}${p.wishes ? ` · “${String(p.wishes).slice(0, 40)}”` : ""}`;
+  const cards = typeof p.number_of_cards === "number" ? p.number_of_cards : 10;
+  const gold = typeof p.gold_cards === "number" && p.gold_cards > 0 ? ` (+${p.gold_cards} ★)` : "";
+  return `${p.collection ? `${p.collection} · ` : ""}${p.genre ?? "any set"} · ${p.number_of_variants ?? 1} variant(s) · ${cards} cards${gold} · ${dist}${p.wishes ? ` · “${String(p.wishes).slice(0, 40)}”` : ""}`;
 }
 
 export function TemplatesView({ current, onApply }: Props) {
@@ -34,7 +36,7 @@ export function TemplatesView({ current, onApply }: Props) {
   return (
     <div className="view">
       <h2>Templates</h2>
-      <p className="hint">Saved presets for the Generate screen: genre, variants, run scope, category distribution and free wishes. Templates never store API keys, models or references.</p>
+      <p className="hint">Saved presets for the Generate screen: collection, set, variants, number of cards, golden cards, resolution, category distribution and free wishes. Templates never store API keys, models or references.</p>
       {m && <div className={`alert ${m.ok ? "ok" : "err"}`} role="status">{m.t}</div>}
       <section className="card-box">
         <h3>Save the current Generate settings</h3>

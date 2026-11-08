@@ -5,6 +5,8 @@ import type {
 } from "../types/api";
 import { CheckList, QABadge, ReviewBadge } from "./badges";
 import { CompareView } from "./CompareView";
+import { catText, vlabel } from "../lib/cards";
+import { PlanNotice, type PlanError } from "./PlanNotice";
 import { STATUS_LABEL } from "./ModelSettings";
 import { PipelineStrip, type PipeStep } from "./Pipeline";
 import { PromptLibrary } from "./PromptLibrary";
@@ -17,6 +19,9 @@ export interface FormSummary {
   collection: string;
   genre: string;
   variants: number;
+  numberOfCards: number;
+  gold: number;
+  outputSize: number;
   provider: string;
   model: string;
   aspect: string;
@@ -25,7 +30,10 @@ export interface FormSummary {
 interface Props {
   job: JobDetail | null;
   preview: JobPreview | null;
-  previewError: string | null;
+  previewError: PlanError | null;
+  planningAi: boolean;
+  onPlanWithAi: () => void;
+  onConnectGemini: () => void;
   events: JobEvent[];
   jobs: JobSummary[];
   models: ModelInfo[];
@@ -93,6 +101,11 @@ export function SetPanel(p: Props) {
   const picked = job?.variants.flatMap((v) => v.cards).find((c) => c.card_id === pickedId) ?? null;
   const pickedVariant = job?.variants.find((v) => v.cards.some((c) => c.card_id === pickedId));
   const selV = job ? (job.variants.find((v) => v.variant_id === selVariantId) ?? job.variants[0]) : undefined;
+  // real cards-per-variant (old jobs without the field: derive from the cards)
+  const cardsN = job ? (job.number_of_cards ?? job.variants[0]?.cards.length ?? 10)
+    : p.preview ? (p.preview.number_of_cards ?? p.preview.plan.variants[0]?.cards.length ?? p.form.numberOfCards) : p.form.numberOfCards;
+  const selTotal = selV ? (selV.set_qa.total || selV.cards.length) : cardsN;
+  const planMode = job ? (job.planning_mode ?? "rules") : (p.preview?.planning_mode ?? "rules");
 
   useEffect(() => {
     setPickedId(null);
@@ -150,7 +163,7 @@ export function SetPanel(p: Props) {
   const qaFailed = allCards.filter((c) => c.qa_status === "failed").length;
   const finished = !!job && !job.active && job.counts.done > 0;
   const steps: PipeStep[] = [
-    { key: "plan", title: "Plan", sub: job ? `${job.variants.length} variant(s) · rules planner` : p.preview ? "Preview ready, nothing spent" : "Fill in the form",
+    { key: "plan", title: "Plan", sub: job ? `${job.variants.length} variant(s) · ${planMode === "ai" ? "AI planner" : "rules planner"}` : p.preview ? "Preview ready, nothing spent" : "Fill in the form",
       done: !!job || !!p.preview, current: view === "plans", onClick: () => setView("plans"), hint: "Open the set plans" },
     { key: "gen", title: "Generate", sub: job ? `${job.counts.done}/${job.counts.total} images${job.active ? " · running" : ""}` : "Not started",
       active: !!job?.active, done: finished, current: view === "results", onClick: () => setView("results"), hint: "Back to the results grid" },
@@ -158,7 +171,7 @@ export function SetPanel(p: Props) {
       active: job?.status === "image_qa" || job?.status === "set_qa", done: finished, current: view === "qa", onClick: () => setView("qa"), hint: "Open the QA report" },
     { key: "cmp", title: "Compare", sub: "Variants & references", optional: true, current: view === "variants" || view === "compare",
       onClick: () => setView("variants"), hint: job ? "Compare variants or check a card against a reference" : "Available once a set is generated" },
-    { key: "res", title: "Results", sub: job?.approved_variant_id ? `Variant ${job.approved_variant_id} approved` : job ? `Review: ${selV?.set_qa.art_review.approved ?? 0} approved` : "Art review: pending",
+    { key: "res", title: "Results", sub: job?.approved_variant_id ? `Variant ${vlabel(job.approved_variant_id)} approved` : job ? `Review: ${selV?.set_qa.art_review.approved ?? 0} approved` : "Art review: pending",
       done: !!job?.approved_variant_id, onClick: () => { setView("results"); variantsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }); }, hint: "Review and approve a variant" },
     { key: "exp", title: "Export", sub: jobExports.length ? `${jobExports.length} export(s) created` : "ZIP · final bundle",
       done: jobExports.length > 0, current: exportOpen, onClick: () => setExportOpen((o) => !o), hint: "Open the Export menu" },
@@ -169,12 +182,12 @@ export function SetPanel(p: Props) {
   const heading = job ? `Generated Sets — ${job.collection}: ${job.genre}` : p.preview ? `Plan Preview — ${p.form.collection}: ${p.form.genre}` : `Generated Sets — ${p.form.collection}: ${p.form.genre}`;
   const nVariants = job ? job.variants.length : p.preview ? p.preview.plan.variants.length : p.form.variants;
   const exportItems: MenuItem[] = [
-    { key: "v", label: selV ? `Variant ${selV.variant_id} — ZIP` : "Selected variant — ZIP", sub: selV?.approved ? "approved variant" : "needs approval", disabled: !job || !selV || job.active || selV.set_qa.generated < 10 || expBusy,
-      reason: !job ? "Generate a set first" : job.active ? "Wait for the job to finish" : "Needs all 10 cards generated", onClick: () => selV && exportVariant(selV.variant_id, false) },
+    { key: "v", label: selV ? `Variant ${vlabel(selV.variant_id)} — ZIP` : "Selected variant — ZIP", sub: selV?.approved ? "approved variant" : "needs approval", disabled: !job || !selV || job.active || selV.set_qa.generated < selTotal || expBusy,
+      reason: !job ? "Generate a set first" : job.active ? "Wait for the job to finish" : `Needs all ${selTotal} cards generated`, onClick: () => selV && exportVariant(selV.variant_id, false) },
     { key: "b", label: "Final bundle — all genres (ZIP)", sub: "needs one approved variant per genre", disabled: expBusy, onClick: () => exportBundle(false) },
     { key: "sep", label: "", separator: true },
-    { key: "vf", label: selV ? `Variant ${selV.variant_id} anyway` : "Variant anyway", sub: "unapproved / mock — testing only", disabled: !job || !selV || job.active || selV.set_qa.generated < 10 || expBusy,
-      reason: "Needs a finished variant with all 10 cards", onClick: () => selV && exportVariant(selV.variant_id, true) },
+    { key: "vf", label: selV ? `Variant ${vlabel(selV.variant_id)} anyway` : "Variant anyway", sub: "unapproved / mock — testing only", disabled: !job || !selV || job.active || selV.set_qa.generated < selTotal || expBusy,
+      reason: `Needs a finished variant with all ${selTotal} cards`, onClick: () => selV && exportVariant(selV.variant_id, true) },
     { key: "bf", label: "Final bundle anyway", sub: "partial / mock — testing only", disabled: expBusy, onClick: () => exportBundle(true) },
     { key: "sep2", label: "", separator: true },
     { key: "h", label: "Export history…", sub: "all earlier exports", onClick: p.onOpenHistory },
@@ -203,7 +216,7 @@ export function SetPanel(p: Props) {
           <span className="banner-ic" aria-hidden>▨</span>
           <div>
             <strong>This tool generates object illustrations for collectible cards (not full game windows).</strong>
-            <span>Artwork only. Each variant is a full 10-card set; the category distribution is the same in every variant.</span>
+            <span>{`Artwork only. Each variant is a full ${cardsN}-card set; the category distribution is the same in every variant.`}</span>
           </div>
         </div>
         <ul className="banner-checks">
@@ -224,7 +237,7 @@ export function SetPanel(p: Props) {
       </div>
 
       {p.error && <div className="alert err" role="alert">{p.error}</div>}
-      {p.previewError && !job && <div className="alert warn">{p.previewError}</div>}
+      {p.previewError && !job && <PlanNotice error={p.previewError} planning={p.planningAi} onPlanWithAi={p.onPlanWithAi} onConnectGemini={p.onConnectGemini} />}
       {expMsg && (
         <div className={`alert ${expMsg.ok ? "ok" : "warn"}`} role="status">
           {expMsg.text}
@@ -240,8 +253,8 @@ export function SetPanel(p: Props) {
             <div className="jobbar">
               <div className="jobhead">
                 <span className={`chip ${job.status === "ready_for_review" ? "ok" : job.status === "failed" || job.status === "partial_success" ? "warn" : ""}`}>{STATUS_TEXT[job.status] ?? job.status}</span>
-                <span className="chip">{job.scope === "pilot" ? "Pilot scope" : "Full scope"}</span>
-                <span className="chip">Cat. split {[1, 2, 3, 4].map((c) => job.distribution[c]).join(" / ")}</span>
+                {job.scope === "pilot" && <span className="chip" title="Older job created with the removed test-run option">Pilot run (old job)</span>}
+                <span className="chip">Cat. split {[1, 2, 3, 4].map((c) => job.distribution[c] ?? 0).join(" / ")}{(job.distribution[5] ?? 0) > 0 ? <> / <b className="goldtxt">★ {job.distribution[5]}</b></> : null}</span>
                 <span className="chip" title="Local estimate, not a provider invoice">Est. spent ${job.spent_estimated_usd.toFixed(3)}</span>
                 <span className="jobcounts">
                   Generated <strong>{job.counts.done}/{job.counts.total}</strong>
@@ -278,7 +291,7 @@ export function SetPanel(p: Props) {
             <div className="empty">
               <div className="empty-ic" aria-hidden>▦</div>
               <p><strong>No set generated yet.</strong></p>
-              <p className="hint">Choose a genre and the number of variants on the left. The plan preview appears here before anything is spent.</p>
+              <p className="hint">Choose a set, the number of cards and the number of variants on the left. The plan preview appears here before anything is spent.</p>
             </div>
           )}
           {!job && !p.preview && p.starting && <div className="skeleton"><div className="spinner" />Starting the job…</div>}
@@ -290,9 +303,11 @@ export function SetPanel(p: Props) {
             ))}
             {!job && p.preview && (
               <>
-                <p className="hint plan-hint">Plan preview (nothing generated yet) — {p.preview.images_in_scope} image(s) in {p.preview.scope} scope.</p>
+                <p className="hint plan-hint">Plan preview (nothing generated yet) — {p.preview.images_in_scope} image(s).{" "}
+                  <span className={`chip tiny plan-${planMode}`}>{planMode === "ai" ? "Planned by AI" : "Planned by rules"}</span>
+                  {(p.preview.plan_cost_estimate_usd ?? 0) > 0 && <> · AI plan ≈ {money(p.preview.plan_cost_estimate_usd ?? 0)}</>}</p>
                 {p.preview.plan.variants.map((v) => (
-                  <PlanRow key={v.variant_id} id={v.variant_id} title={v.title} concept={v.concept} cards={v.cards.map((c) => ({ key: `${v.variant_id}${c.position}`, cat: c.category, name: c.object_name }))} />
+                  <PlanRow key={v.variant_id} id={vlabel(v.variant_id)} title={v.title} concept={v.concept} cards={v.cards.map((c) => ({ key: `${v.variant_id}${c.position}`, cat: c.category, name: c.object_name }))} />
                 ))}
               </>
             )}
@@ -399,15 +414,15 @@ function ExportMenu({ open, setOpen, items, busy }: { open: boolean; setOpen: (v
 }
 
 // ------------------------------------------------------------------------------- variant rows
-const CAT_LIST = [1, 2, 3, 4] as const;
+const CAT_LIST = [1, 2, 3, 4, 5] as const;
 
 function CoverageChips({ cards }: { cards: { category: number; status: string }[] }) {
   return (
     <span className="cov" aria-label="Category coverage">
-      {CAT_LIST.map((c) => {
+      {CAT_LIST.filter((c) => c < 5 || cards.some((x) => x.category === 5)).map((c) => {
         const total = cards.filter((x) => x.category === c).length;
         const done = cards.filter((x) => x.category === c && x.status === "done").length;
-        return <span key={c} className={`covchip cat${c} ${total === 0 ? "none" : done === total ? "full" : done > 0 ? "part" : "zero"}`} title={`Category ${c}: ${done} of ${total} generated`}>{c}</span>;
+        return <span key={c} className={`covchip cat${c} ${total === 0 ? "none" : done === total ? "full" : done > 0 ? "part" : "zero"}`} title={`${c === 5 ? "Gold (Cat. 5)" : `Category ${c}`}: ${done} of ${total} generated`}>{catText(c)}</span>;
       })}
     </span>
   );
@@ -420,7 +435,8 @@ function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onErr
   const [showQA, setShowQA] = useState(false);
   const [busy, setBusy] = useState(false);
   const qa = v.set_qa;
-  const canApprove = !job.active && qa.generated === 10 && qa.status !== "failed" && qa.art_review.rejected === 0;
+  const total = qa.total || v.cards.length;
+  const canApprove = !job.active && qa.generated === total && qa.status !== "failed" && qa.art_review.rejected === 0;
   const cardQA = (s: string) => v.cards.filter((c) => c.image_url && c.qa_status === s).length;
 
   async function approve() {
@@ -435,7 +451,7 @@ function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onErr
       <div className="vmeta">
         <label className="vradio">
           <input type="radio" name="variant" checked={selected} onChange={() => onSelect(v.variant_id)} />
-          <strong>Variant {v.variant_id}</strong>
+          <strong>Variant {vlabel(v.variant_id)}</strong>
           {v.approved && <span className="chip ok" title="This variant is the approved final set">★ final set</span>}
         </label>
         <p className="vconcept" title={`${v.title} — ${v.concept}`}><em>{v.title}</em> · {v.concept}</p>
@@ -450,11 +466,11 @@ function VariantRow({ job, v, selected, onSelect, pickedId, onPick, onJob, onErr
         </ul>
         <div className="vbtns">
           <button type="button" className={`ghost sm ${v.approved ? "on" : ""}`} disabled={busy || (!v.approved && !canApprove)} onClick={approve}
-            title={canApprove || v.approved ? "" : "Needs 10 generated cards, no failed set QA and no rejected cards"}>
+            title={canApprove || v.approved ? "" : `Needs ${total} generated cards, no failed set QA and no rejected cards`}>
             {v.approved ? "Withdraw approval" : "Approve variant"}
           </button>
-          <button type="button" className="ghost sm" disabled={exportBusy || qa.generated < 10 || job.active} onClick={() => onExport(v.variant_id)}
-            title={qa.generated < 10 ? "Needs all 10 cards generated" : "Export this variant as a ZIP"}>Export ZIP</button>
+          <button type="button" className="ghost sm" disabled={exportBusy || qa.generated < total || job.active} onClick={() => onExport(v.variant_id)}
+            title={qa.generated < total ? `Needs all ${total} cards generated` : "Export this variant as a ZIP"}>Export ZIP</button>
         </div>
         {showQA && <CheckList checks={qa.checks} />}
       </div>
@@ -467,12 +483,12 @@ function Slots({ cards, pickedId, onPick }: { cards: JobCard[]; pickedId: string
   return (
     <ol className="slots">
       {cards.map((c) => (
-        <li key={c.card_id} className={`slot ${c.status} ${pickedId === c.card_id ? "on" : ""}`}>
-          <button type="button" onClick={() => onPick(c.card_id)} title={`${c.object_name} — ${c.error ?? c.object_description}`} aria-label={`${c.object_name}, category ${c.category}, ${c.status}`}>
+        <li key={c.card_id} className={`slot ${c.status} ${c.category === 5 ? "gold" : ""} ${pickedId === c.card_id ? "on" : ""}`}>
+          <button type="button" onClick={() => onPick(c.card_id)} title={`${c.object_name} — ${c.error ?? c.object_description}`} aria-label={`${c.object_name}, ${c.category === 5 ? "golden card" : `category ${c.category}`}, ${c.status}`}>
             {c.image_url ? <img src={c.image_url} alt={c.object_name} /> : (
               <span className="ph">{c.status === "generating" ? <i className="spinner sm" /> : c.status === "failed" ? "!" : c.status === "queued" ? "…" : <em>{c.object_name}</em>}</span>
             )}
-            <span className="cat">{c.category}</span>
+            <span className={`cat c${c.category}`}>{catText(c.category)}</span>
             {c.image_url && <span className={`dot qa-${c.qa_status}`} aria-label={`QA ${c.qa_status}`} />}
             {c.art_review === "approved" && <span className="rvmark ok">✓</span>}
             {c.art_review === "rejected" && <span className="rvmark bad">✕</span>}
@@ -495,7 +511,7 @@ function PlanRow({ id, title, concept, cards }: { id: string; title: string; con
       </div>
       <ol className="slots">
         {cards.map((c) => (
-          <li key={c.key} className="slot planned"><button type="button" disabled title={c.name}><span className="ph"><em>{c.name}</em></span><span className="cat">{c.cat}</span></button></li>
+          <li key={c.key} className={`slot planned ${c.cat === 5 ? "gold" : ""}`}><button type="button" disabled title={c.name}><span className="ph"><em>{c.name}</em></span><span className={`cat c${c.cat}`}>{catText(c.cat)}</span></button></li>
         ))}
       </ol>
     </div>
@@ -509,6 +525,9 @@ function SetSummary({ job, preview, form, models, events, selV }: {
   const provider = job?.request.provider ?? form.provider;
   const modelId = job?.request.model ?? form.model;
   const aspect = job?.request.aspect_ratio ?? form.aspect;
+  const size = job?.output_size ?? job?.request.output_size ?? preview?.output_size ?? form.outputSize;
+  const nCards = job ? (job.number_of_cards ?? job.variants[0]?.cards.length ?? 10) : preview?.number_of_cards ?? form.numberOfCards;
+  const nGold = job ? (job.gold_cards ?? job.request.gold_cards ?? job.variants[0]?.cards.filter((c) => c.category === 5).length ?? 0) : preview?.gold_cards ?? form.gold;
   const m = models.find((x) => x.provider_id === provider && x.model_id === modelId);
   const firstArt = job?.variants.flatMap((v) => v.cards).find((c) => c.artifact_id)?.artifact_id ?? null;
   const [px, setPx] = useState<string | null>(null);
@@ -529,13 +548,12 @@ function SetSummary({ job, preview, form, models, events, selV }: {
       <h3><span aria-hidden>▤</span> Set Summary</h3>
       <div className="summary-body">
         <dl>
-          <dt>Theme</dt><dd>{job?.collection ?? form.collection}</dd>
-          <dt>Genre</dt><dd>{job?.genre ?? form.genre}</dd>
-          <dt>Cards</dt><dd>10 (Cat. 1–4){job && job.scope === "pilot" ? " · pilot run" : ""}</dd>
+          <dt>Collection</dt><dd>{job?.collection ?? form.collection}</dd>
+          <dt>Set</dt><dd>{job?.genre ?? form.genre}</dd>
+          <dt>Cards</dt><dd>{nGold > 0 ? `${nCards - nGold} + ${nGold} ★ gold` : nCards}{job && job.scope === "pilot" ? " · pilot run" : ""}</dd>
           <dt>Variants</dt><dd>{nVar}</dd>
-          <dt>Planning</dt><dd>Rules / Templates <span className="chip tiny">local</span></dd>
           <dt>Image model</dt><dd>{m ? m.label : modelId || "—"} {m && <span className={`chip tiny st-${m.status}`}>{STATUS_LABEL[m.status] ?? m.status}</span>}</dd>
-          <dt>Resolution</dt><dd>{px ? `${px} (${aspect})` : aspect}</dd>
+          <dt>Resolution</dt><dd>{size} × {size} px <span className="muted">({aspect}{px && px !== `${size} × ${size}` ? `, file ${px}` : ""})</span></dd>
           <dt>Run time</dt><dd>{secs != null ? fmtDuration(secs) : "—"}{secs != null && <span className="muted"> (from job log)</span>}</dd>
           <dt>Cost</dt><dd>{free ? "$0.000 (mock, free)" : money(cost)} <span className="chip tiny" title="Calculated locally from list prices; not a provider invoice">estimate</span></dd>
         </dl>
@@ -590,10 +608,10 @@ function NextSteps({ job, jobExports, saved, onReview, onTweak, onExport, onSave
   const cards = job?.variants.flatMap((v) => v.cards) ?? [];
   const tweaked = cards.some((c) => c.regen_count > 0 || c.spec_version > 1 || c.versions.length > 1);
   const steps: { key: string; label: string; done: boolean; run: () => void; off?: boolean; note?: string }[] = [
-    { key: "review", label: "Review & pick best set", done: !!job?.approved_variant_id, run: onReview, off: !job, note: job?.approved_variant_id ? `Variant ${job.approved_variant_id}` : undefined },
+    { key: "review", label: "Review & pick best set", done: !!job?.approved_variant_id, run: onReview, off: !job, note: job?.approved_variant_id ? `Variant ${vlabel(job.approved_variant_id)}` : undefined },
     { key: "tweak", label: "Tweak cards (optional)", done: tweaked, run: onTweak, off: !job || cards.every((c) => !c.image_url) },
     { key: "export", label: "Export final set (PNG / ZIP)", done: jobExports.length > 0, run: onExport, off: !job, note: jobExports.length ? `${jobExports.length} export(s)` : undefined },
-    { key: "save", label: "Save to project / library", done: !!saved, run: () => { setName(`${job?.genre ?? ""} · ${job?.variants.length ?? 1} variant(s) · ${job?.scope ?? "pilot"}`); setNaming(true); setErr(null); }, off: !job, note: saved ? `Template “${saved}”` : undefined },
+    { key: "save", label: "Save to project / library", done: !!saved, run: () => { setName(`${job?.genre ?? ""} · ${job?.variants.length ?? 1} variant(s) · ${job?.number_of_cards ?? job?.variants[0]?.cards.length ?? 10} cards`); setNaming(true); setErr(null); }, off: !job, note: saved ? `Template “${saved}”` : undefined },
   ];
   async function save() {
     if (!job) return;
@@ -601,7 +619,9 @@ function NextSteps({ job, jobExports, saved, onReview, onTweak, onExport, onSave
     try {
       const r = job.request;
       await api.createTemplate(name.trim(), {
-        genre: job.genre, number_of_variants: job.variants.length, scope: r.scope, wishes: (r.wishes ?? "").slice(0, 500), category_distribution: r.category_distribution,
+        collection: job.collection, genre: job.genre, number_of_variants: job.variants.length,
+        number_of_cards: job.number_of_cards ?? job.variants[0]?.cards.length ?? 10, gold_cards: job.gold_cards ?? r.gold_cards ?? 0,
+        output_size: job.output_size ?? r.output_size ?? 1024, wishes: (r.wishes ?? "").slice(0, 500), category_distribution: r.category_distribution,
       });
       onSaved(name.trim());
       setNaming(false);
@@ -649,7 +669,7 @@ function PlansView({ job, preview, selV, onSelectVariant, onEdit }: {
         <>
           <div className="subnav">
             <div className="seg" role="radiogroup" aria-label="Variant">
-              {job.variants.map((v) => <button key={v.variant_id} type="button" role="radio" aria-checked={selV.variant_id === v.variant_id} className={selV.variant_id === v.variant_id ? "on" : ""} onClick={() => onSelectVariant(v.variant_id)}>Variant {v.variant_id}</button>)}
+              {job.variants.map((v) => <button key={v.variant_id} type="button" role="radio" aria-checked={selV.variant_id === v.variant_id} className={selV.variant_id === v.variant_id ? "on" : ""} onClick={() => onSelectVariant(v.variant_id)}>Variant {vlabel(v.variant_id)}</button>)}
             </div>
             <span className="hint">Change an object with “Replace…”: the card returns to “planned” and can be generated again.</span>
           </div>
@@ -658,7 +678,7 @@ function PlansView({ job, preview, selV, onSelectVariant, onEdit }: {
             <tbody>
               {selV.cards.map((c) => (
                 <tr key={c.card_id}>
-                  <td>{c.position}</td><td>{c.category}</td><td><strong>{c.object_name}</strong></td><td className="muted">{c.object_description}</td>
+                  <td>{c.position}</td><td className={c.category === 5 ? "goldtxt" : ""}>{catText(c.category)}</td><td><strong>{c.object_name}</strong></td><td className="muted">{c.object_description}</td>
                   <td>{c.status}{c.spec_version > 1 ? ` · edited v${c.spec_version}` : ""}</td>
                   <td><button type="button" className="ghost sm" disabled={job.active} title={job.active ? "Wait for the running job to finish" : "Replace this card's object"} onClick={() => onEdit(c.card_id)}>Replace…</button></td>
                 </tr>
@@ -736,7 +756,7 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
         </div>
         <p className="hint">{card.object_description}</p>
         <div className="chips">
-          <span className="chip">Variant {variant.variant_id} · #{card.position}</span><span className="chip">Cat. {card.category}</span>
+          <span className="chip">Variant {vlabel(variant.variant_id)} · #{card.position}</span><span className={`chip ${card.category === 5 ? "gold" : ""}`}>{card.category === 5 ? "★ Gold" : `Cat. ${card.category}`}</span>
           <QABadge status={card.qa_status} /><ReviewBadge review={card.art_review} />
           <span className="chip">refs: {card.reference_selection ?? "none"}</span>
         </div>
@@ -783,19 +803,20 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
 
 // ------------------------------------------------------------------------------ compare variants
 function CompareVariants({ job, onPick }: { job: JobDetail; onPick: (cardId: string) => void }) {
-  const positions = Array.from({ length: 10 }, (_, i) => i + 1);
+  const nPos = Math.max(job.number_of_cards ?? 0, ...job.variants.map((v) => v.cards.length));
+  const positions = Array.from({ length: nPos }, (_, i) => i + 1);
   const catOf = (pos: number) => job.variants[0]?.cards.find((c) => c.position === pos)?.category;
   return (
     <>
       <p className="hint">Same scale, same position in every variant: each column is one slot, so you can compare looks straight down. Click a thumbnail to open the card.</p>
       <table className="gridtbl varcmp">
         <thead>
-          <tr><th scope="col">Variant</th>{positions.map((pos) => <th key={pos} scope="col" className="poscol">#{pos}<br /><small>Cat {catOf(pos)}</small></th>)}</tr>
+          <tr><th scope="col">Variant</th>{positions.map((pos) => <th key={pos} scope="col" className="poscol">#{pos}<br /><small>{catOf(pos) === 5 ? "★ Gold" : `Cat ${catOf(pos)}`}</small></th>)}</tr>
         </thead>
         <tbody>
           {job.variants.map((v) => (
             <tr key={v.variant_id}>
-              <th scope="row"><strong>{v.variant_id}</strong><br /><small>{v.title}</small></th>
+              <th scope="row"><strong>{vlabel(v.variant_id)}</strong><br /><small>{v.title}</small></th>
               {positions.map((pos) => {
                 const c = v.cards.find((x) => x.position === pos);
                 return (
@@ -837,13 +858,13 @@ function QAPanel({ job }: { job: JobDetail }) {
       {err && <div className="alert err">{err}</div>}
       {Object.values(rep.variants).map((v) => (
         <details key={v.variant_id} open={v.status !== "passed"}>
-          <summary>Variant {v.variant_id} — set QA <QABadge status={v.status} /> · {v.generated}/{v.total} generated</summary>
+          <summary>Variant {vlabel(v.variant_id)} — set QA <QABadge status={v.status} /> · {v.generated}/{v.total} generated</summary>
           <CheckList checks={v.checks} />
         </details>
       ))}
       <details><summary>Per-card checks ({Object.keys(rep.cards).length})</summary>
         {Object.entries(rep.cards).map(([id, c]) => (
-          <details key={id} className="sub"><summary>{c.object_name} · Cat {c.category} <QABadge status={c.status} /> <ReviewBadge review={c.art_review} /></summary><CheckList checks={c.checks} /></details>
+          <details key={id} className="sub"><summary>{c.object_name} · {c.category === 5 ? "★ Gold" : `Cat ${c.category}`} <QABadge status={c.status} /> <ReviewBadge review={c.art_review} /></summary><CheckList checks={c.checks} /></details>
         ))}
       </details>
       <CheckList checks={rep.job_checks} />

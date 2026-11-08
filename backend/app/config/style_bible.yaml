@@ -14,7 +14,8 @@ visual_rules:
   object_centrality: The primary object stays visually dominant, central and unobstructed
   text: No embedded labels, letters, watermarks or UI typography
 # Card Category Distribution default for "Auto (Balanced)" (spec v1.7 §3.4).
-# [2,2,3,3] is OUR design assumption, NOT a Playrix-mandated ratio. Cat. 5 is locked to 0.
+# [2,2,3,3] is OUR design assumption, NOT a Playrix-mandated ratio (used as proportions for other set sizes).
+# Cat. 5 (golden) count always comes from the request's gold_cards, never from this default.
 category_distribution_default:
   "1": 2
   "2": 2

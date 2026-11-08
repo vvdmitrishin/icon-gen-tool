@@ -25,6 +25,7 @@ LABELS = {
     "system_style": "System style (Style Bible text)",
     "category_1": "Category 1 rules", "category_2": "Category 2 rules",
     "category_3": "Category 3 rules", "category_4": "Category 4 rules",
+    "category_5": "Category 5 rules (golden cards)",
     "image_closing": "Closing constraints", "repair": "Repair prompt (regenerate with notes)",
 }
 

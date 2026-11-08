@@ -8,6 +8,7 @@ only (Layer C). Genres outside the curated pools need a real TextPlanner, which 
 from __future__ import annotations
 
 import random
+import re
 import zlib
 from functools import lru_cache
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
-from .category_distribution import CARDS_PER_SET, STANDARD_CATEGORIES, assign_slots
+from .category_distribution import ALL_CATEGORIES, CARDS_PER_SET, GOLDEN_CATEGORY, assign_slots
 
 POOLS_PATH = Path(__file__).resolve().parent.parent / "config" / "object_pools.yaml"
 MAX_VARIANTS = 5
@@ -81,6 +82,37 @@ def resolve_genre(name: str) -> str:
     )
 
 
+MOVIE_WORDS = ("movie", "film", "cinema", "кіно", "фільм")
+_LOOSE_GENRES: tuple[tuple[str, str], ...] = (
+    (r"\bsci[\s_-]*fi\b|\bsf\b|science[\s_-]*fiction", "Science Fiction"),
+    (r"detective|\bnoir\b", "Detective"),
+    (r"fantasy", "Fantasy"),
+)
+
+
+def is_movie_collection(collection: str) -> bool:
+    c = (collection or "").lower()
+    return any(w in c for w in MOVIE_WORDS)
+
+
+def match_curated_genre(set_name: str) -> str | None:
+    """Exact genre/alias, else loose match ('sci-fi', 'scifi', 'sf', 'science fiction', 'detective', 'noir', 'fantasy')."""
+    try:
+        return resolve_genre(set_name)
+    except PlanningError:
+        pass
+    low = (set_name or "").lower()
+    for pattern, genre in _LOOSE_GENRES:
+        if re.search(pattern, low):
+            return genre
+    return None
+
+
+def curated_genre_for(collection: str, set_name: str) -> str | None:
+    """The curated genre if the RulesPlanner applies (movies collection AND a curated set), else None -> AI planner."""
+    return match_curated_genre(set_name) if is_movie_collection(collection) else None
+
+
 def default_seed(genre: str, variants: int) -> int:
     """Stable seed so the preview equals the created job until the producer shuffles."""
     return zlib.crc32(f"{genre.lower()}|{variants}".encode()) & 0x7FFFFFFF
@@ -96,8 +128,10 @@ _PREFS = {1: ("simple",), 2: ("simple",), 3: ("scene3", "simple", "scene4"), 4: 
 
 
 def plan_set(genre_name: str, variants: int, counts: dict[int, int], seed: int | None = None) -> SetPlan:
+    """Plan `variants` alternative sets for a curated genre; `counts` = resolved {1..5: n} distribution."""
     genre = resolve_genre(genre_name)
     pools = _pools()["genres"][genre]["microthemes"]
+    gold_pool: list[str] = list(_pools()["genres"][genre].get("gold", []))
     if not 1 <= variants <= min(MAX_VARIANTS, len(pools)):
         raise PlanningError(
             f"This genre supports 1-{min(MAX_VARIANTS, len(pools))} distinct variants.", "bad_variant_count"
@@ -120,6 +154,23 @@ def plan_set(genre_name: str, variants: int, counts: dict[int, int], seed: int |
         cards: list[PlanCard] = []
         for pos, cat in enumerate(slots, 1):
             picked, borrowed = None, False
+            if cat == GOLDEN_CATEGORY:
+                gold_items = [_entry(r) for r in gold_pool]
+                rng.shuffle(gold_items)
+                free = [e for e in gold_items if e[0] not in used_global and e[0] not in used_local]
+                if not free:
+                    raise PlanningError(
+                        f"The curated golden-card pool for '{genre}' has only {len(gold_pool)} key-character scenes; "
+                        f"{variants} variant(s) x {counts.get(GOLDEN_CATEGORY, 0)} golden card(s) needs more. "
+                        "Use fewer golden cards or fewer variants.",
+                        "pool_exhausted",
+                    )
+                name, desc = free[0]
+                used_local.add(name)
+                used_global.add(name)
+                cards.append(PlanCard(position=pos, category=cat, object_name=name, object_description=desc,
+                                      rationale=f"{theme['title']}: golden card, key characters in an ironic situation"))
+                continue
             for group in _PREFS[cat]:
                 c = candidates(group, theme)
                 if c:
@@ -163,20 +214,20 @@ def plan_set(genre_name: str, variants: int, counts: dict[int, int], seed: int |
 
 
 def validate_plan(plan: SetPlan, counts: dict[int, int]) -> list[str]:
-    """PLAN_QA (spec Stage 3): deterministic hard rules. Empty list = valid."""
+    """PLAN_QA (spec Stage 3): deterministic hard rules. Empty list = valid.
+    `counts` = resolved {1..5: n}; the expected cards per variant is its sum."""
     issues: list[str] = []
     seen_global: dict[str, str] = {}
+    total = sum(counts.get(c, 0) for c in ALL_CATEGORIES)
     for v in plan.variants:
-        if len(v.cards) != CARDS_PER_SET:
-            issues.append(f"Variant {v.variant_id}: expected {CARDS_PER_SET} cards, got {len(v.cards)}.")
+        if len(v.cards) != total:
+            issues.append(f"Variant {v.variant_id}: expected {total} cards, got {len(v.cards)}.")
         names = [c.object_name.strip().lower() for c in v.cards]
         if len(set(names)) != len(names):
             issues.append(f"Variant {v.variant_id}: duplicate object names.")
-        got = {c: 0 for c in STANDARD_CATEGORIES}
+        got = {c: 0 for c in ALL_CATEGORIES}
         for c in v.cards:
-            if c.category == 5:
-                issues.append(f"Variant {v.variant_id}: golden Category 5 is not allowed.")
-            elif c.category in got:
+            if c.category in got:
                 got[c.category] += 1
             else:
                 issues.append(f"Variant {v.variant_id}: invalid category {c.category}.")
@@ -186,7 +237,7 @@ def validate_plan(plan: SetPlan, counts: dict[int, int]) -> list[str]:
             if prev and prev != v.variant_id:
                 issues.append(f"'{c.object_name}' appears in variants {prev} and {v.variant_id}.")
             seen_global[c.object_name.strip().lower()] = v.variant_id
-        want = {c: counts.get(c, 0) for c in STANDARD_CATEGORIES}
+        want = {c: counts.get(c, 0) for c in ALL_CATEGORIES}
         if got != want:
             issues.append(f"Variant {v.variant_id}: category counts {got} differ from requested {want}.")
     return issues

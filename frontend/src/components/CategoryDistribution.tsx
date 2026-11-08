@@ -1,38 +1,59 @@
+import { CATS, type Cat, type DistCounts } from "../lib/cards";
+
+export type { DistCounts };
 export type DistMode = "auto_balanced" | "custom";
-export type DistCounts = Record<"1" | "2" | "3" | "4", number>;
 
-const CATS = ["1", "2", "3", "4"] as const;
-export const SET_SIZE = 10;
-
-/** Mirrors the backend rules (spec §3.4); the server stays authoritative. */
-export function distributionErrors(counts: DistCounts): string[] {
+/** Mirrors the backend rules; the server stays authoritative. `standard` = number_of_cards - gold_cards. */
+export function distributionErrors(counts: DistCounts, standard: number): string[] {
   const errs: string[] = [];
-  const empty = CATS.filter((c) => counts[c] < 1);
-  if (empty.length) errs.push(`Each of Categories 1–4 needs at least 1 card (empty: ${empty.join(", ")}).`);
+  if (standard >= 4) {
+    const empty = CATS.filter((c) => counts[c] < 1);
+    if (empty.length) errs.push(`Each of Categories 1–4 needs at least 1 card (empty: ${empty.join(", ")}).`);
+  }
   const sum = CATS.reduce((s, c) => s + counts[c], 0);
-  if (sum !== SET_SIZE) errs.push(`Counts must total ${SET_SIZE} cards (currently ${sum}).`);
+  if (sum !== standard) errs.push(`Standard categories must total ${standard} card${standard === 1 ? "" : "s"} (currently ${sum}).`);
   return errs;
+}
+
+const TIPS: Record<Cat | "gold", { title: string; text: string }> = {
+  "1": { title: "Cat. 1", text: "Floating object on a simple, clean background. One clear hero object, no scene." },
+  "2": { title: "Cat. 2", text: "Object resting on a surface (shelf/table), minimal background, soft shadow." },
+  "3": { title: "Cat. 3", text: "Object on a realistic surface with a few supporting props; slightly richer context, still object-focused." },
+  "4": { title: "Cat. 4", text: "Object inside a small environment/scene that tells a story; bright, casual, readable." },
+  gold: { title: "★ Gold (Cat. 5)", text: "Most valuable card: key characters of the collection in an ironic, emotional situation. Max 2 characters." },
+};
+
+/** Rich tooltip: shows on hover and on keyboard focus of the ⓘ button. */
+function InfoTip({ id, tip, align }: { id: string; tip: { title: string; text: string }; align: "left" | "center" | "right" }) {
+  return (
+    <span className={`tip tip-${align}`}>
+      <button type="button" className="tip-btn" aria-label={`About ${tip.title}`} aria-describedby={id}>ⓘ</button>
+      <span role="tooltip" id={id} className="tip-bubble"><strong>{tip.title}</strong>{tip.text}</span>
+    </span>
+  );
 }
 
 interface Props {
   mode: DistMode;
+  /** custom counts (Cat. 1-4) */
   counts: DistCounts;
-  defaults: DistCounts;
+  /** what Auto shows: the backend's distribution when a preview exists, otherwise the client-side balanced split */
+  autoCounts: DistCounts;
+  standard: number;
+  gold: number;
   onMode: (m: DistMode) => void;
-  onCount: (cat: "1" | "2" | "3" | "4", v: number) => void;
-  appliedToSets?: boolean;
+  onCount: (cat: Cat, v: number) => void;
 }
 
-/** Compact "Card categories" control: cards per category 1-4 (Cat. 5 golden cards are locked off). */
-export function CategoryDistribution({ mode, counts, defaults, onMode, onCount, appliedToSets }: Props) {
-  const shown = mode === "auto_balanced" ? defaults : counts;
+/** Compact "Card categories" control: cards per category 1-4 plus the ★ Gold slot driven by the golden-cards slider. */
+export function CategoryDistribution({ mode, counts, autoCounts, standard, gold, onMode, onCount }: Props) {
+  const shown = mode === "auto_balanced" ? autoCounts : counts;
   const sum = CATS.reduce((s, c) => s + shown[c], 0);
-  const errors = mode === "custom" ? distributionErrors(counts) : [];
+  const errors = mode === "custom" ? distributionErrors(counts, standard) : [];
   const editable = mode === "custom";
   const help =
-    (mode === "auto_balanced" ? "Default [2,2,3,3] is our design assumption, not a Playrix-mandated ratio. " : "Producer-defined counts. ") +
-    (appliedToSets ? "Applied when the planner assigns objects to category slots (identical in every variant). " : "Used by card sets; single-card mode uses the category chosen above. ") +
-    "Separate from rarity / stars.";
+    (mode === "auto_balanced" ? "Auto: balanced split of the standard cards (2:2:3:3 for 10). " : "Producer-defined counts. ") +
+    "Applied identically in every variant. Separate from rarity / stars.";
 
   return (
     <div className="dist">
@@ -47,24 +68,24 @@ export function CategoryDistribution({ mode, counts, defaults, onMode, onCount, 
         </div>
       </div>
       <div className="steppers">
-        {CATS.map((c) => (
+        {CATS.map((c, i) => (
           <div key={c} className={`stepper cat${c} ${editable ? "" : "ro"}`}>
-            <span>Cat. {c}</span>
+            <span className="slbl">Cat. {c}<InfoTip id={`tip-cat${c}`} tip={TIPS[c]} align={i <= 1 ? "left" : i === 2 ? "center" : "right"} /></span>
             <div>
               <button type="button" aria-label={`Decrease category ${c}`} disabled={!editable || shown[c] <= 0} onClick={() => onCount(c, shown[c] - 1)}>−</button>
               <output aria-label={`Category ${c} count`}>{shown[c]}</output>
-              <button type="button" aria-label={`Increase category ${c}`} disabled={!editable || shown[c] >= SET_SIZE} onClick={() => onCount(c, shown[c] + 1)}>+</button>
+              <button type="button" aria-label={`Increase category ${c}`} disabled={!editable || shown[c] >= standard} onClick={() => onCount(c, shown[c] + 1)}>+</button>
             </div>
           </div>
         ))}
-        <div className="stepper ro locked" title="Golden cards (Cat. 5) are locked OFF for the Movie Collection pilot">
-          <span>Cat. 5</span>
-          <div><output aria-label="Category 5 count">0</output><small>locked</small></div>
+        <div className="stepper ro cat5">
+          <span className="slbl">★ Gold<InfoTip id="tip-gold" tip={TIPS.gold} align="right" /></span>
+          <div><output aria-label="Golden cards count">{gold}</output></div>
         </div>
       </div>
       <div className="dist-foot">
-        <span className={`sum ${errors.length || sum !== SET_SIZE ? "bad" : "ok"}`}>Σ = {sum} / {SET_SIZE}</span>
-        <span className="hint">Golden cards (Cat. 5) — locked off</span>
+        <span className={`sum ${errors.length || sum !== standard ? "bad" : "ok"}`}>Σ = {sum} / {standard}</span>
+        <span className="hint">Standard cards (Cat. 1–4){gold > 0 ? ` + ${gold} ★ gold` : ""}</span>
       </div>
       {errors.map((e) => <div key={e} className="alert err" role="alert">{e}</div>)}
     </div>

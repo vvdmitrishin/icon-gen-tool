@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
+import { vlabel } from "../lib/cards";
 import type { Artifact, CollectionOverview, ExportRecord, JobSummary } from "../types/api";
 
 interface Props {
   jobs: JobSummary[];
   perImage: number;
   variants: number;
-  scope: "pilot" | "full";
+  cardsPerSet: number;
   busy: boolean;
   onOpen: (jobId: string) => void;
   onBatch: (confirmed: boolean) => Promise<void>;
@@ -35,7 +36,7 @@ export function HistoryView(p: Props) {
   useEffect(() => { refresh(); }, [refresh, p.jobs.length]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
-  const images = GENRES.length * p.variants * (p.scope === "pilot" ? 4 : 10);
+  const images = GENRES.length * p.variants * p.cardsPerSet;
   const est = images * p.perImage;
   async function batch() {
     if (est > 0 && !armed) { setArmed(true); window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setArmed(false), 10000); return; }
@@ -66,7 +67,7 @@ export function HistoryView(p: Props) {
             <div key={g.genre} className={`genre ${g.ready ? "ready" : ""}`}>
               <strong>{g.genre}</strong>
               <span className={`chip ${g.ready ? "ok" : "warn"}`}>{g.ready ? "ready" : "not ready"}</span>
-              <small>{g.jobs} job(s){g.approved_variant_id ? ` · variant ${g.approved_variant_id} approved` : ""}{g.generated ? ` · ${g.generated}/10` : ""}</small>
+              <small>{g.jobs} job(s){g.approved_variant_id ? ` · variant ${vlabel(g.approved_variant_id)} approved` : ""}{g.generated ? ` · ${g.generated} generated` : ""}</small>
               {g.blockers.map((b) => <small key={b} className="bad">• {b}</small>)}
               {g.job_id && <button type="button" className="ghost" onClick={() => p.onOpen(g.job_id!)}>Open</button>}
             </div>
@@ -83,23 +84,23 @@ export function HistoryView(p: Props) {
 
       <section className="card-box">
         <h3>Plan all three genres at once</h3>
-        <p className="hint">Uses the current Generate-screen settings (variants: {p.variants}, scope: {p.scope}, model, references). One confirmation covers all {GENRES.length} jobs; they still run sequentially under the same cost caps.</p>
+        <p className="hint">Uses the current Generate-screen settings (variants: {p.variants}, cards per set: {p.cardsPerSet}, model, references). One confirmation covers all {GENRES.length} jobs; they still run sequentially under the same cost caps.</p>
         <div className="rvbtns">
           <button type="button" className={`primary small ${armed ? "armed" : ""}`} disabled={p.busy} onClick={batch}>
             {armed ? `Confirm & spend ≈ $${est.toFixed(3)}` : `Create ${GENRES.length} jobs · ${images} images${est > 0 ? ` · ≈ $${est.toFixed(3)}` : " (free)"}`}
           </button>
           {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
         </div>
-        {est > 0.75 && <div className="alert warn">This exceeds the per-run cap (GEMINI_JOB_BUDGET_USD) and will be refused; lower the variants or use pilot scope.</div>}
+        {est > 0.75 && <div className="alert warn">This exceeds the per-run cap (GEMINI_JOB_BUDGET_USD) and will be refused; lower the variants or the number of cards.</div>}
       </section>
 
       <section className="card-box">
         <h3>Jobs</h3>
         {p.jobs.length === 0 ? <p className="hint">No jobs yet.</p> : (
-          <table className="gridtbl"><thead><tr><th>Created</th><th>Genre</th><th>Variants</th><th>Status</th><th>Est. spent</th><th>Final</th><th /></tr></thead>
+          <table className="gridtbl"><thead><tr><th>Created</th><th>Genre</th><th>Variants</th><th>Cards</th><th>Status</th><th>Est. spent</th><th>Final</th><th /></tr></thead>
             <tbody>{p.jobs.map((j) => (
-              <tr key={j.job_id}><td>{new Date(j.created_at).toLocaleString()}</td><td>{j.genre}</td><td>{j.variants}</td><td>{j.status.replace(/_/g, " ")}</td>
-                <td>${j.spent_est.toFixed(3)}</td><td>{j.approved_variant_id ? `★ ${j.approved_variant_id}` : "–"}</td>
+              <tr key={j.job_id}><td>{new Date(j.created_at).toLocaleString()}</td><td>{j.genre}</td><td>{j.variants}</td><td>{j.number_of_cards ?? 10}{(j.gold_cards ?? 0) > 0 ? ` (+${j.gold_cards} ★)` : ""}</td><td>{j.status.replace(/_/g, " ")}</td>
+                <td>${j.spent_est.toFixed(3)}</td><td>{j.approved_variant_id ? `★ ${vlabel(j.approved_variant_id)}` : "–"}</td>
                 <td><button type="button" className="ghost" onClick={() => p.onOpen(j.job_id)}>Open</button></td></tr>
             ))}</tbody></table>
         )}
@@ -111,7 +112,7 @@ export function HistoryView(p: Props) {
           <table className="gridtbl"><thead><tr><th>Created</th><th>Kind</th><th>Contents</th><th>Size</th><th /></tr></thead>
             <tbody>{exports.map((x) => (
               <tr key={x.export_id}><td>{new Date(x.created_at).toLocaleString()}</td><td>{x.kind}</td>
-                <td>{x.kind === "variant" ? `${x.genre} · variant ${x.variant_id} · ${x.approved ? "approved" : "unapproved"}` : `final bundle${x.partial ? " (partial)" : ""}`}{x.contains_mock_images ? " · MOCK" : ""}</td>
+                <td>{x.kind === "variant" ? `${x.genre} · variant ${vlabel(x.variant_id)} · ${x.approved ? "approved" : "unapproved"}` : `final bundle${x.partial ? " (partial)" : ""}`}{x.contains_mock_images ? " · MOCK" : ""}</td>
                 <td>{(x.size / 1024).toFixed(0)} KB</td><td><a href={x.download_url} download={x.filename}>Download</a></td></tr>
             ))}</tbody></table>
         )}

@@ -46,7 +46,7 @@ def test_default_templates_reproduce_the_builtin_prompt_exactly():
 def test_library_is_seeded_with_version_one_defaults(c):
     items = c.get("/api/prompts").json()
     assert [i["name"] for i in items] == ["system_style", "category_1", "category_2", "category_3",
-                                          "category_4", "image_closing", "repair"]
+                                          "category_4", "category_5", "image_closing", "repair"]
     assert all(i["version"] == 1 and i["is_default_text"] and i["versions"] == [1] for i in items)
 
 
@@ -67,7 +67,7 @@ def test_library_validation(c):
     assert c.post("/api/prompts", json={"name": "nope", "text": "x"}).status_code == 422
     assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 3001}).status_code == 422
     assert c.get("/api/prompts/nope/versions").status_code == 404
-    assert [i["version"] for i in c.get("/api/prompts").json()] == [1] * 7  # nothing was saved
+    assert [i["version"] for i in c.get("/api/prompts").json()] == [1] * 8  # nothing was saved
 
 
 def test_edited_template_changes_generation_and_is_recorded_in_provenance(c):

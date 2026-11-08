@@ -1,3 +1,4 @@
+import { vlabel } from "../lib/cards";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { CardComparison, ComparisonGrid, JobDetail } from "../types/api";
@@ -55,7 +56,7 @@ export function CompareView({ job, focusCardId }: Props) {
         {mode !== "grid" && (
           <>
             <select aria-label="Card" value={cardId ?? ""} onChange={(e) => setCardId(e.target.value)}>
-              {allCards.map((c) => <option key={c.card_id} value={c.card_id}>{c.variant}{String(c.position).padStart(2, "0")} · Cat {c.category} · {c.object_name}</option>)}
+              {allCards.map((c) => <option key={c.card_id} value={c.card_id}>{vlabel(c.variant)}-{String(c.position).padStart(2, "0")} · {c.category === 5 ? "★ Gold" : `Cat ${c.category}`} · {c.object_name}</option>)}
             </select>
             <button type="button" className="ghost" onClick={() => step(-1)} aria-label="Previous card">‹ Prev</button>
             <button type="button" className="ghost" onClick={() => step(1)} aria-label="Next card">Next ›</button>
@@ -94,8 +95,8 @@ export function CompareView({ job, focusCardId }: Props) {
         <>
           <div className="cmp-bar">
             <span className="lbl">Filter</span>
-            {[null, 1, 2, 3, 4].map((c) => (
-              <button key={String(c)} type="button" className={`ghost ${catFilter === c ? "on" : ""}`} onClick={() => setCatFilter(c)}>{c === null ? "All" : `Cat. ${c}`}</button>
+            {[null, 1, 2, 3, 4, 5].map((c) => (
+              <button key={String(c)} type="button" className={`ghost ${catFilter === c ? "on" : ""}`} onClick={() => setCatFilter(c)}>{c === null ? "All" : c === 5 ? "★ Gold" : `Cat. ${c}`}</button>
             ))}
           </div>
           <table className="gridtbl">
@@ -103,7 +104,7 @@ export function CompareView({ job, focusCardId }: Props) {
             <tbody>
               {grid.pairs.filter((p) => catFilter === null || p.category === catFilter).map((p) => (
                 <tr key={p.card_id} onClick={() => { if (p.image_url) { setCardId(p.card_id); setMode("split"); } }} className={p.image_url ? "click" : ""}>
-                  <td>{p.variant_id}{String(p.position).padStart(2, "0")}</td><td>{p.category}</td><td>{p.object_name}</td>
+                  <td>{vlabel(p.variant_id)}-{String(p.position).padStart(2, "0")}</td><td>{p.category === 5 ? "★" : p.category}</td><td>{p.object_name}</td>
                   <td>{p.image_url ? <img src={p.image_url} alt={p.object_name} /> : <span className="hint">{p.status}</span>}</td>
                   <td>{p.reference ? <img src={p.reference.thumbnail_url} alt={p.reference.original_name} /> : <span className="hint">none</span>}</td>
                   <td><QABadge status={p.qa_status} /></td>

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api/client";
-import { CategoryDistribution, type DistCounts, type DistMode } from "./components/CategoryDistribution";
+import { CategoryDistribution, type DistMode } from "./components/CategoryDistribution";
+import { GoldSlider } from "./components/GoldSlider";
+import { PlanNotice, type PlanError } from "./components/PlanNotice";
 import { ModelSettings, ProviderAvailability, keyOf } from "./components/ModelSettings";
+import { DEFAULT_CARDS, DEFAULT_SIZE, balancedSplit, fitCounts, type Cat, type DistCounts } from "./lib/cards";
 import { ReferenceUploader } from "./components/ReferenceUploader";
 import { HistoryView } from "./components/HistoryView";
 import { ResultPanel } from "./components/ResultPanel";
@@ -21,19 +24,20 @@ const CATEGORIES: { n: 1 | 2 | 3 | 4; label: string }[] = [
   { n: 3, label: "Cat. 3 — realistic surface" },
   { n: 4, label: "Cat. 4 — in an environment" },
 ];
-type Mode = "set" | "single";
 type View = "generate" | "history" | "templates" | "settings";
 
 const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? `${e.message}${e.code ? ` [${e.code}]` : ""}` : fallback);
+const toPlanError = (e: unknown): PlanError =>
+  e instanceof ApiError ? { code: e.code, message: e.message } : { code: null, message: "Preview failed" };
+const clampInt = (v: unknown, lo: number, hi: number, d: number) =>
+  typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : d;
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>("set");
   const [view, setView] = useState<View>("generate");
   // First-run setup guide / "Connect providers" dialog (credentials are handled by the backend; never stored in the browser).
   const [setupOpen, setSetupOpen] = useState(false);
   const { firstRun, refresh: refreshFirstRun } = useFirstRun();
   useEffect(() => { if (firstRun) setSetupOpen(true); }, [firstRun]);
-  const [advOpen, setAdvOpen] = useState(false);
   const [models, setModels] = useState<ModelsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refs, setRefs] = useState<RefMeta[]>([]);
@@ -42,6 +46,9 @@ export default function App() {
 
   const [collection, setCollection] = useState("Movie Collection");
   const [genre, setGenre] = useState("Science Fiction");
+  const [numberOfCards, setNumberOfCards] = useState(DEFAULT_CARDS);
+  const [gold, setGold] = useState(0);
+  const [outputSize, setOutputSize] = useState(DEFAULT_SIZE);
   const [genres, setGenres] = useState<GenreInfo[]>([]);
   const [objectName, setObjectName] = useState("");
   const [objectDesc, setObjectDesc] = useState("");
@@ -52,7 +59,6 @@ export default function App() {
   const [distMode, setDistMode] = useState<DistMode>("auto_balanced");
   const [customDist, setCustomDist] = useState<DistCounts | null>(null);
   const [variants, setVariants] = useState(1);
-  const [scope, setScope] = useState<"pilot" | "full">("pilot");
   const [seed, setSeed] = useState<number | null>(null);
 
   // single-card slice
@@ -65,7 +71,9 @@ export default function App() {
 
   // set generation
   const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
-  const [jobPreviewError, setJobPreviewError] = useState<string | null>(null);
+  const [jobPreviewError, setJobPreviewError] = useState<PlanError | null>(null);
+  const [aiPlanKey, setAiPlanKey] = useState<string | null>(null); // planKey the user agreed to plan with the AI for
+  const [planningAi, setPlanningAi] = useState(false);
   const [job, setJob] = useState<JobDetail | null>(null);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [events, setEvents] = useState<JobEvent[]>([]);
@@ -132,13 +140,35 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [job?.job_id, job?.active, loadModels, loadJobs]);
 
-  const defaultDist = useMemo<DistCounts>(() => {
-    const d = models?.defaults.category_distribution ?? {};
-    return { "1": d["1"] ?? 2, "2": d["2"] ?? 2, "3": d["3"] ?? 3, "4": d["4"] ?? 3 };
-  }, [models]);
+  // Single-card mode is driven by "Number of cards" (1 = single card, > 1 = card set).
+  const mode: "set" | "single" = numberOfCards === 1 ? "single" : "set";
+  const goldEff = mode === "set" ? Math.min(gold, numberOfCards) : 0;
+  const standard = numberOfCards - goldEff;
+  const previewDist = jobPreview?.distribution;
+  const previewDistKey = previewDist ? JSON.stringify(previewDist) : "";
+  const autoCounts = useMemo<DistCounts>(() => {
+    const d = previewDist;
+    if (d) {
+      const c: DistCounts = { "1": d["1"] ?? 0, "2": d["2"] ?? 0, "3": d["3"] ?? 0, "4": d["4"] ?? 0 };
+      if (c["1"] + c["2"] + c["3"] + c["4"] === standard) return c; // the backend is the source of truth
+    }
+    return balancedSplit(standard);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewDistKey, standard]);
+  // keep custom counts consistent with the number of standard cards
+  useEffect(() => { setCustomDist((c) => (c ? fitCounts(c, standard) : c)); }, [standard]);
   const model = useMemo(() => models?.models.find((m) => keyOf(m) === modelKey), [models, modelKey]);
   const refIds = useMemo(() => selectedRefs.filter((id) => refs.some((r) => r.ref_id === id)), [selectedRefs, refs]);
-  const maxVariants = genres.find((g) => g.genre === genre)?.max_variants ?? 5;
+  const setNames = useMemo(() => (genres.length ? genres.map((g) => g.genre) : ["Science Fiction", "Detective", "Fantasy"]), [genres]);
+  // everything the plan depends on; the "ai planned" flag is only valid while this is unchanged
+  const planKey = useMemo(
+    () => JSON.stringify([collection.trim(), genre.trim(), variants, numberOfCards, goldEff, distMode, distMode === "custom" ? customDist : null, wishes, seed]),
+    [collection, genre, variants, numberOfCards, goldEff, distMode, customDist, wishes, seed],
+  );
+  const aiPlanned = aiPlanKey === planKey;
+  const aiKeyRef = useRef<string | null>(null);
+  aiKeyRef.current = aiPlanKey;
+  const aiDoneSig = useRef<string | null>(null);
 
   const perImageSel = model?.est_cost_per_image_usd ?? 0;
   const perImageJob = useMemo(() => {
@@ -147,15 +177,18 @@ export default function App() {
   }, [models, job?.request.provider, job?.request.model]);
 
   const applyPreset = useCallback((pl: Record<string, unknown>) => {
-    setMode("set");
+    if (typeof pl.collection === "string") setCollection(pl.collection);
     if (typeof pl.genre === "string") setGenre(pl.genre);
-    if (typeof pl.number_of_variants === "number") setVariants(pl.number_of_variants);
-    if (pl.scope === "pilot" || pl.scope === "full") setScope(pl.scope);
+    if (typeof pl.number_of_variants === "number") setVariants(clampInt(pl.number_of_variants, 1, 5, 1));
+    const n = clampInt(pl.number_of_cards, 1, 10, DEFAULT_CARDS);
+    setNumberOfCards(n);
+    setGold(clampInt(pl.gold_cards, 0, n, 0));
+    setOutputSize(clampInt(pl.output_size, 24, 1024, DEFAULT_SIZE));
     if (typeof pl.wishes === "string") setWishes(pl.wishes);
     const d = pl.category_distribution as { mode?: string; counts?: Record<string, number> } | undefined;
     if (d?.mode === "custom" && d.counts) {
       setDistMode("custom");
-      setCustomDist({ "1": d.counts["1"] ?? 1, "2": d.counts["2"] ?? 1, "3": d.counts["3"] ?? 1, "4": d.counts["4"] ?? 1 });
+      setCustomDist(fitCounts({ "1": d.counts["1"] ?? 1, "2": d.counts["2"] ?? 1, "3": d.counts["3"] ?? 1, "4": d.counts["4"] ?? 1 }, n - clampInt(pl.gold_cards, 0, n, 0)));
     } else setDistMode("auto_balanced");
     setSeed(null);
     setView("generate");
@@ -174,46 +207,53 @@ export default function App() {
       reference_ids: refIds,
       reference_policy_accepted: policyOverride ?? policy,
       aspect_ratio: aspect,
+      output_size: outputSize,
       confirmed,
     }),
-    [collection, genre, objectName, objectDesc, category, wishes, model, refIds, policy, aspect],
+    [collection, genre, objectName, objectDesc, category, wishes, model, refIds, policy, aspect, outputSize],
   );
 
   const jobRequest = useCallback(
-    (confirmed: boolean, policyOverride?: boolean): JobRequestPayload => ({
+    (confirmed: boolean, policyOverride: boolean | undefined, allowAi: boolean): JobRequestPayload => ({
       collection: collection.trim() || "Movie Collection",
       genre: genre.trim(),
       wishes,
       number_of_variants: variants,
+      number_of_cards: numberOfCards,
+      gold_cards: goldEff,
+      output_size: outputSize,
+      allow_ai_plan: allowAi,
       category_distribution: distMode === "auto_balanced"
         ? { mode: "auto_balanced" }
-        : { mode: "custom", counts: { ...(customDist ?? defaultDist) } },
+        : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
       provider: model?.provider_id ?? "",
       model: model?.model_id ?? "",
       reference_ids: refIds,
       reference_policy_accepted: policyOverride ?? policy,
       aspect_ratio: aspect,
-      scope,
+      scope: "full",
       seed,
       confirmed,
     }),
-    [collection, genre, wishes, variants, distMode, customDist, defaultDist, model, refIds, policy, aspect, scope, seed],
+    [collection, genre, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed],
   );
 
   const onBatch = useCallback(async (confirmed: boolean) => {
-    await api.batch(jobRequest(confirmed), ["Science Fiction", "Detective", "Fantasy"]);
+    await api.batch(jobRequest(confirmed, undefined, aiPlanned), ["Science Fiction", "Detective", "Fantasy"]);
     loadJobs();
     loadModels();
-  }, [jobRequest, loadJobs, loadModels]);
+  }, [jobRequest, aiPlanned, loadJobs, loadModels]);
 
   /** "Generate similar set": reload the job's settings into the form with a new shuffled seed. Nothing is generated. */
   const startSimilar = useCallback((j: JobDetail) => {
     const r = j.request;
-    setMode("set");
     setCollection(j.collection);
     setGenre(j.genre);
     setVariants(j.variants.length);
-    setScope(r.scope);
+    const n = clampInt(j.number_of_cards ?? r.number_of_cards, 1, 10, DEFAULT_CARDS);
+    const g = clampInt(j.gold_cards ?? r.gold_cards, 0, n, 0);
+    setNumberOfCards(n); setGold(g);
+    setOutputSize(clampInt(j.output_size ?? r.output_size, 24, 1024, DEFAULT_SIZE));
     setWishes(r.wishes ?? "");
     setAspect(r.aspect_ratio);
     const key = `${r.provider}/${r.model}`;
@@ -221,7 +261,7 @@ export default function App() {
     const d = r.category_distribution;
     if (d.mode === "custom") {
       setDistMode("custom");
-      setCustomDist({ "1": d.counts["1"] ?? 1, "2": d.counts["2"] ?? 1, "3": d.counts["3"] ?? 1, "4": d.counts["4"] ?? 1 });
+      setCustomDist(fitCounts({ "1": d.counts["1"] ?? 1, "2": d.counts["2"] ?? 1, "3": d.counts["3"] ?? 1, "4": d.counts["4"] ?? 1 }, n - g));
     } else setDistMode("auto_balanced");
     setSeed(Math.floor(Math.random() * 2 ** 31));
     setJob(null); setEvents([]); setJobError(null);
@@ -247,21 +287,43 @@ export default function App() {
     if (mode !== "set") return;
     if (!setValid) { setJobPreview(null); setJobPreviewError(null); return; }
     const t = window.setTimeout(async () => {
-      try { setJobPreview(await api.jobsPreview(jobRequest(false, true))); setJobPreviewError(null); }
-      catch (e) { setJobPreview(null); setJobPreviewError(e instanceof ApiError ? e.message : "Preview failed"); }
+      // Free previews never trigger the AI planner unless the user already agreed for these exact inputs.
+      const allow = aiKeyRef.current === planKey;
+      const req = jobRequest(false, true, allow);
+      const sig = JSON.stringify(req);
+      if (allow && aiDoneSig.current === sig) return; // this exact AI plan is already shown: never pay twice
+      try {
+        setJobPreview(await api.jobsPreview(req));
+        setJobPreviewError(null);
+        if (allow) aiDoneSig.current = sig;
+      } catch (e) { setJobPreview(null); setJobPreviewError(toPlanError(e)); }
     }, 350);
     return () => window.clearTimeout(t);
-  }, [mode, setValid, jobRequest, models?.budget.spent_estimated_usd]);
+  }, [mode, setValid, jobRequest, planKey, models?.budget.spent_estimated_usd]);
+
+  /** "Plan with AI": one small text call for custom themes; the result is reused while the inputs stay unchanged. */
+  async function planWithAi() {
+    setPlanningAi(true);
+    try {
+      const req = jobRequest(false, true, true);
+      const pv = await api.jobsPreview(req);
+      aiDoneSig.current = JSON.stringify(req);
+      setJobPreview(pv);
+      setJobPreviewError(null);
+      setAiPlanKey(planKey);
+    } catch (e) { setJobPreview(null); setJobPreviewError(toPlanError(e)); }
+    finally { setPlanningAi(false); }
+  }
 
   useEffect(() => () => { window.clearTimeout(armTimer.current); window.clearTimeout(contTimer.current); }, []);
-  useEffect(() => { setArmed(false); }, [mode, modelKey, objectName, genre, category, wishes, aspect, refIds.length, variants, scope, distMode, customDist]);
+  useEffect(() => { setArmed(false); }, [mode, modelKey, objectName, genre, category, wishes, aspect, outputSize, refIds.length, variants, numberOfCards, goldEff, distMode, customDist]);
 
   const est = mode === "single" ? (preview?.estimated_cost_usd ?? 0) : (jobPreview?.estimated_cost_usd ?? 0);
   const paid = est > 0;
   const needsPolicy = refIds.length > 0 && model?.provider_id !== "mock" && !policy;
   const policyNeeded = refIds.length > 0 && model?.provider_id !== "mock";
   const previewBlock = mode === "single" ? preview?.blocked?.message : jobPreview?.blocked?.message;
-  const blockedReason = previewBlock ?? (mode === "single" ? previewError : jobPreviewError) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
+  const blockedReason = previewBlock ?? (mode === "single" ? previewError : jobPreviewError?.message) ?? (needsPolicy ? "Confirm the reference-image policy checkbox." : null);
   const havePreview = mode === "single" ? !!preview : !!jobPreview;
   const busy = generating || starting || !!job?.active;
   const canGenerate = formValid && !busy && !blockedReason && havePreview;
@@ -290,7 +352,7 @@ export default function App() {
       setStarting(true);
       setJobError(null);
       try {
-        const d = await api.createJob(jobRequest(true));
+        const d = await api.createJob(jobRequest(true, undefined, aiPlanned));
         setJob(d);
         setEvents(await api.jobEvents(d.job_id));
         loadJobs();
@@ -325,15 +387,16 @@ export default function App() {
     setChecking(false);
   }
 
+  const planCost = jobPreview?.plan_cost_estimate_usd ?? 0;
   const buttonLabel: { main: string; sub?: string } = (() => {
     if (generating || starting) return { main: mode === "single" ? "Generating…" : "Starting…" };
     if (job?.active && mode === "set") return { main: "Job running…" };
     if (armed) return { main: `Confirm & spend ≈ $${est.toFixed(3)}`, sub: "Click again to start; this uses the paid API" };
     const cost = paid ? `≈ $${est.toFixed(3)} (local estimate)` : "free";
     if (mode === "single") return { main: "Generate card", sub: cost };
-    const n = jobPreview?.images_in_scope ?? 0;
-    const full = paid && jobPreview && jobPreview.images_in_scope < jobPreview.images_total ? ` · full set ≈ $${jobPreview.estimated_cost_full_usd.toFixed(2)}` : "";
-    return { main: `Generate Sets (${variants} variant${variants > 1 ? "s" : ""})`, sub: `${n} image${n === 1 ? "" : "s"} · ${cost}${full}` };
+    const n = jobPreview?.images_in_scope ?? variants * numberOfCards;
+    const planTxt = planCost > 0 ? ` + $${planCost.toFixed(3)} AI plan` : "";
+    return { main: `Generate Sets (${variants} variant${variants > 1 ? "s" : ""})`, sub: `${n} image${n === 1 ? "" : "s"} · ${cost}${planTxt}` };
   })();
 
   return (
@@ -345,13 +408,14 @@ export default function App() {
       {view !== "generate" && (
         <div className="page">
           {view === "history" && (
-            <HistoryView jobs={jobs} perImage={perImageSel} variants={variants} scope={scope} busy={!!job?.active || starting}
-              onOpen={(id) => { openJob(id); setMode("set"); setView("generate"); }} onBatch={onBatch} onRefresh={loadJobs} />
+            <HistoryView jobs={jobs} perImage={perImageSel} variants={variants} cardsPerSet={numberOfCards} busy={!!job?.active || starting}
+              onOpen={(id) => { openJob(id); setNumberOfCards((n) => (n === 1 ? DEFAULT_CARDS : n)); setView("generate"); }} onBatch={onBatch} onRefresh={loadJobs} />
           )}
           {view === "templates" && (
             <TemplatesView onApply={applyPreset} current={() => ({
-              genre, number_of_variants: variants, scope, wishes: wishes.slice(0, 500),
-              category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? defaultDist) } },
+              collection: collection.trim(), genre, number_of_variants: variants, number_of_cards: numberOfCards, gold_cards: goldEff, output_size: outputSize,
+              wishes: wishes.slice(0, 500),
+              category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
             })} />
           )}
           {view === "settings" && <SettingsView onOpenSetup={() => setSetupOpen(true)} />}
@@ -362,43 +426,36 @@ export default function App() {
           <div className="left-scroll">
             {mode === "single" && (
               <div className="modebar" role="status">
-                <span><strong>Single-card test mode</strong> (diagnostic: one object, one provider call)</span>
-                <button type="button" className="ghost sm" onClick={() => setMode("set")}>Back to card sets</button>
+                <span><strong>Single-card mode</strong> (Number of cards = 1): one object, one provider call</span>
               </div>
             )}
 
             <Section n={1} title="Set & Theme">
               <div className="row"><label className="lbl" htmlFor="coll">Collection</label>
-                <input id="coll" value={collection} onChange={(e) => setCollection(e.target.value)} maxLength={80} /></div>
-              {mode === "set" ? (
-                <>
-                  <div className="row"><label className="lbl" htmlFor="genre">Genre / Set</label>
-                    <select id="genre" value={genre} onChange={(e) => { setGenre(e.target.value); setSeed(null); setVariants((v) => Math.min(v, genres.find((g) => g.genre === e.target.value)?.max_variants ?? 5)); }}>
-                      {(genres.length ? genres.map((g) => g.genre) : [genre]).map((g) => <option key={g} value={g}>{g}</option>)}
-                    </select></div>
-                  <div className="row two">
-                    <div><span className="lbl">Number of cards</span><input value="10 (fixed)" disabled aria-label="Cards per set" /></div>
-                    <div><label className="lbl" htmlFor="variants">Variants</label>
+                <input id="coll" value={collection} placeholder="e.g. Movies, Transport, Space Travel" onChange={(e) => { setCollection(e.target.value); setSeed(null); }} maxLength={80} /></div>
+              <p className="hint rowhint">The AI reads this to choose the theme.</p>
+              <div className="row"><label className="lbl" htmlFor="genre">Set</label>
+                <input id="genre" list="genres" value={genre} placeholder="e.g. Sci-Fi, Detective, Cars" onChange={(e) => { setGenre(e.target.value); setSeed(null); }} maxLength={80} />
+                <datalist id="genres">{setNames.map((g) => <option key={g} value={g} />)}</datalist></div>
+              <p className="hint rowhint">A narrower refinement of the Collection; the AI analyses it too.</p>
+              <div className="row two">
+                <div><label className="lbl" htmlFor="ncards">Number of cards</label>
+                  <select id="ncards" value={numberOfCards} onChange={(e) => { const n = Number(e.target.value); setNumberOfCards(n); setGold((g) => Math.min(g, n)); setSeed(null); }}>
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 10 ? "10 (standard)" : n}</option>)}
+                  </select></div>
+                {mode === "set" && (
+                  <div><label className="lbl" htmlFor="variants">Variants</label>
+                    <div className="withbtn">
                       <select id="variants" value={variants} onChange={(e) => { setVariants(Number(e.target.value)); setSeed(null); }}>
-                        {Array.from({ length: maxVariants }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
-                      </select></div>
-                  </div>
-                  <div className="field">
-                    <span className="lbl" id="scope-lbl">How much to generate</span>
-                    <div className="seg" role="radiogroup" aria-labelledby="scope-lbl">
-                      <button type="button" role="radio" aria-checked={scope === "pilot"} className={scope === "pilot" ? "on" : ""} onClick={() => setScope("pilot")}>Test run · 4 cards</button>
-                      <button type="button" role="radio" aria-checked={scope === "full"} className={scope === "full" ? "on" : ""} onClick={() => setScope("full")}>Full set · 10 cards</button>
-                    </div>
-                    <p className="hint">{scope === "pilot"
-                      ? "One card per category in each variant. Cheap check of the look; you can continue to the full set afterwards."
-                      : "All 10 cards in every variant."}</p>
-                  </div>
-                </>
-              ) : (
+                        {Array.from({ length: 5 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                      <button type="button" className="ghost sm" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}
+                        title={seed != null ? `Plan seed ${seed}. Picks a different set of objects; changing the theme, set or variants resets it.` : "Picks a different set of objects"}>Shuffle plan</button>
+                    </div></div>
+                )}
+              </div>
+              {mode === "single" && (
                 <>
-                  <div className="row"><label className="lbl" htmlFor="genre">Genre / Set</label>
-                    <input id="genre" list="genres" value={genre} onChange={(e) => setGenre(e.target.value)} maxLength={80} />
-                    <datalist id="genres"><option value="Science Fiction" /><option value="Detective" /><option value="Fantasy" /></datalist></div>
                   <div className="row"><label className="lbl" htmlFor="obj">Object</label>
                     <input id="obj" placeholder="e.g. Retro Space Helmet" value={objectName} onChange={(e) => setObjectName(e.target.value)} maxLength={80} /></div>
                   <div className="row"><label className="lbl" htmlFor="objd">Details <small>(optional)</small></label>
@@ -417,20 +474,24 @@ export default function App() {
                         <input type="radio" name="cat" checked={category === c.n} onChange={() => setCategory(c.n)} />{c.label}
                       </label>
                     ))}
-                    <label className="cat locked" title="Golden cards are locked OFF for the Movie demo">
-                      <input type="radio" disabled />Golden cards (Cat. 5) — locked OFF
+                    <label className="cat locked" title="Golden cards are available in card-set mode">
+                      <input type="radio" disabled />★ Golden cards (Cat. 5) — card sets only
                     </label>
                   </div>
                 </>
               ) : (
-                <CategoryDistribution
-                  mode={distMode}
-                  counts={customDist ?? defaultDist}
-                  defaults={defaultDist}
-                  appliedToSets
-                  onMode={(m) => { setDistMode(m); setSeed(null); if (m === "custom") setCustomDist((c) => c ?? { ...defaultDist }); }}
-                  onCount={(cat, v) => setCustomDist((c) => ({ ...(c ?? defaultDist), [cat]: Math.max(0, Math.min(10, v)) }))}
-                />
+                <>
+                  <GoldSlider value={goldEff} max={numberOfCards} onChange={(v) => { setGold(v); setSeed(null); }} />
+                  <CategoryDistribution
+                    mode={distMode}
+                    counts={customDist ?? autoCounts}
+                    autoCounts={autoCounts}
+                    standard={standard}
+                    gold={goldEff}
+                    onMode={(m) => { setDistMode(m); setSeed(null); if (m === "custom") setCustomDist((c) => c ?? { ...autoCounts }); }}
+                    onCount={(cat: Cat, v) => setCustomDist((c) => ({ ...(c ?? autoCounts), [cat]: Math.max(0, Math.min(standard, v)) }))}
+                  />
+                </>
               )}
               <div className="field">
                 <label className="lbl" htmlFor="artstyle">Art style</label>
@@ -445,7 +506,7 @@ export default function App() {
                 </div>
               </div>
               {mode === "single" && preview?.warnings.map((w) => <div key={w} className="alert warn">{w}</div>)}
-              <div className="note"><span aria-hidden>ⓘ</span> System rules stay fixed (style, categories, artwork-only). Wishes steer the image prompts; the rules planner picks objects from its curated pool.</div>
+              <div className="note"><span aria-hidden>ⓘ</span> System rules stay fixed (style, categories, artwork-only). Wishes steer the image prompts and the object plan.</div>
             </Section>
 
             <Section n={3} title="References">
@@ -456,36 +517,19 @@ export default function App() {
 
             <Section n={4} title="Generation Setup">
               {models ? (
-                <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} aspect={aspect} onAspect={setAspect} />
+                <>
+                  <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} aspect={aspect} onAspect={setAspect}
+                    outputSize={outputSize} onOutputSize={setOutputSize} onManage={() => setView("settings")} onConnectionChanged={loadModels} />
+                  <ProviderAvailability models={models.models} checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />
+                </>
               ) : <p className="hint">Loading models…</p>}
             </Section>
-
-            <details className="adv main" open={advOpen || mode === "single"} onToggle={(e) => setAdvOpen((e.currentTarget as HTMLDetailsElement).open)}>
-              <summary>Advanced settings</summary>
-              <div className="adv-body">
-                <div className="field">
-                  <span className="lbl" id="mode-lbl">Mode</span>
-                  <div className="seg" role="radiogroup" aria-labelledby="mode-lbl">
-                    <button type="button" role="radio" aria-checked={mode === "set"} className={mode === "set" ? "on" : ""} onClick={() => setMode("set")}>Card sets</button>
-                    <button type="button" role="radio" aria-checked={mode === "single"} className={mode === "single" ? "on" : ""} onClick={() => setMode("single")}>Single card (test)</button>
-                  </div>
-                </div>
-                {mode === "set" && (
-                  <div className="field">
-                    <span className="lbl">Plan shuffle</span>
-                    <button type="button" className="ghost" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Shuffle plan{seed != null ? ` (seed ${seed})` : ""}</button>
-                    <p className="hint">Picks a different set of objects from the curated pools. Changing genre or variants resets the seed.</p>
-                  </div>
-                )}
-                <p className="hint">Automatic retries: <strong>{models?.budget.max_card_retries ?? 0}</strong> (off). Sequential generation, circuit breaker after 2 consecutive failures.</p>
-                {models && <ProviderAvailability models={models.models} checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />}
-                <button type="button" className="ghost" onClick={() => setView("settings")}>Open Settings (read-only)</button>
-              </div>
-            </details>
           </div>
 
           <div className="cta">
-            {blockedReason && formValid && <div className="alert warn compact">{blockedReason}</div>}
+            {mode === "set" && jobPreviewError && formValid
+              ? <PlanNotice error={jobPreviewError} planning={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)} compact />
+              : blockedReason && formValid && <div className="alert warn compact">{blockedReason}</div>}
             {mode === "set" && jobPreview?.warnings.map((w) => <div key={w} className="alert warn compact">{w}</div>)}
             <div className="cta-row">
               <button type="button" className={`primary big ${armed ? "armed" : ""}`} onClick={onGenerate} disabled={!canGenerate}>
@@ -493,15 +537,17 @@ export default function App() {
               </button>
               {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
             </div>
-            {!formValid && <p className="hint">{mode === "single" ? "Enter a genre and an object, and pick an available model." : "Pick an available model."}</p>}
+            {!formValid && <p className="hint">{mode === "single" ? "Enter a set and an object, and pick an available model." : "Pick an available model."}</p>}
           </div>
         </aside>
 
         {mode === "set" ? (
           <SetPanel job={job} preview={jobPreview} previewError={jobPreviewError} events={events} jobs={jobs}
-            models={models?.models ?? []} form={{ collection, genre, variants, provider: model?.provider_id ?? "", model: model?.model_id ?? "", aspect }}
+            models={models?.models ?? []}
+            form={{ collection, genre, variants, numberOfCards, gold: goldEff, outputSize, provider: model?.provider_id ?? "", model: model?.model_id ?? "", aspect }}
             error={jobError} starting={starting} perImage={perImageJob} onJob={(d) => { setJob(d); loadJobs(); if (!d.active) loadModels(); }}
             onError={setJobError} onPickJob={openJob} onContinue={onContinue}
+            planningAi={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)}
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
             onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")} />
         ) : (

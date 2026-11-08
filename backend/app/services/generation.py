@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -25,13 +27,14 @@ class GenerateCardRequest(BaseModel):
     genre: str = Field(min_length=1, max_length=80)
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(default="", max_length=300)
-    category: Literal[1, 2, 3, 4]
+    category: Literal[1, 2, 3, 4, 5]  # 5 = golden (only inside a set job; the single-card endpoint refuses it)
     wishes: str = Field(default="", max_length=2000)
     provider: str
     model: str
     reference_ids: list[str] = Field(default_factory=list)
     reference_policy_accepted: bool = False
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16", "16:9"] = "1:1"
+    output_size: int = 1024  # delivered icon side in px (24..1024); downscaled from the native image, never upscaled
     confirmed: bool = False  # explicit user confirmation of the shown cost estimate
     context: dict[str, Any] = Field(default_factory=dict)  # e.g. job_id/variant_id/position (provenance)
     repair_note: str = Field(default="", max_length=300)  # regeneration corrections (spec §11.4)
@@ -50,6 +53,29 @@ class GenerationFailure(Exception):
     def __init__(self, status: int, code: str, message: str, extra: dict[str, Any] | None = None):
         super().__init__(message)
         self.status, self.code, self.message, self.extra = status, code, message, extra or {}
+
+
+ALLOWED_OUTPUT_SIZES = (24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
+
+
+def deliver_size(png: bytes, width: int, height: int, output_size: int) -> tuple[bytes, int, int, str]:
+    """Downscale (LANCZOS, aspect kept) so the longer side == output_size; never upscale.
+    -> (png_bytes, width, height, note). note is '' unless the native image was smaller than requested."""
+    longer = max(width, height)
+    if longer <= output_size:
+        note = ("" if longer == output_size else
+                f"Native image is {width}x{height}px, smaller than the requested {output_size}px; "
+                "delivered at native size (no upscaling).")
+        return png, width, height, note
+    scale = output_size / longer
+    nw, nh = max(1, round(width * scale)), max(1, round(height * scale))
+    with Image.open(io.BytesIO(png)) as im:
+        im.load()
+        out = im.convert("RGBA" if im.mode in ("RGBA", "LA", "P") else "RGB")
+        out = out.resize((nw, nh), Image.LANCZOS)
+        buf = io.BytesIO()
+        out.save(buf, format="PNG")
+    return buf.getvalue(), nw, nh, ""
 
 
 class GenerationService:
@@ -88,6 +114,9 @@ class GenerationService:
                 400, "references_unsupported",
                 f"{model.label} accepts at most {cap_max} reference image(s).",
             )
+        if req.output_size not in ALLOWED_OUTPUT_SIZES:
+            raise GenerationFailure(422, "bad_output_size",
+                                    f"Output size must be one of {', '.join(str(x) for x in ALLOWED_OUTPUT_SIZES)} px.")
         if req.aspect_ratio not in model.capabilities.get("aspect_ratios", ["1:1"]):
             raise GenerationFailure(
                 400, "aspect_unsupported", f"{model.label} does not support {req.aspect_ratio}."
@@ -135,7 +164,10 @@ class GenerationService:
         }
 
     # ----------------------------------------------------------------- generate
-    async def generate(self, req: GenerateCardRequest) -> dict[str, Any]:
+    async def generate(self, req: GenerateCardRequest, *, allow_golden: bool = False) -> dict[str, Any]:
+        if req.category == 5 and not allow_golden:
+            raise GenerationFailure(422, "invalid_card", "Category 5 (golden) cards are generated only inside a set job, "
+                                    "not through the single-card endpoint.")
         model, compiled, refs, estimate = self._prepare(req)
         if estimate > 0 and not req.confirmed:
             raise GenerationFailure(
@@ -192,14 +224,16 @@ class GenerationService:
                 model_id=model.model_id, est_cost_usd=estimate,
                 usage=result.usage, outcome="ok",
             )
+            delivered = deliver_size(result.png_bytes, result.width, result.height, req.output_size)
             metadata = self._metadata(artifact_id, req, model, compiled, refs, result,
-                                      estimate, attempts)
-            self.store.save(artifact_id, result.png_bytes, metadata)
+                                      estimate, attempts, delivered)
+            self.store.save(artifact_id, delivered[0], metadata)
             if model.provider_id != "mock":
                 self.registry.mark_live(model.provider_id, model.model_id)
             return metadata
 
-    def _metadata(self, artifact_id, req, model, compiled, refs, result, estimate, attempts):
+    def _metadata(self, artifact_id, req, model, compiled, refs, result, estimate, attempts, delivered):
+        png, dw, dh, size_note = delivered
         return {
             "schema_version": 1,
             "artifact_id": artifact_id,
@@ -210,11 +244,15 @@ class GenerationService:
             "image": {
                 "file": f"{artifact_id}.png",
                 "url": f"/api/artifacts/{artifact_id}/image",
-                "width": result.width,
-                "height": result.height,
-                "bytes": len(result.png_bytes),
-                "sha256": hashlib.sha256(result.png_bytes).hexdigest(),
+                "width": dw,
+                "height": dh,
+                "bytes": len(png),
+                "sha256": hashlib.sha256(png).hexdigest(),
                 "aspect_ratio_requested": req.aspect_ratio,
+                "output_size_requested": req.output_size,
+                "native_width": result.width,
+                "native_height": result.height,
+                "output_size_note": size_note,
             },
             "card": req.card().model_dump(),
             "context": req.context,

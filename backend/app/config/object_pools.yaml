@@ -3,11 +3,29 @@
 #   simple : suits Cat. 1-2 (and 3-4) - clean silhouette, no small details
 #   scene3 : suits Cat. 3 (object on a realistic surface)
 #   scene4 : suits Cat. 4 (object as the focus of a recognizable environment)
+# gold (genre level): Category 5 golden cards = key characters (max 2) in an ironic, emotional situation; unique across variants.
 # Default [2,2,3,3] needs 4 simple + 3 scene3 + 3 scene4 per micro-theme; 5 simple allows 5 Cat. 1-2 cards x 5 variants. No franchise names/logos, no weapons.
 version: pools_v1
 genres:
   Science Fiction:
     aliases: [sci-fi, scifi, science-fiction, sf]
+    gold:
+      - Robot and Alien on an awkward first date | a shy tin robot and a three-eyed alien sharing one tiny table, both pretending the glowing soup is delicious
+      - Astronaut and Space Cat at a failed landing | a proud astronaut and a smug cat in a mini spacesuit staring at a crumpled shuttle
+      - Android Barista and Sleepy Pilot | a cheerful android proudly handing a gigantic cup to an exhausted star pilot
+      - Alien Tourist and Local Robot Guide | a delighted alien taking selfies while a tired guide robot rolls its eyes
+      - Scientist and Her Escaped Experiment | a flustered scientist holding a leash attached to a happy glowing blob
+      - Lonely Robot Gardener Waters a Plant | a small robot hugging a drooping potted plant with a tear-shaped oil drop
+      - Captain and Malfunctioning Co-Pilot Droid | a captain facepalming while a droid cheerfully salutes with the wrong hand
+      - Time Traveler Meets His Grandfather Robot | a startled traveler shaking hands with a very old, very proud robot
+      - Two Aliens Watching Earth TV | a pair of alien siblings gasping at a tiny glowing screen, one holding popcorn
+      - Space Cadet and Hovering Teacher Drone | a nervous cadet receiving a gold star from a strict floating drone
+      - Robot Chef and Alien Critic | a hopeful robot chef serving a smoking dish to a very unimpressed alien
+      - Stranded Astronaut and Friendly Moon Rock | an astronaut sharing a lunch box with a smiling pet rock
+      - Cyborg Grandma Teaches Robot to Knit | a grandmother with a chrome arm patiently guiding a robot tangled in yarn
+      - Alien Kid and Broken Toy Robot | a worried alien child gently holding the sparking head of a toy robot
+      - Spaceship Captain and Her Cloned Twin | a captain and her identical clone arguing over the last glowing cookie
+      - Robot Bride and Alien Groom | a robot and an alien in wedding outfits looking very emotional, sparks flying like confetti
     microthemes:
       - id: retro_space_discovery
         title: Retro Space Discovery
@@ -96,6 +114,23 @@ genres:
           - Comet Docking Port | docking arm reaching a glowing comet
   Detective:
     aliases: [detective & mystery, mystery, whodunit, crime]
+    gold:
+      - Detective and Her Sleepy Bloodhound | a determined detective pulling a leash while the bloodhound naps on the clue
+      - Inspector Finds His Own Hat at the Crime Scene | a baffled inspector holding up a hat identical to the one on his head
+      - Butler and Cook Both Say It Was Not Them | a dignified butler and a flour-covered cook pointing at each other
+      - Detective and Teary Parrot Witness | a serious detective listening to a dramatic parrot who is clearly overacting
+      - Lost Cat Detective Meets the Culprit Mouse | a tiny detective cat and a guilty mouse holding a stolen cheese wedge
+      - Old Detective and Young Apprentice | a grumpy veteran and an overeager rookie sharing one magnifying glass
+      - Thief and Detective Stuck in the Same Elevator | a masked thief and a trench-coated detective awkwardly avoiding eye contact
+      - Heiress and Her Missing Poodle | an elegant heiress weeping while the poodle watches from behind a curtain
+      - Museum Guard Falls Asleep on Duty | a snoring guard hugging a flashlight while a shadowy figure tiptoes away
+      - Detective and Barista Share the Last Clue Cookie | a tired detective and a smiling barista reaching for the same cookie
+      - Magician Caught With a Rabbit and the Jewels | a nervous magician with a rabbit holding a necklace in its mouth
+      - Detective Reads the Letter and Cries | a hard-boiled detective wiping a tear while holding a very sweet note
+      - Twin Detectives Suspect Each Other | two identical detectives squinting at one another over a tangled case board
+      - Lighthouse Keeper and the Mysterious Duck | a startled keeper holding a lantern, facing a duck wearing a tiny detective hat
+      - Detective and Newspaper Boy Swap Hats | a gentle detective and a cheeky boy proudly wearing each other's hats
+      - Widow and the Detective at the Tea Table | a calm lady pouring tea for a detective who nervously checks every cup
     microthemes:
       - id: classic_whodunit
         title: Classic Whodunit
@@ -184,6 +219,23 @@ genres:
           - Cruise Ship Deck | sunny deck with railings and funnels
   Fantasy:
     aliases: [fantasy adventure, magic, magical]
+    gold:
+      - Knight and Dragon Share an Umbrella | a polite knight and a sulking small dragon huddled under one umbrella in the rain
+      - Wizard and His Talking Cat Argue About Dinner | a flustered wizard holding a spoon while a stern cat points at an empty bowl
+      - Elf Archer and Goblin Baker | a graceful elf and a flour-dusted goblin proudly presenting a lopsided cake
+      - Fairy Queen and a Very Tiny Throne | a regal fairy sitting on a thimble throne, trying to look dignified
+      - Princess and the Troll at the Bridge Toll | a calm princess handing a confused troll a coupon
+      - Witch and Her Broom Break Down | a sulking witch sitting on a snapped broom while the broom looks guilty
+      - Young Mage Casts a Spell and Floods the Library | a horrified apprentice floating on a stack of books
+      - Dwarf Miner Finds His Lost Sandwich in the Gold | a delighted dwarf holding a sandwich next to a heap of treasure he ignores
+      - Dragon Egg Hatches Into a Baby Knight Fan | a baby dragon wearing a tiny helmet gazing at a startled knight
+      - Mermaid and Sailor Swap Worlds for a Day | a mermaid in a tiny boat and a sailor in a bucket of water, both confused
+      - Unicorn and Farmer at the Broken Fence | a heartbroken farmer pointing at a gap while a unicorn pretends to be a horse
+      - Old Wizard Forgets His Own Spell | a puzzled wizard holding a wand while a tiny owl whispers the answer
+      - King and the Court Jester Swap Crowns | a smiling jester wearing the crown and a king giggling in the jester hat
+      - Ogre Chef and the Hungry Pixie | an ogre in an apron tenderly serving a single berry to a delighted pixie
+      - Forest Spirit and Lost Traveler Share a Lantern | a gentle spirit and a weary traveler walking close, glowing fireflies around them
+      - Giant and Little Girl Have a Tea Party | a smiling giant holding a teacup the size of a bucket across from a determined girl
     microthemes:
       - id: magical_quest
         title: Magical Quest

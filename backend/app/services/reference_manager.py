@@ -18,7 +18,7 @@ from PIL import Image, UnidentifiedImageError
 
 from ..providers.base import ReferenceImage
 
-REF_TYPES = ("style", "category_1", "category_2", "category_3", "category_4",
+REF_TYPES = ("style", "category_1", "category_2", "category_3", "category_4", "category_5",
              "composition", "negative")
 ALLOWED_FORMATS = {"PNG", "JPEG", "WEBP"}
 MAX_DIMENSION = 8192

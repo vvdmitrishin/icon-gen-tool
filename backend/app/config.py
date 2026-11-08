@@ -46,6 +46,7 @@ class Settings:
     gemini_send_image_config: bool = True
     gemini_timeout_s: float = 120.0
     gemini_est_cost_per_image_usd: float = 0.067
+    gemini_text_model: str = "gemini-2.5-flash"  # AI set planner (TextPlanner), one tiny text call per plan
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     paid_image_calls_enabled: bool = True
@@ -103,6 +104,7 @@ class Settings:
             default_model=g("DEFAULT_IMAGE_MODEL") or "gemini-nano-banana-2.1",
             gemini_api_key=g("GEMINI_API_KEY", "") or "",
             gemini_api_enabled=_bool(g("GEMINI_API_ENABLED"), True),
+            gemini_text_model=(g("GEMINI_TEXT_MODEL") or "gemini-2.5-flash").strip(),
             gemini_send_image_config=_bool(g("GEMINI_SEND_IMAGE_CONFIG"), True),
             gemini_timeout_s=_float(g("GEMINI_TIMEOUT_SECONDS"), 120.0),
             gemini_est_cost_per_image_usd=_float(g("GEMINI_EST_COST_PER_IMAGE_USD"), 0.067),

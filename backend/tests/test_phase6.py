@@ -197,7 +197,7 @@ def test_batch_respects_caps_and_validation(settings, rec):
         assert c.get("/api/jobs").json() == [] and rec.requests == []
         assert c.post("/api/collection/batch", json={**three, "genres": ["Detective", "detective"]}).status_code == 400
         assert c.post("/api/collection/batch", json={**three, "genres": []}).status_code == 400
-        assert c.post("/api/collection/batch", json={**three, "genres": ["Western"]}).json()["detail"]["code"] == "unknown_genre"
+        assert c.post("/api/collection/batch", json={**three, "genres": ["Western"]}).json()["detail"]["code"] == "ai_plan_required"
         free = c.post("/api/collection/batch", json=dict(genres=["Science Fiction", "Detective", "Fantasy"], number_of_variants=1,
                                                          scope="pilot", confirmed=False, **MOCK))
         assert free.status_code == 200 and len(free.json()) == 3

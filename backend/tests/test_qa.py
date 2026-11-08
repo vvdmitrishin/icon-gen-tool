@@ -104,7 +104,7 @@ def test_set_qa_detects_each_problem():
 
     gold = [card(i, c) for i, c in enumerate(CATS)]
     gold[0]["category"] = 5
-    assert {c["id"]: c["status"] for c in qa_variant("A", gold, DIST)["checks"]}["SQ-04"] == "fail"
+    assert {c["id"]: c["status"] for c in qa_variant("A", gold, DIST)["checks"]}["SQ-04"] == "fail"  # unplanned golden
 
     rej = [card(i, c) for i, c in enumerate(CATS)]
     rej[2]["art_review"] = "rejected"

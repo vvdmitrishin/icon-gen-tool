@@ -1,6 +1,5 @@
 # Category composition rules (spec v1.7 §3.2 + §3.4 "Category prompt logic").
-# Categories 1-4 are the standard art categories. Category 5 (golden) is a documented future concept,
-# locked to 0 and disabled for the Movie Collection pilot. The per-category card COUNT is a separate,
+# Categories 1-4 are the standard art categories. Category 5 (golden) = KEY CHARACTERS of the collection. The per-category card COUNT is a separate,
 # configurable Card Category Distribution (see category_distribution.py), not defined here.
 version: category_v1
 categories:
@@ -20,7 +19,13 @@ categories:
     name: Object in a realistic environment
     composition: The object is embedded in a realistic environment (stylized casual-game realism) and remains the central focus of the image.
     background: A full recognizable environment that tells a small local story. The object must not get lost in the decor.
+  5:
+    name: Golden card - key characters
+    composition: >-
+      Golden cards are the most valuable cards: the artwork shows the collection's KEY CHARACTERS playing out an ironic,
+      emotional situation. At most 2 characters on one golden card. The characters are the hero of the image, expressive
+      and readable (clear pose and emotion), in an original design (no existing franchise characters).
+    background: A simple, supportive setting that tells the story of the ironic situation without clutter; the characters stay dominant and unobstructed.
 golden_concept:
-  # Category 5 - future support concept only. NOT generated: locked to 0 and disabled in the current pilot.
-  enabled: false
-  description: Narrative golden-card scene with one or two characters in a humorous emotional situation.
+  enabled: true
+  description: Narrative golden-card scene with one or two key characters in an ironic, emotional situation (max 2 characters).

@@ -14,7 +14,6 @@ from PIL import Image, ImageStat
 
 MIN_SIDE_FAIL = 256
 MIN_SIDE_WARN = 512
-CARDS_PER_SET = 10
 
 
 def _chk(cid: str, name: str, status: str, detail: str) -> dict[str, str]:
@@ -50,8 +49,13 @@ def qa_card(png_path: Path, meta: dict[str, Any], expected_aspect: str = "1:1") 
                        "PNG signature present" if data[:8] == b"\x89PNG\r\n\x1a\n" else "file is not a PNG"))
 
     side = min(w, h)
-    checks.append(_chk("TQ-03", "Resolution", "fail" if side < MIN_SIDE_FAIL else "warn" if side < MIN_SIDE_WARN else "pass",
-                       f"shorter side {side}px (warn < {MIN_SIDE_WARN}, fail < {MIN_SIDE_FAIL})"))
+    # the producer may deliberately ask for small icons (24..1024px): thresholds never exceed the requested size
+    requested = int(meta.get("image", {}).get("output_size_requested") or 0) or None
+    fail_below = min(MIN_SIDE_FAIL, requested) if requested else MIN_SIDE_FAIL
+    warn_below = min(MIN_SIDE_WARN, requested) if requested else MIN_SIDE_WARN
+    checks.append(_chk("TQ-03", "Resolution", "fail" if side < fail_below else "warn" if side < warn_below else "pass",
+                       f"shorter side {side}px (warn < {warn_below}, fail < {fail_below}"
+                       + (f"; requested output {requested}px)" if requested else ")")))
 
     try:
         aw, ah = (int(x) for x in expected_aspect.split(":"))
@@ -82,33 +86,37 @@ def qa_card(png_path: Path, meta: dict[str, Any], expected_aspect: str = "1:1") 
                        "SHA-256 matches provenance" if ok else "SHA-256 differs from provenance (file changed?)"))
 
     kb = len(data) / 1024
-    checks.append(_chk("TQ-08", "File size", "pass" if 5 <= kb <= 20480 else "warn", f"{kb:.0f} KB"))
+    min_kb = 5 if side >= MIN_SIDE_FAIL else 0.05  # a legitimate 24px icon is only a few hundred bytes
+    checks.append(_chk("TQ-08", "File size", "pass" if min_kb <= kb <= 20480 else "warn", f"{kb:.1f} KB"))
 
     if meta.get("is_mock"):
         checks.append(_chk("TQ-09", "Real artwork", "warn", "mock placeholder - not produced by an AI model"))
     return {"status": _verdict(checks), "checks": checks}
 
 
-def qa_variant(variant_id: str, cards: list[dict[str, Any]], distribution: dict[int, int]) -> dict[str, Any]:
+def qa_variant(variant_id: str, cards: list[dict[str, Any]], distribution: dict[int, int],
+               expected_total: int | None = None) -> dict[str, Any]:
     """Set-level QA for one variant. `cards` rows need: card_id, category, object_name, status,
     sha256, width, height, qa_status, art_review."""
     checks: list[dict[str, str]] = []
     done = [c for c in cards if c["status"] == "done" and c.get("sha256")]
-    checks.append(_chk("SQ-01", "Set complete", "pass" if len(done) == CARDS_PER_SET else "warn",
-                       f"{len(done)}/{CARDS_PER_SET} cards generated"))
+    planned_total = expected_total or sum(distribution.get(k, 0) for k in (1, 2, 3, 4, 5)) or len(cards)
+    checks.append(_chk("SQ-01", "Set complete", "pass" if len(done) == planned_total else "warn",
+                       f"{len(done)}/{planned_total} cards generated"))
 
-    got = {k: sum(1 for c in cards if c["category"] == k) for k in (1, 2, 3, 4)}
-    want = {k: distribution.get(k, 0) for k in (1, 2, 3, 4)}
+    got = {k: sum(1 for c in cards if c["category"] == k) for k in (1, 2, 3, 4, 5)}
+    want = {k: distribution.get(k, 0) for k in (1, 2, 3, 4, 5)}
     checks.append(_chk("SQ-02", "Category distribution (HR-08)", "pass" if got == want else "fail",
-                       f"planned {list(got.values())} vs requested {list(want.values())}"))
+                       f"planned {list(got.values())} vs requested {list(want.values())} (Cat.1-5)"))
 
     names = [c["object_name"].strip().lower() for c in cards]
     checks.append(_chk("SQ-03", "Unique objects (HR-02)", "pass" if len(set(names)) == len(names) else "fail",
                        "all names unique" if len(set(names)) == len(names) else "duplicate object names"))
 
     golden = [c for c in cards if c["category"] == 5]
-    checks.append(_chk("SQ-04", "No golden cards (HR-03/04)", "fail" if golden else "pass",
-                       "Category 5 present" if golden else "only Categories 1-4"))
+    gold_want = distribution.get(5, 0)
+    checks.append(_chk("SQ-04", "Golden cards match plan (HR-03/04)", "pass" if len(golden) == gold_want else "fail",
+                       f"{len(golden)} golden card(s) planned, {gold_want} requested"))
 
     hashes: dict[str, list[str]] = {}
     for c in done:

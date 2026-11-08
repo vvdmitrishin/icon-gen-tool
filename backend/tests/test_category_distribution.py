@@ -37,7 +37,6 @@ def test_custom_valid():
     ({1: 3, 2: 3, 3: 3, 4: 3}, "bad_total"),          # sums to 12
     ({1: 0, 2: 4, 3: 3, 4: 3}, "category_empty"),     # a category has 0
     ({1: 2, 2: 2, 3: 3}, "category_empty"),           # missing category
-    ({1: 2, 2: 2, 3: 3, 4: 3, 5: 1}, "golden_locked"),
     ({1: -1, 2: 4, 3: 4, 4: 3}, "negative"),
     ({1: 2, 2: 2, 3: 3, 4: 3, 6: 0}, "unknown_category"),
 ])
@@ -93,9 +92,8 @@ def test_cat4_prompt_realistic_environment_object_central_focus():
     assert "realistic environment" in p and "central focus" in p
 
 
-def test_golden_category_remains_rejected_by_card_spec():
-    with pytest.raises(ValueError):
-        CardSpec(collection="c", genre="g", object_name="o", category=5)
+def test_golden_category_is_accepted_by_card_spec():
+    assert CardSpec(collection="c", genre="g", object_name="o", category=5).category == 5
 
 
 # ---- API ----------------------------------------------------------------------------------------
@@ -123,6 +121,7 @@ def test_validate_endpoint_rejects_bad_custom(client):
     r = client.post("/api/category-distribution/validate",
                     json={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 0, "4": 0}})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "category_empty"
+    # a Cat.5 key is ignored in Custom mode: the golden count comes from gold_cards
     r = client.post("/api/category-distribution/validate",
                     json={"mode": "custom", "counts": {"1": 2, "2": 2, "3": 3, "4": 3, "5": 1}})
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "golden_locked"
+    assert r.status_code == 200 and r.json()["counts"]["5"] == 0

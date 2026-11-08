@@ -77,8 +77,9 @@ class Exporter:
         vid = variant["variant_id"]
         cards = variant["cards"]
         blockers = []
-        if sum(1 for c in cards if c["status"] == "done") < 10:
-            blockers.append(f"variant {vid} is incomplete ({sum(1 for c in cards if c['status'] == 'done')}/10 cards generated)")
+        n_done = sum(1 for c in cards if c["status"] == "done")
+        if n_done < len(cards) or not cards:
+            blockers.append(f"variant {vid} is incomplete ({n_done}/{len(cards)} cards generated)")
         if variant["set_qa"]["status"] == "failed":
             blockers.append("set QA failed: " + "; ".join(c["name"] for c in variant["set_qa"]["checks"] if c["status"] == "fail"))
         if not variant["approved"] and not include_unapproved:
@@ -123,6 +124,8 @@ class Exporter:
             "genre": detail["genre"], "job_id": detail["job_id"], "variant_id": vid, "variant_title": variant["title"],
             "concept": variant["concept"], "approved": variant["approved"], "approved_at": variant["approved_at"],
             "distribution": detail["distribution"], "seed": detail["seed"], "contains_mock_images": mock,
+            "number_of_cards": len(cards), "gold_cards": detail.get("gold_cards", 0),
+            "output_size": detail.get("output_size", 1024), "planning_mode": detail.get("planning_mode", "rules"),
             "estimated_total_cost_usd": round(sum(c["estimated_cost_usd"] for c in manifest_cards), 6),
             "cost_is_estimate": True, "limitations": LIMITATIONS, "cards": manifest_cards,
         }
@@ -141,7 +144,7 @@ class Exporter:
             f"{detail['collection']} - {detail['genre']} - Variant {vid} ({variant['title']})\n"
             f"Status: {'APPROVED' if variant['approved'] else 'NOT APPROVED (exported explicitly)'}\n"
             f"{'WARNING: contains MOCK placeholder images, not AI artwork.' + chr(10) if mock else ''}"
-            "\nartwork/            10 PNGs (artwork only: no frames, stars or UI)\n"
+            f"\nartwork/            {len(cards)} PNGs (artwork only: no frames, stars or UI)\n"
             "manifest.json       provider, model, prompts, references, category, QA verdict per image\n"
             "set-plan.json       the planned set and request settings\n"
             "QA-report.json      technical + set QA results\n"
@@ -198,7 +201,7 @@ class Exporter:
                     store = self.jobs.gen.store
                     row["generated"] = v["set_qa"]["generated"]
                     row["contains_mock_images"] = any((store.metadata(c["artifact_id"]) or {}).get("is_mock") for c in v["cards"] if c["artifact_id"])
-                    if v["set_qa"]["generated"] < 10:
+                    if v["set_qa"]["generated"] < v["set_qa"]["total"]:
                         row["blockers"].append("approved variant is incomplete")
                     if v["set_qa"]["status"] == "failed":
                         row["blockers"].append("set QA failed")
@@ -209,7 +212,7 @@ class Exporter:
             blockers_all += [f"{genre}: {b}" for b in row["blockers"]]
             out.append(row)
         return {"collection": collection, "genres": out, "final_ready": all(r["ready"] for r in out),
-                "blockers": blockers_all, "note": "Final deliverable: one approved, complete, non-mock 10-card set per genre; no Category 5."}
+                "blockers": blockers_all, "note": "Final deliverable: one approved, complete, non-mock set per genre (golden cards, if any, included)."}
 
     def export_collection(self, collection: str = "Movie Collection", *, include_unapproved: bool = False,
                           allow_mock: bool = False, allow_partial: bool = False) -> dict[str, Any]:
@@ -221,7 +224,7 @@ class Exporter:
                 problems.append(f"{g['genre']}: no job")
                 continue
             detail = self.jobs.detail(g["job_id"])
-            vid = g["approved_variant_id"] or next((v["variant_id"] for v in detail["variants"] if v["set_qa"]["generated"] == 10), None)
+            vid = g["approved_variant_id"] or next((v["variant_id"] for v in detail["variants"] if v["set_qa"]["generated"] == v["set_qa"]["total"]), None)
             variant = next((v for v in detail["variants"] if v["variant_id"] == vid), None)
             if variant is None:
                 problems.append(f"{g['genre']}: no complete variant")
