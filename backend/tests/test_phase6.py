@@ -71,7 +71,7 @@ def test_export_contains_every_spec_file_with_correct_manifest(big, rec):
         for card in m["cards"]:  # manifest hashes match the real files in the ZIP
             assert hashlib.sha256(z.read(card["file"])).hexdigest() == card["sha256"]
             assert card["provider"] == "gemini" and card["model"] == "gemini-nano-banana-2.1" and card["technical_qa"] == "passed"
-            assert card["prompt"]["template_versions"]["category_1"] == 1 and card["art_review"] == "approved"
+            assert card["prompt"]["template_versions"]["category_1"] == 2 and card["art_review"] == "approved"
         assert sorted(x["category"] for x in m["cards"]) == [1, 1, 2, 2, 3, 3, 3, 4, 4, 4]
         # artwork is artwork-only and untouched; the contact sheet is a separate overview image
         assert z.read("contact-sheet.png")[:4] == b"\x89PNG"

@@ -6,12 +6,24 @@ new immutable version and becomes the active one; restore copies an older versio
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any
 
-from .db import Db
-from .prompt_compiler import SESSION_EDITABLE, TEMPLATE_NAMES, default_templates
+import yaml
 
-MAX_TEXT = 3000
+from .db import Db
+from .prompt_compiler import CONFIG_DIR, SESSION_EDITABLE, TEMPLATE_NAMES, default_templates
+
+MAX_TEXT = 5000  # characters per template (permanent versions, session overrides and job snapshots)
+V05_AUTHOR = "Prompt System v0.5"
+V05_NOTE = "Prompt System v0.5 (producer-reviewed): production default"
+
+
+@lru_cache(maxsize=1)
+def v05_templates() -> dict[str, str]:
+    """The seven Prompt System v0.5 image templates, verbatim (config/prompt_system_v05.yaml)."""
+    data = yaml.safe_load((CONFIG_DIR / "prompt_system_v05.yaml").read_text(encoding="utf-8"))
+    return {k: str(v).strip() for k, v in data["templates"].items()}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS prompt_templates (
@@ -41,12 +53,28 @@ class PromptLibrary:
         self.db = db
         db.script(_SCHEMA)
         self.seed()
+        self.apply_v05()
 
     def seed(self) -> None:
         defaults = default_templates()
         for name in TEMPLATE_NAMES:
             if not self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=?", (name,)):
                 self._insert(name, 1, defaults[name], "system", "built-in default")
+
+    def apply_v05(self) -> list[str]:
+        """Save the v0.5 texts as NEW permanent versions and activate them, ONCE per template. Older versions stay for rollback.
+        A template the Producer has already edited (active version is not the untouched built-in v1) is never overridden, and a
+        template that already has a v0.5 version is never saved again (so a later rollback to v1 sticks)."""
+        applied = []
+        for name, text in v05_templates().items():
+            if self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=? AND author=?", (name, V05_AUTHOR)):
+                continue
+            row = self.active().get(name)
+            if row is None or row["version"] != 1 or row["author"] != "system":
+                continue
+            self.save(name, text, V05_AUTHOR, V05_NOTE)
+            applied.append(name)
+        return applied
 
     def _insert(self, name: str, version: int, text: str, author: str, note: str) -> None:
         self.db.exec("UPDATE prompt_templates SET is_active=0 WHERE name=?", (name,))
@@ -123,11 +151,12 @@ class PromptLibrary:
         out = []
         active = self.active()
         defaults = default_templates()
+        v05 = v05_templates()
         for name in TEMPLATE_NAMES:
             a = active[name]
             out.append({"name": name, "label": LABELS[name], "version": a["version"], "text": a["text"],
                         "author": a["author"], "created_at": a["created_at"], "note": a["note"],
-                        "is_default_text": a["text"] == defaults[name],
+                        "is_default_text": a["text"] in (defaults[name], v05.get(name)),  # a shipped default (v1 or v0.5), i.e. not hand-edited
                         "versions": [v["version"] for v in self.versions(name)]})
         return out
 

@@ -9,6 +9,9 @@ const HELP: Record<string, string> = {
   image_closing: "Final constraints appended to every prompt (no text, no frames…).",
 };
 
+/** per-template character limit; the server enforces the same value (MAX_TEXT in prompt_library.py) */
+const MAX_TEMPLATE_CHARS = 5000;
+
 type Mode = "session" | "permanent";
 
 /**
@@ -147,7 +150,7 @@ export function PromptLibrary() {
                 {overridden ? <span className="chip warn">Session override active for this template</span> : <span className="chip ok">Using the permanent default (v{cur?.version})</span>}
               </div>
               <textarea className="plib-text" rows={9} value={text} readOnly={!editing} onChange={(e) => setText(e.target.value)} aria-label="Template text (session)" />
-              <div className="counter">{text.length} / 3000</div>
+              <div className="counter">{text.length} / {MAX_TEMPLATE_CHARS}</div>
               <div className="plib-actions">
                 {!editing ? (
                   <button type="button" className="ghost" onClick={() => setEditing(true)}>Edit</button>
@@ -175,7 +178,7 @@ export function PromptLibrary() {
           </div>
           {shown?.note && <p className="hint">Note: {shown.note}</p>}
           <textarea className="plib-text" rows={9} value={text} readOnly={!editing} onChange={(e) => setText(e.target.value)} aria-label="Template text (permanent)" />
-          <div className="counter">{text.length} / 3000</div>
+          <div className="counter">{text.length} / {MAX_TEMPLATE_CHARS}</div>
           <div className="plib-actions">
             {!editing && <button type="button" className="ghost" onClick={() => setEditing(true)}>Edit permanent version…</button>}
             {editing && (
