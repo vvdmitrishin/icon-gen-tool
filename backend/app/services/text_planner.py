@@ -50,7 +50,8 @@ CATEGORY_MEANINGS = {
     1: "Category 1 - a SIMPLE object floating in the air, no small details, no ground",
     2: "Category 2 - a simple object standing on a simple surface",
     3: "Category 3 - an object on a realistic surface in a volumetric scene",
-    4: "Category 4 - an object inside a recognizable environment that tells a small story",
+    4: "Category 4 - ONE recognizable hero subject (it names the card) inside a rich, atmospheric environment that tells a "
+       "small story; the environment gives context and mood, the hero subject stays visually dominant",
     5: "Category 5 - GOLDEN card: the collection's KEY CHARACTERS (at most 2 characters) in an ironic, emotional situation",
 }
 
@@ -160,6 +161,17 @@ class TextPlanner:
             "or ten variations of one object. Mix the aspects of the Set so the cards show real visual variety.",
             "Choose subjects that are good standalone illustrations. Avoid subjects whose look depends on text or "
             "lettering (signs, posters, book covers, labels, scoreboards, banknotes, flags with writing).",
+            "SET MEANING: when the Set name states a clear defining requirement, every subject must respect it. Separate the "
+            "core subject kind (which must have the defining property: Two-Wheeled Vehicles -> a bicycle, motorcycle or "
+            "two-wheeled scooter, not a trike or a car) from related gear, equipment, activities and infrastructure "
+            "(helmets, pumps, locks, repair tools, bike lanes), which are welcome even though they lack the property. Only "
+            "a subject that genuinely contradicts the Set's meaning is wrong. Do not turn a broad or metaphorical Set name "
+            "into a rigid technical rule. Before answering, re-read every subject against the Set and replace any that "
+            "contradicts it.",
+            "VARIETY: prefer subjects that differ in identity, function, silhouette and role within the Set, and that differ "
+            "from earlier subjects. Avoid two close relatives in one variant (e.g. two helmets) when a relevant, "
+            "visually strong alternative exists. This is a preference, not a quota: legitimate related objects are allowed "
+            "when they are the best fit, and never pick an obscure or weak subject just to be different.",
             f"Create {variants} DISTINCT alternative variant(s) of the set. Each variant has its own micro-theme: a short "
             f"`title` and a one-sentence `concept`. Each variant has exactly {total} cards.",
             "Per variant the cards must follow this category distribution EXACTLY (the category only controls how the "
@@ -170,6 +182,17 @@ class TextPlanner:
             "`object_description` one short visual sentence (max 200 chars); `rationale` a short phrase (max 100 chars) saying "
             "why this subject belongs to THIS Set.",
         ]
+        if not grand and any(counts.get(c, 0) for c in (1, 2, 3, 4)):
+            lines.append(
+                "FOCAL POINT (Categories 1-4): each card needs ONE clearly identifiable primary subject that is a recognizable "
+                "collectible object, readable as a standalone illustration even at thumbnail size. Supporting objects and "
+                "surroundings are fine but must not hide or compete with it. Avoid generic crowds, silhouettes of crowds, "
+                "empty environments, abstract compositions and piles of unrelated objects; pick a central object that "
+                "expresses the same theme instead. A character may be the subject only where the category and collection "
+                "rules allow it. For Category 4, name the hero subject, not the place: not 'Victorian Study Interior' but "
+                "'Detective's Antique Writing Desk' placed in an atmospheric study; keep the richer environment, "
+                "atmosphere and story of Category 4. (These are composition principles, not fixed subjects.)"
+            )
         if history:
             lines.append(
                 "ALREADY GENERATED in earlier batches of this same Collection + Set (subject - hint):\n"
@@ -182,7 +205,8 @@ class TextPlanner:
                 "GRAND SET (All Golden): this is the FINALE of the collection - the culmination of its theme. Every card is "
                 "a GOLDEN card (Category 5) and the set has no Category 1-4 cards. Each card is a story scene with the "
                 "collection's characters expressing an ironic, emotional situation. EXACTLY 1 or 2 characters per card, "
-                "never more; set `characters` to 1 or 2 on every card. The scenes must be clearly DIFFERENT from each other (different situation, setting and "
+                "never more; set `characters` to 1 or 2 on every card. The focal point of a card is ONE character or ONE interaction between "
+                "TWO characters; do not reduce it to a single object, keep the emotion, irony, humour and storytelling. The scenes must be clearly DIFFERENT from each other (different situation, setting and "
                 "emotion) but share one consistent visual style and mood so they read as one finale set. Name = the "
                 "characters + situation, description = the visual scene. Characters must be original designs."
             )

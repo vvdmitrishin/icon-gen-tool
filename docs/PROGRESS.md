@@ -36,6 +36,7 @@ Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 42
   `temperature` removed from the request (deprecated on Gemini 3.x). Cost estimate now uses the real list price ($0.30/1M in, $2.50/1M out incl. thinking):
   `base + per_card * variants * cards` (~$0.004 for 1x10, ~$0.015 for 5x10), served to the UI by `GET /api/models -> planner`. Offline tests only
   (`tests/test_text_model.py`); the next live Plan Only run is yours to confirm (the real call has not been made by me).
+- **Planner quality tuning (instruction-only, no architecture change):** the single planner prompt now asks for a clear focal subject on Cat.1-4 cards (not applied to Grand Set / golden character scenes), a Category 4 hero subject inside a rich environment (Cat.1-3 definitions untouched), respect for the Set's defining meaning (core subject vs related gear, self-checked in the same call, no keyword lists), and variety as a preference, not a quota. Validation, duplicate safeguards, distribution, Grand Set rules, cost model unchanged. Offline tests: `tests/test_planner_quality.py`. Real LLM effect not measured.
 - Note: this machine shows rare random interpreter crashes (Python/Node segfaults, flaky pytest assertion rewriting); full suites pass on re-run
   (`pytest --assert=plain` avoids the rewrite path).
 
