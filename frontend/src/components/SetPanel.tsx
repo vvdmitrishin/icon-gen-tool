@@ -769,6 +769,9 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
   const [replace, setReplace] = useState(false);
   const [rName, setRName] = useState(card.object_name);
   const [rDesc, setRDesc] = useState(card.object_description);
+  const [rExtra, setRExtra] = useState<{ rationale: string; characters: number | null } | null>(null); // from a Gemini suggestion
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
   const [viewV, setViewV] = useState<number | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -783,7 +786,7 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
   const noRegenLeft = hasImage && card.regen_remaining <= 0;
   const canRegen = !locked && !noRegenLeft && card.status !== "queued" && card.status !== "generating";
 
-  useEffect(() => { setViewV(null); setArmed(false); setReplace(false); setRName(card.object_name); setRDesc(card.object_description); setNote(""); }, [card.card_id, card.spec_version, card.object_name, card.object_description]);
+  useEffect(() => { setViewV(null); setArmed(false); setReplace(false); setRName(card.object_name); setRDesc(card.object_description); setRExtra(null); setSuggestNote(null); setNote(""); }, [card.card_id, card.spec_version, card.object_name, card.object_description]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   async function run<T extends JobDetail>(fn: () => Promise<T>) {
@@ -804,6 +807,18 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
   useEffect(() => { if (replaceToken !== lastRep.current) { lastRep.current = replaceToken; setReplace(true); } }, [replaceToken]);
 
   const label = !hasImage ? "Generate this card" : "Regenerate";
+
+  /** Text model only: proposes a replacement concept using the other cards of this job as context. Changes nothing until Replace is clicked. */
+  async function suggest() {
+    setSuggesting(true); setSuggestNote(null);
+    try {
+      const r = await api.suggestReplacement(job.job_id, card.card_id);
+      setRName(r.suggestion.object_name); setRDesc(r.suggestion.object_description);
+      setRExtra({ rationale: r.suggestion.rationale, characters: r.suggestion.characters });
+      setSuggestNote(`Suggestion from ${r.text_model} (text only, ≈ $${r.text_cost_estimate_usd.toFixed(4)}). Edit it if you like, then click Replace; the image is generated afterwards.`);
+      onJob(await api.job(job.job_id)); onError(null); // refreshes the cost chip and event log; the card itself is unchanged
+    } catch (e) { onError(msg(e, "Could not get a suggestion")); } finally { setSuggesting(false); }
+  }
 
   return (
     <div className="pickdetail card-box">
@@ -868,9 +883,13 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
 
         {replace && (
           <div className="replace">
-            <input value={rName} maxLength={80} onChange={(e) => setRName(e.target.value)} aria-label="New object name" />
+            <input value={rName} maxLength={80} onChange={(e) => { setRName(e.target.value); setRExtra(null); }} aria-label="New object name" />
             <input value={rDesc} maxLength={300} onChange={(e) => setRDesc(e.target.value)} aria-label="New object description" />
-            <button type="button" className="primary small" disabled={locked || !rName.trim()} onClick={() => run(() => api.replaceCard(job.job_id, card.card_id, rName, rDesc)).then(() => setReplace(false))}>Replace (card returns to planned)</button>
+            <button type="button" className="ghost" disabled={locked || suggesting} onClick={suggest}
+              title="Asks the text model for a new concept for this card only, using the other cards as context. Changes nothing; no image is generated.">
+              {suggesting ? "Asking Gemini…" : "✨ Suggest with Gemini"}</button>
+            <button type="button" className="primary small" disabled={locked || suggesting || !rName.trim()} onClick={() => run(() => api.replaceCard(job.job_id, card.card_id, rName, rDesc, rExtra ?? undefined)).then(() => setReplace(false))}>Replace (card returns to planned)</button>
+            {suggestNote && <p className="hint">{suggestNote}</p>}
           </div>
         )}
         <div className="rvbtns">

@@ -467,6 +467,14 @@ def create_app(
         except JobFailure as exc:
             raise _job_err(exc) from exc
 
+    @app.post("/api/jobs/{job_id}/cards/{card_id}/suggest-replacement")
+    def card_suggest(job_id: str, card_id: str) -> dict[str, Any]:
+        """Text model only: propose a replacement concept for one card. Changes nothing; no image provider is called."""
+        try:
+            return jobs.suggest_replacement(job_id, card_id)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
     @app.patch("/api/jobs/{job_id}/cards/{card_id}")
     def card_patch(job_id: str, card_id: str, req: PatchCardRequest) -> dict[str, Any]:
         try:

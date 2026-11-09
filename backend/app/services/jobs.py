@@ -170,6 +170,9 @@ class ApproveVariantRequest(BaseModel):
 class PatchCardRequest(BaseModel):
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(default="", max_length=300)
+    # from a Gemini suggestion (optional): why the new subject fits the Set, and the golden character count
+    rationale: str = Field(default="", max_length=300)
+    characters: int | None = Field(default=None, ge=1, le=2)
 
 
 # ----------------------------------------------------------------------------------------- store
@@ -331,6 +334,9 @@ class JobStore:
     def set_version_review(self, version_id: int, decision: str, note: str) -> None:
         self._exec("UPDATE card_versions SET art_review=?, review_note=?, reviewed_at=? WHERE version_id=?",
                    (decision, note, now(), version_id))
+
+    def set_plan(self, job_id: str, plan: dict[str, Any]) -> None:
+        self._exec("UPDATE jobs SET plan_json=?, updated_at=? WHERE job_id=?", (json.dumps(plan), now(), job_id))
 
     def retire_versions(self, card_id: str) -> None:
         self._exec("UPDATE card_versions SET is_current=0 WHERE card_id=?", (card_id,))
@@ -661,6 +667,10 @@ class JobService:
                                          seed=req.seed, wishes=req.wishes, pre_call=lambda: self._check_plan_budget(cost),
                                          grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
+            if exc.code == "ai_plan_invalid":  # the model answered (the request completed) but the plan is unusable: estimated text cost
+                self.guard.record(artifact_id=None, provider_id="gemini", model_id=self.gen.registry.effective.gemini_text_model,
+                                  est_cost_usd=cost, usage={"kind": "text_plan"}, outcome="failed:ai_plan_invalid:plan", kind="plan")
+            # transport/HTTP errors (ai_plan_failed) are NOT recorded: whether the provider billed them is unknown
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
         if not res.cached:  # honest accounting: a real text call was made (recorded once; cached plans cost nothing)
             entry_id = self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
@@ -994,7 +1004,7 @@ class JobService:
     def patch_card(self, job_id: str, card_id: str, req: PatchCardRequest) -> dict[str, Any]:
         """Replace the object of a card (spec Quick Action 'Replace a card'). The card goes back to
         'planned'; earlier images stay in its version history and are no longer current."""
-        self._job_for_edit(job_id)
+        job = self._job_for_edit(job_id)
         card = self._card_or_404(job_id, card_id)
         if card["status"] in ("queued", "generating"):
             raise JobFailure(409, "card_busy", "The card is queued or generating.")
@@ -1008,9 +1018,61 @@ class JobService:
                                spec_version=card["spec_version"] + 1)
         self.store.clear_comparison_ref(card_id)
         self.store.clear_approval(job_id, card["variant_id"])
+        plan = job["plan"]  # the stored plan feeds the image prompt (rationale) and the Set Plans view: never leave the old subject in it
+        for v in plan.get("variants", []):
+            if v.get("variant_id") == card["variant_id"]:
+                for pc in v.get("cards", []):
+                    if pc.get("position") == card["position"]:
+                        pc["object_name"], pc["object_description"] = name, req.object_description.strip() or name
+                        # never keep the old subject's reason: use the suggestion's, else a neutral one that names the NEW subject
+                        pc["rationale"] = (req.rationale.strip() or f"{name}: subject chosen by the Producer for this Set")[:140]
+                        if pc.get("category") == 5 and req.characters is not None:
+                            pc["characters"] = req.characters
+        self.store.set_plan(job_id, plan)
         self.store.add_event(job_id, f"Card {card['variant_id']}{card['position']:02d} replaced: "
                                      f"'{card['object_name']}' → '{name}' (previous images kept in history).")
         return self.detail(job_id)
+
+    def suggest_replacement(self, job_id: str, card_id: str) -> dict[str, Any]:
+        """Metaphor Planner for ONE card of an existing job: ask the text model for a replacement concept, using every other card of
+        the job as context. Read-only: nothing is changed and no image is generated; the Producer reviews it, then uses
+        'Replace object' and 'Generate this card'. The text call is recorded as Planning cost of this batch."""
+        job = self._job_for_edit(job_id)
+        card = self._card_or_404(job_id, card_id)
+        if card["status"] in ("queued", "generating"):
+            raise JobFailure(409, "card_busy", "The card is queued or generating.")
+        rq = job["request"]
+        try:
+            plan = SetPlan.model_validate(job["plan"])
+        except Exception as exc:  # pragma: no cover - a stored plan is always valid
+            raise JobFailure(422, "plan_invalid", "The stored plan of this job cannot be read.") from exc
+        live = {c["card_id"]: c for c in self.store.cards(job_id)}
+        for v in plan.variants:  # the cards table is the truth (cards may have been replaced since planning)
+            for pc in v.cards:
+                c = next((x for x in live.values() if x["variant_id"] == v.variant_id and x["position"] == pc.position), None)
+                if c:
+                    pc.object_name, pc.object_description = c["object_name"], c["object_description"]
+        sel = [(card["variant_id"], card["position"])]
+        cost = estimate_plan_cost_usd(self.gen.registry.effective.gemini_text_model, 1, 1)
+        grand = rq.get("set_type", SET_STANDARD) == SET_GRAND
+        try:
+            res = self.text_planner.regenerate_cards(rq["collection"], plan.genre, plan, sel, wishes=rq.get("wishes", ""),
+                                                     pre_call=lambda: self._check_plan_budget(cost), grand=grand)
+        except PlanningError as exc:
+            if exc.code == "ai_plan_invalid":  # the model was called and answered unusably: still an estimated text cost
+                self.guard.record(artifact_id=None, provider_id="gemini", model_id=self.gen.registry.effective.gemini_text_model,
+                                  est_cost_usd=cost, usage={"kind": "text_plan", "suggest_card": card_id},
+                                  outcome="failed:ai_plan_invalid:plan", kind="plan", job_id=job_id)
+            raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
+        self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model, est_cost_usd=res.cost_usd,
+                          usage={"kind": "text_plan", "suggest_card": card_id}, outcome="ok:plan", kind="plan", job_id=job_id)
+        new = next(c for v in res.plan.variants if v.variant_id == card["variant_id"] for c in v.cards if c.position == card["position"])
+        self.store.add_event(job_id, f"Suggested a replacement for card {card['variant_id']}{card['position']:02d} "
+                                     f"('{card['object_name']}' → '{new.object_name}'); nothing was changed.")
+        return {"suggestion": {"object_name": new.object_name, "object_description": new.object_description,
+                               "rationale": new.rationale, "characters": new.characters},
+                "text_model": res.model, "text_cost_estimate_usd": round(res.cost_usd, 6), "cost_is_estimate": True,
+                "image_provider_called": False, "changed": False}
 
     def schedule_waiting(self, job_id: str) -> None:
         self._schedule(job_id)

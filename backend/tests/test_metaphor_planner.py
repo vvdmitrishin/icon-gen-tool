@@ -140,3 +140,105 @@ def test_normalization_does_not_weaken_validation(settings, variant, position):
         assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_invalid"
         after = c.get("/api/costs").json()  # the call was made, so its estimated text cost is recorded once (not hidden)
         assert after["planning_calls"] == before["planning_calls"] + 1 and after["total_usd"] == pytest.approx(after["planning_usd"] + after["generation_usd"])
+
+
+# ------------------------------------------------------------------ replacing ONE card of a generated job
+def _job(c, seq_unused=None):
+    r = c.post("/api/jobs", json=dict(BASE, number_of_variants=1, allow_ai_plan=True, confirmed=True, **MOCK))
+    return r.json()["job_id"], wait(c, r.json()["job_id"])
+
+
+def _cards(d):
+    return {k["card_id"]: k for v in d["variants"] for k in v["cards"]}
+
+
+def test_suggest_then_replace_then_generate_one_card_keeps_everything_else(settings, app_factory=None):
+    seq = Seq(ai_plan_json(1, COUNTS), repl(("Variant A", 3, "Sandcastle Flag")))
+    with TestClient(create_app(settings, gemini_transport=seq.transport)) as c:
+        job_id, d = _job(c)
+        before = _cards(d)
+        target = next(k for k in before.values() if k["position"] == 3)
+        cost0 = c.get("/api/costs").json()
+        row0 = next(j for j in c.get("/api/jobs").json() if j["job_id"] == job_id)["costs"]
+        # 1) Gemini proposes a concept: read-only, text only, costed as planning of THIS batch
+        r = c.post(f"/api/jobs/{job_id}/cards/{target['card_id']}/suggest-replacement")
+        assert r.status_code == 200, r.text
+        sug = r.json()
+        assert sug["suggestion"]["object_name"] == "Sandcastle Flag" and sug["changed"] is False and sug["image_provider_called"] is False
+        assert _cards(c.get(f"/api/jobs/{job_id}").json()) == before  # nothing changed yet
+        sent = json.loads(seq.requests[-1].content)["contents"][0]["parts"][0]["text"]
+        assert sent.count("[KEEP]") == 9 and sent.count("[REPLACE]") == 1 and "Summer" in sent and "Beach" in sent
+        cost1 = c.get("/api/costs").json()
+        assert cost1["planning_calls"] == cost0["planning_calls"] + 1 and cost1["generation_usd"] == cost0["generation_usd"]
+        row1 = next(j for j in c.get("/api/jobs").json() if j["job_id"] == job_id)["costs"]
+        assert row1["planning_usd"] == pytest.approx(row0["planning_usd"] + sug["text_cost_estimate_usd"]) and row1["generation_usd"] == row0["generation_usd"]
+        assert cost1["unattributed"] == cost0["unattributed"]
+        # 2) approve it: the existing Replace object (with the suggestion's rationale)
+        s = sug["suggestion"]
+        p = c.patch(f"/api/jobs/{job_id}/cards/{target['card_id']}",
+                    json=dict(object_name=s["object_name"], object_description=s["object_description"], rationale=s["rationale"], characters=s["characters"]))
+        assert p.status_code == 200, p.text
+        mid = _cards(p.json())
+        assert mid[target["card_id"]]["status"] == "planned" and mid[target["card_id"]]["object_name"] == "Sandcastle Flag"
+        for cid, k in before.items():  # every other card and image is untouched
+            if cid != target["card_id"]:
+                assert mid[cid]["object_name"] == k["object_name"] and mid[cid]["artifact_id"] == k["artifact_id"] and mid[cid]["versions"] == k["versions"]
+        old_vers = [v["version"] for v in before[target["card_id"]]["versions"]]
+        assert [v["version"] for v in mid[target["card_id"]]["versions"]] == old_vers  # the old image stays in the history ...
+        assert not any(v["is_current"] for v in mid[target["card_id"]]["versions"])  # ... but is no longer current
+        # the stored plan follows: no stale subject or rationale reaches the image prompt
+        plan_card = next(pc for pc in c.app.state.jobs.store.get_job(job_id)["plan"]["variants"][0]["cards"] if pc["position"] == 3)
+        assert plan_card["object_name"] == "Sandcastle Flag" and plan_card["rationale"] == "fits the Set"
+        # 3) generate the image of just that card (Mock image provider: free); a new version, no other card regenerated
+        g = c.post(f"/api/jobs/{job_id}/cards/{target['card_id']}/regenerate", json={"confirmed": True})
+        assert g.status_code == 200, g.text
+        end = _cards(wait(c, job_id))
+        assert end[target["card_id"]]["status"] == "done" and end[target["card_id"]]["artifact_id"] != before[target["card_id"]]["artifact_id"]
+        assert len(end[target["card_id"]]["versions"]) == len(old_vers) + 1
+        for cid, k in before.items():
+            if cid != target["card_id"]:
+                assert end[cid]["artifact_id"] == k["artifact_id"]
+
+
+def test_manual_replacement_clears_the_old_subjects_rationale(settings):
+    seq = Seq(ai_plan_json(1, COUNTS))
+    with TestClient(create_app(settings, gemini_transport=seq.transport)) as c:
+        job_id, d = _job(c)
+        target = next(k for k in _cards(d).values() if k["position"] == 2)
+        before = next(pc for pc in c.app.state.jobs.store.get_job(job_id)["plan"]["variants"][0]["cards"] if pc["position"] == 2)
+        p = c.patch(f"/api/jobs/{job_id}/cards/{target['card_id']}", json=dict(object_name="Beach Umbrella", object_description="a striped umbrella"))
+        assert p.status_code == 200
+        after = next(pc for pc in c.app.state.jobs.store.get_job(job_id)["plan"]["variants"][0]["cards"] if pc["position"] == 2)
+        assert after["object_name"] == "Beach Umbrella" and after["rationale"].startswith("Beach Umbrella") and after["rationale"] != before["rationale"]
+        assert c.patch(f"/api/jobs/{job_id}/cards/{target['card_id']}", json=dict(object_name="Item 0-5")).status_code == 422  # duplicate still refused
+
+
+def test_suggestion_failures_change_nothing(settings):
+    seq = Seq(ai_plan_json(1, COUNTS), repl(("A", 3, "Item 0-5")))  # repeats another card
+    with TestClient(create_app(settings, gemini_transport=seq.transport)) as c:
+        job_id, d = _job(c)
+        before = _cards(d)
+        target = next(k for k in before.values() if k["position"] == 3)
+        r = c.post(f"/api/jobs/{job_id}/cards/{target['card_id']}/suggest-replacement")
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_invalid"
+        assert _cards(c.get(f"/api/jobs/{job_id}").json()) == before
+        assert c.post(f"/api/jobs/{job_id}/cards/nope/suggest-replacement").status_code == 404
+
+
+def test_ordinary_plan_with_unusable_reply_is_costed_once_but_provider_errors_are_not(settings):
+    bad = ai_plan_json(1, COUNTS)
+    bad["variants"][0]["cards"][1]["object_name"] = bad["variants"][0]["cards"][0]["object_name"]  # duplicate -> ai_plan_invalid
+    seq = Seq(bad)
+    with TestClient(create_app(settings, gemini_transport=seq.transport)) as c:
+        before = c.get("/api/costs").json()
+        r = c.post("/api/plan/test", json=dict(BASE, number_of_variants=1))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_invalid"
+        a = c.get("/api/costs").json()
+        assert a["planning_calls"] == before["planning_calls"] + 1 and a["planning_usd"] > before["planning_usd"]
+        assert a["total_usd"] == pytest.approx(a["planning_usd"] + a["generation_usd"])
+    err = httpx.MockTransport(lambda req: httpx.Response(500, json={"error": {"message": "boom"}}))
+    err.serves_text_plans = True
+    with TestClient(create_app(settings, gemini_transport=err)) as c:
+        n = c.get("/api/costs").json()["planning_calls"]
+        assert c.post("/api/plan/test", json=dict(BASE, number_of_variants=1)).status_code == 502
+        assert c.get("/api/costs").json()["planning_calls"] == n  # billing status unknown: no estimated cost invented

@@ -1,4 +1,5 @@
 import type {
+  ReplacementSuggestion,
   PlanRegenerateRequest,
   CostReport,
   Artifact,
@@ -114,8 +115,10 @@ export const api = {
     call<JobDetail>(`/api/jobs/${job}/cards/${card}/review`, json({ decision, note })),
   regenerateCard: (job: string, card: string, confirmed: boolean, note: string) =>
     call<JobDetail>(`/api/jobs/${job}/cards/${card}/regenerate`, json({ confirmed, note })),
-  replaceCard: (job: string, card: string, object_name: string, object_description: string) =>
-    call<JobDetail>(`/api/jobs/${job}/cards/${card}`, send("PATCH", { object_name, object_description })),
+  replaceCard: (job: string, card: string, object_name: string, object_description: string, extra?: { rationale?: string; characters?: number | null }) =>
+    call<JobDetail>(`/api/jobs/${job}/cards/${card}`, send("PATCH", { object_name, object_description, ...(extra ?? {}) })),
+  suggestReplacement: (job: string, card: string) =>
+    call<ReplacementSuggestion>(`/api/jobs/${job}/cards/${card}/suggest-replacement`, json({})),
   approveVariant: (job: string, variant: string) =>
     call<JobDetail>(`/api/jobs/${job}/variants/${variant}/approve`, json({ mark_cards_approved: true })),
   removeVariant: (job: string, variant: string) => call<JobDetail>(`/api/jobs/${job}/variants/${variant}`, { method: "DELETE" }),

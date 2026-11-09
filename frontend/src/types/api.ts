@@ -458,6 +458,13 @@ export interface PlanOnlyRequest {
   seed: number | null;
 }
 
+export interface ReplacementSuggestion {
+  suggestion: { object_name: string; object_description: string; rationale: string; characters: number | null };
+  text_model: string;
+  text_cost_estimate_usd: number;
+  cost_is_estimate: boolean;
+}
+
 export interface PlanRegenerateRequest extends PlanOnlyRequest {
   plan: PlanOnlyResult["plan"];
   selected: { variant_id: string; position: number }[];
