@@ -248,6 +248,13 @@ export function SetPanel(p: Props) {
           <button key={t} role="tab" aria-selected={view === t} className={view === t ? "on" : ""} onClick={() => setView(t)}>{label}</button>
         ))}
         {p.jobs.length > 0 && (
+          <svg className="chevrons" viewBox="0 0 92 28" width="92" height="28" aria-hidden="true" focusable="false">
+            {[0, 1, 2, 3].map((i) => (
+              <polygon key={i} className={`chev c${i}`} points={`${i * 22 + 2},2 ${i * 22 + 9},2 ${i * 22 + 19},14 ${i * 22 + 9},26 ${i * 22 + 2},26 ${i * 22 + 12},14`} />
+            ))}
+          </svg>
+        )}
+        {p.jobs.length > 0 && (
           <select className="jobpick" aria-label="Recent jobs" value={job?.job_id ?? ""} onChange={(e) => e.target.value && p.onPickJob(e.target.value)}>
             <option value="">Recent jobs…</option>
             {p.jobs.map((j) => (

@@ -163,3 +163,5 @@ python scripts\verify_clean_checkout.py                      # re-prove it works
 - **Per-run cap removed:** GEMINI_JOB_BUDGET_USD and the `job_cap` check are gone; no spending cap of any kind remains (only the paid-calls switch and the MAX_IMAGES_PER_JOB request-size limit). Cost tracking unchanged.
 
 - **UI cleanup:** Grand Set shows one compact "All Golden" info panel instead of the golden slider and Card categories (Number of cards, wishes, references unchanged; Standard restores the controls; backend already forces all-golden / zero Cat.1-4, now covered for every request model). The purple scope banner (now a "?" tooltip next to the title) and the yellow "Showing a previous run" strip were removed; the "Previous run" badge and the stale-form detection stay.
+
+- **UI:** animated neon chevron indicator (SVG + CSS, 1.8s chase, reduced-motion respected, hidden on narrow screens) left of the Recent jobs dropdown; no logic changed.

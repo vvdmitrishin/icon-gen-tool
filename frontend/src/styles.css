@@ -218,7 +218,7 @@ button.pstep:hover { background: var(--lav-2); }
 .tabs button { background: none; border: 0; padding: 9px 16px; border-bottom: 3px solid transparent; color: var(--muted); font-weight: 600; white-space: nowrap; margin-bottom: -1px; }
 .tabs button:hover { color: var(--ink); }
 .tabs button.on { color: var(--purple); border-bottom-color: var(--purple); }
-.jobpick { margin-left: auto; width: auto; flex: 0 1 280px; font-size: 12px; padding: 5px 8px; min-width: 150px; }
+.jobpick { margin-left: 8px; width: auto; flex: 0 1 280px; font-size: 12px; padding: 5px 8px; min-width: 150px; }
 
 .banner { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 24px; background: linear-gradient(90deg, #efeafd, #f6f3ff); border: 1px solid #e3dafc; border-radius: var(--r-lg); padding: 10px 16px; margin-bottom: 12px; }
 .banner-main { display: flex; gap: 12px; align-items: center; min-width: 260px; flex: 1 1 420px; }
@@ -403,3 +403,18 @@ ul.log time { color: var(--muted); margin-right: 6px; }
   header.top { height: auto; flex-wrap: wrap; padding: 8px 14px; }
   header nav { margin-left: 0; }
 }
+
+/* neon chevron indicator: stationary shapes, only the light chases left -> right (1.8s loop) */
+.chevrons { flex: none; margin-left: auto; width: 92px; height: 28px; overflow: visible; }
+.chevrons .chev { opacity: .28; transform-origin: center; animation: chev-chase 1.8s ease-in-out infinite; }
+.chevrons .c0 { fill: #a855f7; color: #a855f7; animation-delay: 0s; }
+.chevrons .c1 { fill: #ec4899; color: #ec4899; animation-delay: .22s; }
+.chevrons .c2 { fill: #22d3ee; color: #22d3ee; animation-delay: .44s; }
+.chevrons .c3 { fill: #c084fc; color: #c084fc; animation-delay: .66s; }
+@keyframes chev-chase {
+  0%, 62%, 100% { opacity: .28; filter: none; }
+  18% { opacity: 1; filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 8px rgba(168, 85, 247, .8)); }
+  40% { opacity: .5; filter: drop-shadow(0 0 2px rgba(168, 85, 247, .5)); }
+}
+@media (max-width: 760px) { .chevrons { display: none; } .jobpick { margin-left: auto; } }
+@media (prefers-reduced-motion: reduce) { .chevrons .chev { animation: none; opacity: .8; filter: none; } }
