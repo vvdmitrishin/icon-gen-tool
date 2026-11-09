@@ -321,7 +321,8 @@ export function SetPanel(p: Props) {
                 <span className={`chip ${job.status === "ready_for_review" ? "ok" : job.status === "failed" || job.status === "partial_success" ? "warn" : ""}`}>{STATUS_TEXT[job.status] ?? job.status}</span>
                 {job.scope === "pilot" && <span className="chip" title="Older job created with the removed test-run option">Pilot run (old job)</span>}
                 <span className="chip">Cat. split {[1, 2, 3, 4].map((c) => job.distribution[c] ?? 0).join(" / ")}{(job.distribution[5] ?? 0) > 0 ? <> / <b className="goldtxt">★ {job.distribution[5]}</b></> : null}</span>
-                <span className="chip" title="Local estimate, not a provider invoice">Est. spent ${job.spent_estimated_usd.toFixed(3)}</span>
+                <span className="chip" title="Estimated cost of this batch from recorded usage, not a provider invoice">
+                  Planning {job.costs.planning_known ? `$${job.costs.planning_usd.toFixed(3)}` : "n/a"} · Generation ${job.costs.generation_usd.toFixed(3)} · <b>Total ${job.costs.total_usd.toFixed(3)}</b></span>
                 <span className="jobcounts">
                   Generated <strong>{job.counts.done}/{job.counts.total}</strong>
                   {job.counts.generating + job.counts.queued > 0 && <> · in progress {job.counts.generating + job.counts.queued}</>}

@@ -387,6 +387,11 @@ def create_app(
         except JobFailure as exc:
             raise _job_err(exc) from exc
 
+    @app.get("/api/costs")
+    def costs() -> dict[str, Any]:
+        """Lifetime estimated spend: planning (text) + generation (image) = total. Estimates, not provider billing."""
+        return jobs.cost_report()
+
     @app.get("/api/jobs")
     def jobs_list(limit: int = 30) -> list[dict[str, Any]]:
         return jobs.list(min(max(limit, 1), 100))

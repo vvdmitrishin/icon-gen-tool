@@ -91,14 +91,13 @@ def test_category_5_and_bad_category_rejected(client):
     assert client.post("/api/generate-card", json=payload(category=5)).status_code == 422
 
 
-def test_total_budget_blocks_before_provider_call(settings, rec):
-    from dataclasses import replace
-    s = replace(settings, total_budget_usd=0.10)
-    c = TestClient(create_app(s, gemini_transport=rec.transport))
-    assert c.post("/api/generate-card", json=payload()).status_code == 200  # 0.067
-    r = c.post("/api/generate-card", json=payload())
-    assert r.status_code == 402 and r.json()["detail"]["code"] == "total_cap"
-    assert len(rec.requests) == 1
+def test_there_is_no_total_spending_cap(settings, rec):
+    c = TestClient(create_app(settings, gemini_transport=rec.transport))
+    for _ in range(40):  # 40 x 0.067 = 2.68: far beyond the old $2 test cap and the old $5 production cap path
+        assert c.post("/api/generate-card", json=payload()).status_code == 200
+    assert len(rec.requests) == 40
+    b = c.get("/api/models").json()["budget"]
+    assert b["spent_estimated_usd"] == pytest.approx(40 * 0.067) and "total_budget_usd" not in b and "remaining_estimated_usd" not in b
 
 
 def test_provider_error_no_retry_by_default_and_message_surfaced(settings):

@@ -255,6 +255,7 @@ class GenerationService:
                             artifact_id=None, provider_id=model.provider_id,
                             model_id=model.model_id, est_cost_usd=estimate,
                             usage=exc.usage, outcome=f"failed:{exc.code}",
+                            kind="image", job_id=(req.context or {}).get("job_id"),
                         )
                     if exc.retryable and not exc.billable and attempts < max_attempts:
                         try:
@@ -271,6 +272,7 @@ class GenerationService:
                 artifact_id=artifact_id, provider_id=model.provider_id,
                 model_id=model.model_id, est_cost_usd=estimate,
                 usage=result.usage, outcome="ok",
+                kind="image", job_id=(req.context or {}).get("job_id"),
             )
             delivered = deliver_size(result.png_bytes, result.width, result.height, req.output_size,
                                      square=req.aspect_ratio == "1:1")

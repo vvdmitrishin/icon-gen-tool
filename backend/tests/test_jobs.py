@@ -130,10 +130,7 @@ def test_budget_caps_block_before_any_call(settings, rec):
     with TestClient(create_app(replace(settings, job_budget_usd=0.20), gemini_transport=rec.transport)) as c:
         r = c.post("/api/jobs", json=body())
         assert r.status_code == 402 and r.json()["detail"]["code"] == "job_cap"
-    with TestClient(create_app(replace(settings, total_budget_usd=0.20), gemini_transport=rec.transport)) as c:
-        r = c.post("/api/jobs", json=body())
-        assert r.status_code == 402 and r.json()["detail"]["code"] == "total_cap"
-    assert rec.requests == []
+    assert rec.requests == []  # (there is no cumulative cap any more; only the per-run guard above)
 
 
 def test_budget_guard_mid_job_stops_and_keeps_finished_cards(settings, rec):

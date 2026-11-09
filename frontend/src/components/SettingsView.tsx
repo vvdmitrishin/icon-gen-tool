@@ -29,12 +29,12 @@ export function SettingsView({ onOpenSetup, onConnectionChanged }: { onOpenSetup
       </section>
 
       <section className="card-box">
-        <h3>Budget guard <small>(local estimate)</small></h3>
+        <h3>Cost tracking <small>(lifetime estimate, not provider billing)</small></h3>
         <ul className="kv">
-          <li><span>Estimated spent</span><strong>${b.spent_estimated_usd.toFixed(3)}</strong></li>
-          <li><span>Cumulative cap</span><strong>${b.total_budget_usd.toFixed(2)}</strong></li>
-          <li><span>Remaining (estimate)</span><strong>${b.remaining_estimated_usd.toFixed(3)}</strong></li>
-          <li><span>Per-run cap</span><strong>${b.job_budget_usd.toFixed(2)}</strong></li>
+          <li><span>Planning (text)</span><strong>${b.planning_estimated_usd.toFixed(3)}</strong></li>
+          <li><span>Generation (images)</span><strong>${b.generation_estimated_usd.toFixed(3)}</strong></li>
+          <li><span>Total</span><strong>${b.spent_estimated_usd.toFixed(3)}</strong></li>
+          <li><span>Per-run size guard</span><strong>${b.job_budget_usd.toFixed(2)}</strong></li>
           <li><span>Paid calls enabled</span>{yes(b.paid_calls_enabled)}</li>
         </ul>
         <p className="hint">{b.note}</p>

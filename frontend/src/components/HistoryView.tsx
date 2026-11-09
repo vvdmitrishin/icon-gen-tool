@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { vlabel } from "../lib/cards";
 import { SaveExport } from "./SaveExport";
-import type { Artifact, CollectionOverview, ExportRecord, JobSummary } from "../types/api";
+import type { Artifact, CollectionOverview, CostReport, ExportRecord, JobSummary } from "../types/api";
 
 interface Props {
   jobs: JobSummary[];
@@ -23,6 +23,8 @@ export function HistoryView(p: Props) {
   const [exports, setExports] = useState<ExportRecord[]>([]);
   const [imports, setImports] = useState<Artifact[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [costs, setCosts] = useState<CostReport | null>(null);
+  useEffect(() => { api.costs().then(setCosts).catch(() => setCosts(null)); }, [p.jobs]);
   const [ok, setOk] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [exportErr, setExportErr] = useState<{ text: string; blockers: string[] } | null>(null);
@@ -97,11 +99,13 @@ export function HistoryView(p: Props) {
 
       <section className="card-box">
         <h3>Jobs</h3>
+        {costs && <p className="hint">Lifetime estimate: Planning ${costs.planning_usd.toFixed(3)} · Generation ${costs.generation_usd.toFixed(3)} · Total ${costs.total_usd.toFixed(3)}.
+          {(costs.unattributed.planning_usd > 0 || costs.unattributed.generation_usd > 0) && <> Not tied to a listed batch: planning ${costs.unattributed.planning_usd.toFixed(3)}, generation ${costs.unattributed.generation_usd.toFixed(3)} (standalone planning, single cards, or removed variants).</>} {costs.incomplete_note}</p>}
         {p.jobs.length === 0 ? <p className="hint">No jobs yet.</p> : (
-          <table className="gridtbl"><thead><tr><th>Created</th><th>Genre</th><th>Variants</th><th>Cards</th><th>Status</th><th>Est. spent</th><th>Final</th><th /></tr></thead>
+          <table className="gridtbl"><thead><tr><th>Created</th><th>Collection / Set</th><th>Model</th><th>Variants</th><th>Cards</th><th>Status</th><th title="Estimated text-planning cost of this batch">Planning</th><th title="Estimated image-generation cost">Generation</th><th>Total</th><th>Final</th><th /></tr></thead>
             <tbody>{p.jobs.map((j) => (
-              <tr key={j.job_id}><td>{new Date(j.created_at).toLocaleString()}</td><td>{j.genre}</td><td>{j.variants}</td><td>{j.number_of_cards ?? 10}{(j.gold_cards ?? 0) > 0 ? ` (+${j.gold_cards} ★)` : ""}</td><td>{j.status.replace(/_/g, " ")}</td>
-                <td>${j.spent_est.toFixed(3)}</td><td>{j.approved_variant_id ? `★ ${vlabel(j.approved_variant_id)}` : "–"}</td>
+              <tr key={j.job_id}><td title={j.job_id}>{new Date(j.created_at).toLocaleString()}</td><td>{j.collection ? `${j.collection} / ` : ""}{j.genre}</td><td>{j.model ?? "–"}</td><td>{j.variants}</td><td>{j.number_of_cards ?? 10}{(j.gold_cards ?? 0) > 0 ? ` (+${j.gold_cards} ★)` : ""}</td><td>{j.status.replace(/_/g, " ")}</td>
+                <td title={j.costs.planning_known ? "Estimated" : "Not recorded for this older batch"}>{j.costs.planning_known ? `$${j.costs.planning_usd.toFixed(3)}` : "n/a"}</td><td title={`${j.costs.images_billed} billed image call(s)`}>${j.costs.generation_usd.toFixed(3)}</td><td><strong>${j.costs.total_usd.toFixed(3)}</strong></td><td>{j.approved_variant_id ? `★ ${vlabel(j.approved_variant_id)}` : "–"}</td>
                 <td><button type="button" className="ghost" onClick={() => p.onOpen(j.job_id)}>Open</button></td></tr>
             ))}</tbody></table>
         )}

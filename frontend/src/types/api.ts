@@ -45,11 +45,31 @@ export interface ModelOption {
 export interface Budget {
   paid_calls_enabled: boolean;
   job_budget_usd: number;
-  total_budget_usd: number;
-  spent_estimated_usd: number;
-  remaining_estimated_usd: number;
+  spent_estimated_usd: number; // lifetime estimate = planning + generation
+  planning_estimated_usd: number;
+  generation_estimated_usd: number;
   max_card_retries: number;
   note: string;
+}
+
+/** Estimated (not billed) cost of one batch. planning_known is false for batches from before per-batch planning costs were recorded. */
+export interface BatchCosts {
+  planning_usd: number;
+  generation_usd: number;
+  total_usd: number;
+  images_billed: number;
+  planning_known: boolean;
+}
+
+export interface CostReport {
+  planning_usd: number;
+  generation_usd: number;
+  total_usd: number;
+  planning_calls: number;
+  image_calls: number;
+  cost_is_estimate: boolean;
+  unattributed: { planning_usd: number; generation_usd: number; planning_calls: number; image_calls: number };
+  incomplete_note: string;
 }
 
 export interface ModelsResponse {
@@ -257,6 +277,7 @@ export interface JobDetail {
   variants: JobVariant[];
   counts: { planned: number; queued: number; generating: number; done: number; failed: number; total: number };
   spent_estimated_usd: number;
+  costs: BatchCosts;
   pending_estimate_usd: number;
   active: boolean;
   can_continue: boolean;
@@ -278,6 +299,9 @@ export interface JobSummary {
   planning_mode?: PlanningMode;
   set_type?: "standard" | "grand";
   spent_est: number;
+  provider?: string | null;
+  model?: string | null;
+  costs: BatchCosts;
   approved_variant_id: string | null;
 }
 export interface JobEvent { id: number; ts: string; level: string; message: string }

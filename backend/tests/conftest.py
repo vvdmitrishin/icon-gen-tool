@@ -24,7 +24,6 @@ def settings(tmp_path):
         data_root=tmp_path / "data",
         artifact_root=tmp_path / "data" / "artifacts",
         job_budget_usd=0.75,
-        total_budget_usd=2.00,
     )
 
 

@@ -61,7 +61,7 @@ async def main() -> int:
     )
     pv = svc.preview(req)
     print(f"model={model} refs={len(ref_ids)} estimate=${pv['estimated_cost_usd']:.3f} "
-          f"spent=${pv['budget']['spent_estimated_usd']:.3f}/${pv['budget']['total_budget_usd']:.2f}")
+          f"lifetime est. spent=${pv['budget']['spent_estimated_usd']:.3f}")
     if not args.yes:
         print("Dry run only. Re-run with --yes to spend the estimated amount.")
         return 0

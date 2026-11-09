@@ -80,7 +80,7 @@ def test_api_exposes_compliance_and_echoes_counts(settings):
 
 
 def test_final_bundle_ignores_golden_and_short_jobs(settings):
-    with TestClient(create_app(replace(settings, total_budget_usd=10.0))) as c:
+    with TestClient(create_app(settings)) as c:
         jid = c.post("/api/jobs", json=dict(genre="Detective", number_of_variants=1, number_of_cards=10, gold_cards=2,
                                             confirmed=True, **MOCK)).json()["job_id"]
         d = wait(c, jid)

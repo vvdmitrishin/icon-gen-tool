@@ -148,7 +148,8 @@ export default function App() {
         const [d, ev] = await Promise.all([api.job(id), api.jobEvents(id)]);
         setJob(d);
         setEvents(ev);
-        if (!d.active) { loadModels(); loadJobs(); }
+        loadModels();  // header cost counters follow the running batch
+        if (!d.active) { loadJobs(); }
       } catch { /* transient */ }
     }, 1500);
     return () => window.clearInterval(t);
@@ -660,8 +661,13 @@ function Header({ budget, view, onView, onConnect }: { budget?: Budget; view: Vi
         ))}
       </nav>
       <div className="hright">
-        <div className="budget" title={budget?.note}>
-          {budget ? <>Est. spend <strong>${budget.spent_estimated_usd.toFixed(2)}</strong> / ${budget.total_budget_usd.toFixed(2)} <em className="hide-sm">(local estimate)</em></> : "…"}
+        <div className="costs" title={budget ? `Lifetime estimated cost from recorded usage (not provider billing). ${budget.note}` : undefined} aria-label="Lifetime estimated cost">
+          {budget ? <>
+            <span className="cost plan">Planning <strong>${budget.planning_estimated_usd.toFixed(2)}</strong></span>
+            <span className="cost gen">Generation <strong>${budget.generation_estimated_usd.toFixed(2)}</strong></span>
+            <span className="cost tot">Total <strong>${(budget.planning_estimated_usd + budget.generation_estimated_usd).toFixed(2)}</strong></span>
+            <em className="hide-sm">est.</em>
+          </> : "…"}
         </div>
         <button type="button" className="connect" onClick={onConnect} title="Connect or check image providers (API keys stay on the server)">Connect providers</button>
         <div className="user" title="Local single-user session">

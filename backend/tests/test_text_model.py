@@ -59,6 +59,6 @@ def test_plan_only_and_generate_use_the_same_model_request_and_cost(settings):
         assert "temperature" not in a["gen_keys"] and "responseSchema" in a["gen_keys"]  # deprecated on Gemini 3.x
         assert {"rationale", "characters"} <= set(a["schema"]["properties"]["variants"]["items"]["properties"]["cards"]["items"]["properties"])
         assert po["text_model"] == MODEL and po["text_cost_estimate_usd"] == plan_cost(1, 10)
-        ledger = [json.loads(x) for x in settings.ledger_path.read_text().splitlines() if x.strip()]
+        ledger = [e for e in (json.loads(x) for x in settings.ledger_path.read_text().splitlines() if x.strip()) if e.get("kind") != "attach"]
         assert [e["model"] for e in ledger] == [MODEL, MODEL] and [e["est_cost_usd"] for e in ledger] == [plan_cost(1, 10)] * 2
         assert all(settings.gemini_api_key not in str(rq.url) for rq in rec.requests)  # the key travels in the header only

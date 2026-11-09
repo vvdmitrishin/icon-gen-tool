@@ -166,11 +166,11 @@ def test_regeneration_limit(settings, rec):
         assert len(rec.requests) == 12
 
 
-def test_regeneration_blocked_by_total_budget(settings, rec):
-    with TestClient(create_app(replace(settings, total_budget_usd=0.70), gemini_transport=rec.transport)) as c:
+def test_regeneration_is_not_blocked_by_lifetime_spend(settings, rec):
+    with client(settings, rec) as c:
         job_id, d = make_job(c)  # 10 x 0.067 = 0.67 spent
         r = c.post(f"/api/jobs/{job_id}/cards/{cards(d)[0]['card_id']}/regenerate", json={"confirmed": True})
-        assert r.status_code == 402 and r.json()["detail"]["code"] == "total_cap"
+        assert r.status_code == 200
 
 
 def test_failed_regeneration_keeps_the_previous_image(settings, rec):

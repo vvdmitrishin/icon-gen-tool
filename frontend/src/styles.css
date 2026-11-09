@@ -36,8 +36,15 @@ header nav { display: flex; gap: 4px; margin-left: auto; }
 .pill:hover { background: rgba(255, 255, 255, .08); }
 .pill.on { background: rgba(139, 92, 246, .55); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18); }
 .hright { display: flex; align-items: center; gap: 14px; flex: none; }
-.budget { color: #cfd3f0; font-size: 12px; white-space: nowrap; }
-.budget strong { color: #fff; }
+.costs { display: flex; align-items: center; gap: 6px; color: #cfd3f0; font-size: 12px; white-space: nowrap; }
+.costs em { font-style: normal; opacity: .6; font-size: 11px; }
+.costs .cost { padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .05); }
+.costs .cost strong { color: #fff; font-variant-numeric: tabular-nums; }
+.costs .plan { border-color: rgba(96, 165, 250, .55); }
+.costs .gen { border-color: rgba(139, 92, 246, .6); }
+.costs .tot { border-color: rgba(52, 211, 153, .7); background: rgba(52, 211, 153, .14); font-size: 13px; font-weight: 600; padding: 4px 11px; }
+.costs .tot strong { font-size: 14px; }
+@media (max-width: 1100px) { .costs .cost { padding: 2px 7px; } .costs .plan, .costs .gen { font-size: 11px; } }
 .connect { background: transparent; border: 1px solid rgba(255, 255, 255, .35); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 13px; white-space: nowrap; }
 .connect:hover { background: rgba(255, 255, 255, .12); }
 .user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #e6e8fa; white-space: nowrap; }

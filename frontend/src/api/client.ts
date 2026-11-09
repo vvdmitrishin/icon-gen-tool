@@ -1,4 +1,5 @@
 import type {
+  CostReport,
   Artifact,
   CardComparison,
   CollectionOverview,
@@ -69,6 +70,7 @@ const send = (method: string, body?: unknown): RequestInit => ({
 const json = (body: unknown) => send("POST", body);
 
 export const api = {
+  costs: () => call<CostReport>("/api/costs"),
   models: () => call<ModelsResponse>("/api/models"),
   checkAvailability: () => call<unknown>("/api/models/check-availability", { method: "POST" }),
   settings: () => call<SettingsView>("/api/settings"),

@@ -13,6 +13,7 @@ Guarantees:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import sqlite3
 import threading
@@ -52,6 +53,7 @@ MAX_CONSECUTIVE_FAILURES = 2
 UNIVERSAL_REF_TYPES = {"style", "composition", "negative"}
 ALLOWED_OUTPUT_SIZES = (24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
 _PLAN_ERROR_STATUS = {"gemini_key_missing": 400, "ai_plan_failed": 502}
+_PLAN_COST_SINK: contextvars.ContextVar = contextvars.ContextVar("plan_cost_sink", default=None)  # ledger ids of the planning calls of one create()
 
 
 def now() -> str:
@@ -454,8 +456,6 @@ class JobService:
         if not self.s.paid_image_calls_enabled:
             raise JobFailure(402, "paid_disabled", "Paid calls are disabled (PAID_IMAGE_CALLS_ENABLED=false); "
                                                    "the AI planner is a paid Gemini text call.")
-        if self.guard.spent_usd() + cost > self.s.total_budget_usd:
-            raise JobFailure(402, "total_cap", "The total budget cap would be exceeded by the AI planner call.")
 
     def _plan_ex(self, req: JobCreateRequest) -> tuple[SetPlan, dict[int, int], Any, list[dict[str, Any]], float]:
         """-> (plan, resolved {1..5} distribution, model, reference metas, plan_cost_estimate_usd)."""
@@ -626,9 +626,12 @@ class JobService:
                                          grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
-        if not res.cached:  # honest accounting: a real text call was made
-            self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
-                              est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan")
+        if not res.cached:  # honest accounting: a real text call was made (recorded once; cached plans cost nothing)
+            entry_id = self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
+                                         est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan", kind="plan")
+            sink = _PLAN_COST_SINK.get()
+            if sink is not None and entry_id:
+                sink.append(entry_id)  # create() attaches it to the batch it plans, so it is not counted twice
         self._last_text_model, self._last_cached = res.model, res.cached
         return res.plan, cost, history
 
@@ -723,6 +726,8 @@ class JobService:
 
     # -- lifecycle -----------------------------------------------------------------------------
     async def create(self, req: JobCreateRequest, *, skip_gate: bool = False) -> dict[str, Any]:
+        plan_entries: list[str] = []
+        _PLAN_COST_SINK.set(plan_entries)  # to_thread copies the context but shares this list
         plan, counts, model, _metas = await asyncio.to_thread(self._plan, req)
         job_id = f"job-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
         flat = self._cards_flat(plan, job_id)
@@ -741,6 +746,8 @@ class JobService:
         request_json["prompt_overrides"] = sorted(req.prompt_overrides)  # names only; the texts live in the snapshot
         request_json["prompt_bundle"] = bundle
         self.store.create_job(job_id, "created", request_json, plan.model_dump(mode="json"), req.scope, flat)
+        for entry_id in plan_entries:
+            self.guard.attach(entry_id, job_id)  # planning cost belongs to this batch (lifetime total unchanged)
         self.store.add_event(job_id, f"Job created: {req.genre}, {req.number_of_variants} variant(s), "
                                      f"scope={req.scope} ({len(scope_ids)} images, est ${est:.3f}).")
         self.store.set_status(job_id, "planning")
@@ -958,15 +965,14 @@ class JobService:
                                 "category": c["category"]}
                  for v in d["variants"] for c in v["cards"] if c["status"] == "done"}
         counts = {k: sum(1 for x in cards.values() if x["status"] == k) for k in ("passed", "flagged", "failed", "not_run")}
-        hr10 = d["spent_estimated_usd"] <= self.s.total_budget_usd
         return {
             "job_id": job_id, "genre": d["genre"], "generated_at": now(),
             "limitations": "Structural checks only. Text-in-image, frames and style fidelity are NOT detected "
                            "automatically; they require human art review.",
             "technical": counts, "cards": cards,
             "variants": {v["variant_id"]: v["set_qa"] for v in d["variants"]},
-            "job_checks": [{"id": "HR-10", "name": "Spend within caps", "status": "pass" if hr10 else "fail",
-                            "detail": f"estimated spend ${d['spent_estimated_usd']:.3f} of ${self.s.total_budget_usd:.2f} cap"}],
+            "job_checks": [{"id": "HR-10", "name": "Spend recorded", "status": "pass",
+                            "detail": f"estimated image spend ${d['spent_estimated_usd']:.3f} (estimate; no application spending cap)"}],
             "approved_variant_id": d["approved_variant_id"],
         }
 
@@ -1164,6 +1170,7 @@ class JobService:
             "notes": job["plan"]["notes"], "variants": variants,
             "counts": {**counts, "total": len(cards)},
             "spent_estimated_usd": round(job["spent_est"], 6),
+            "costs": self.batch_costs().get(job_id) or self._no_costs(),
             "pending_estimate_usd": self._estimate(provider, pending, job["request"].get("model")),
             "active": job["status"] in ACTIVE_STATES,
             "can_continue": job["status"] not in ACTIVE_STATES and (pending > 0 or counts["failed"] > 0),
@@ -1172,8 +1179,39 @@ class JobService:
             "budget": self.guard.summary().__dict__,
         }
 
+    # -- cost tracking (estimates from the ledger; never provider billing) ------------------------------------------
+    @staticmethod
+    def _no_costs() -> dict[str, Any]:
+        return {"planning_usd": 0.0, "generation_usd": 0.0, "total_usd": 0.0, "images_billed": 0, "planning_known": False}
+
+    def batch_costs(self) -> dict[str, dict[str, Any]]:
+        """Estimated planning / generation / total per batch (job). Image entries written before per-batch tracking are attributed
+        through their artifact; planning calls without a recorded batch are NOT guessed and stay in the lifetime total only."""
+        a2j = {r["a"]: r["j"] for r in self.store._all(
+            "SELECT cv.artifact_id AS a, c.job_id AS j FROM card_versions cv JOIN cards c ON c.card_id=cv.card_id")}
+        a2j.update({r["artifact_id"]: r["job_id"] for r in self.store._all(
+            "SELECT artifact_id, job_id FROM cards WHERE artifact_id IS NOT NULL")})
+        per = self.guard.by_job(a2j)
+        att = set(self.guard.attachments().values())
+        out = {}
+        for jid, b in per.items():
+            if jid != "__unattributed__":
+                out[jid] = {**b, "planning_known": jid in att or any(
+                    e.get("job_id") == jid and self.guard.entry_kind(e) == "plan" for e in self.guard.costed())}
+        out["__unattributed__"] = per["__unattributed__"]
+        return out
+
+    def cost_report(self) -> dict[str, Any]:
+        """Lifetime counters (planning + generation = total) plus an honest completeness note."""
+        lt = self.guard.lifetime()
+        un = self.batch_costs()["__unattributed__"]
+        return {**lt, "cost_is_estimate": True, "unattributed": un,
+                "incomplete_note": ("Recorded estimates only. Spending from before cost tracking was recorded, from other tools, or from "
+                                    "provider-side retries is not included, so this may be lower than your provider bill.")}
+
     def list(self, limit: int = 30) -> list[dict[str, Any]]:
         out = []
+        costs = self.batch_costs()
         for j in self.store.list_jobs(limit):
             rq = json.loads(j.pop("request_json"))
             j["genre"], j["variants"], j["collection"] = rq["genre"], rq["number_of_variants"], rq["collection"]
@@ -1183,6 +1221,8 @@ class JobService:
             j["final_eligible"], j["final_ineligible_reason"] = final_eligibility(
                 j["number_of_cards"], j["gold_cards"], j["set_type"])
             j["output_size"] = rq.get("output_size", 1024)
+            j["provider"], j["model"] = rq.get("provider"), rq.get("model")
+            j["costs"] = costs.get(j["job_id"]) or self._no_costs()
             j["approved_variant_id"] = next(iter(self.store.approvals(j["job_id"])), None)
             out.append(j)
         return out

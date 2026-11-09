@@ -39,7 +39,7 @@ def rec():
 
 @pytest.fixture
 def big(settings):
-    return replace(settings, total_budget_usd=10.0)
+    return settings
 
 
 def zipfile_of(c, export):

@@ -88,7 +88,7 @@ def test_qa_flags_size_mismatch(tmp_path):
 
 def test_exported_zip_images_have_requested_size(settings):
     from dataclasses import replace
-    with TestClient(create_app(replace(settings, total_budget_usd=10.0))) as c:
+    with TestClient(create_app(settings)) as c:
         jid, d = one_card(c, 64, cards=3)
         assert c.post(f"/api/jobs/{jid}/variants/A/approve").status_code == 200
         r = c.post("/api/exports", json={"job_id": jid, "allow_mock": True})
