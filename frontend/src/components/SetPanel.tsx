@@ -110,7 +110,6 @@ export function SetPanel(p: Props) {
   const detailRef = useRef<HTMLDivElement>(null);
   const variantsRef = useRef<HTMLDivElement>(null);
   const job = p.job;
-  const [keepKey, setKeepKey] = useState<string | null>(null);
   const sessionPrompts = useSessionPrompts();
 
   // ---- My Selection (session favorites), scoped to Collection + Set + Set type of the set that is shown
@@ -151,10 +150,8 @@ export function SetPanel(p: Props) {
   // The form no longer describes the displayed job: it is a previous run, not the active generation.
   const jobCards = job ? (job.number_of_cards ?? job.request.number_of_cards ?? job.variants[0]?.cards.length ?? 10) : 0;
   const jobGold = job ? (job.gold_cards ?? job.request.gold_cards ?? 0) : 0;
-  const formSig = JSON.stringify([p.form.collection.trim(), p.form.genre.trim(), p.form.variants, p.form.numberOfCards, p.form.gold]);
   const stale = !!job && (job.collection.trim() !== p.form.collection.trim() || job.genre.trim() !== p.form.genre.trim()
     || jobCards !== p.form.numberOfCards || job.variants.length !== p.form.variants || jobGold !== p.form.gold);
-  const showStrip = stale && keepKey !== formSig;
   const planMode = job ? (job.planning_mode ?? "rules") : (p.preview?.planning_mode ?? "rules");
 
   useEffect(() => {
@@ -230,7 +227,6 @@ export function SetPanel(p: Props) {
   const TABS: [View, string][] = [["results", "Results"], ["plans", "Set Plans (JSON)"], ["qa", "QA Report"], ["log", "Generation Log"]];
   const inExtra = view === "variants" || view === "compare" || view === "library" || view === "prompts";
   const heading = job ? `${stale ? "Previous result" : "Generated Sets"} — ${job.collection}: ${job.genre}` : p.preview ? `Plan Preview — ${p.form.collection}: ${p.form.genre}` : `Generated Sets — ${p.form.collection}: ${p.form.genre}`;
-  const nVariants = job ? job.variants.length : p.preview ? p.preview.plan.variants.length : p.form.variants;
   const exportItems: MenuItem[] = [
     { key: "v", label: selV ? `Variant ${vlabel(selV.variant_id)} — ZIP` : "Selected variant — ZIP", sub: selV?.approved ? "approved variant" : "needs approval", disabled: !job || !selV || job.active || selV.set_qa.generated < selTotal || expBusy,
       reason: !job ? "Generate a set first" : job.active ? "Wait for the job to finish" : `Needs all ${selTotal} cards generated`, onClick: () => selV && exportVariant(selV.variant_id, false) },
@@ -261,23 +257,8 @@ export function SetPanel(p: Props) {
         )}
       </div>
 
-      <div className="banner">
-        <div className="banner-main">
-          <span className="banner-ic" aria-hidden>▨</span>
-          <div>
-            <strong>This tool generates object illustrations for collectible cards (not full game windows).</strong>
-            <span>{`Artwork only. Each variant is a full ${cardsN}-card set; the category distribution is the same in every variant.`}</span>
-          </div>
-        </div>
-        <ul className="banner-checks">
-          <li>Object illustrations (card assets)</li>
-          <li>{nVariants} variant{nVariants === 1 ? "" : "s"} per set</li>
-          <li>Final set layout assembled manually (outside this tool)</li>
-        </ul>
-      </div>
-
       <div className="titlerow">
-        <h1>{heading}{stale && <span className="chip prev">Previous run</span>}</h1>
+        <h1>{heading}{stale && <span className="chip prev" title="These results belong to an earlier form, not to the values on the left">Previous run</span>}<span className="helptip" tabIndex={0} role="note" aria-label="About this tool" title="This tool generates object illustrations for collectible cards (card assets, artwork only, not full game windows). Each variant is a full set; the category distribution is the same in every variant. The final set layout is assembled manually, outside this tool.">?</span></h1>
         <div className="titlebtns">
           <button type="button" className={`btn outline ${view === "variants" || view === "compare" ? "on" : ""}`} disabled={!job} onClick={() => setView("variants")}
             title={job ? "Compare the variants side by side, or check cards against references" : "Generate a set first"}><span aria-hidden>◫</span> Compare Variants</button>
@@ -290,20 +271,6 @@ export function SetPanel(p: Props) {
       </div>
 
       {p.error && <div className="alert err" role="alert">{p.error}</div>}
-      {showStrip && job && (
-        <div className="prevrun" role="status">
-          <p>
-            <strong>{job.active ? "Showing the running job" : "Showing a previous run"}:</strong> {job.collection} · {job.genre} ({jobCards} cards, {job.variants.length} variant{job.variants.length === 1 ? "" : "s"}{jobGold > 0 ? `, ${jobGold} ★` : ""}).
-            {" "}Your form now says: <strong>{p.form.collection || "(no collection)"} · {p.form.genre || "(no set)"}</strong> ({p.form.numberOfCards} cards, {p.form.variants} variant{p.form.variants === 1 ? "" : "s"}{p.form.gold > 0 ? `, ${p.form.gold} ★` : ""}).
-            {" "}Nothing has been generated for the form yet.
-          </p>
-          <span className="btns">
-            <button type="button" className="primary small" disabled={job.active} title={job.active ? "Wait for the running job to finish" : undefined} onClick={p.onNew}>Plan this form</button>
-            <button type="button" className="ghost" onClick={() => setKeepKey(formSig)}>Keep viewing</button>
-          </span>
-        </div>
-      )}
-      {stale && p.preview && !p.previewError && <p className="hint plan-hint">A plan for your form is ready ({p.preview.images_in_scope} image{p.preview.images_in_scope === 1 ? "" : "s"}, nothing generated). Click “Plan this form” to review it.</p>}
       {p.previewError && (!job || stale) && <PlanNotice error={p.previewError} planning={p.planningAi} onPlanWithAi={p.onPlanWithAi} onConnectGemini={p.onConnectGemini} />}
       {expMsg && (
         <div className={`alert ${expMsg.ok ? "ok" : "warn"}`} role="status">

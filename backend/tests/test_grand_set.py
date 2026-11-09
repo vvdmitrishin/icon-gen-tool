@@ -115,3 +115,15 @@ def test_ai_plan_keeps_characters_and_schema_asks_for_them(settings):
         props = body["generationConfig"]["responseSchema"]["properties"]["variants"]["items"]["properties"]["cards"]["items"]["properties"]
         assert "characters" in props
         assert "characters` to 1 or 2" in body["contents"][0]["parts"][0]["text"]
+
+
+def test_every_request_model_forces_all_golden_and_no_standard_categories_for_grand():
+    from app.services.jobs import PlanOnlyRequest, PlanRegenerateRequest
+    from tests.conftest import make_plan
+
+    stale_ui = dict(genre="x", number_of_cards=8, gold_cards=0, set_type="grand",
+                    category_distribution=dict(mode="custom", counts={"1": 3, "2": 3, "3": 1, "4": 1}))
+    for r in (JobCreateRequest(provider="mock", model="m", **stale_ui), PlanOnlyRequest(**stale_ui),
+              PlanRegenerateRequest(plan=make_plan(1, grand_counts(8), "x"), selected=[dict(variant_id="A", position=1)], **stale_ui)):
+        assert r.gold_cards == 8 and r.category_distribution is None  # regardless of what the UI sent
+        assert resolve_distribution(r.category_distribution, number_of_cards=r.number_of_cards, gold_cards=r.gold_cards, set_type="grand") == {1: 0, 2: 0, 3: 0, 4: 0, 5: 8}

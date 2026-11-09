@@ -537,7 +537,6 @@ export default function App() {
                       onClick={() => { setSetType(v); setSeed(null); }}>{label}</button>
                   ))}
                 </div></div>
-              {grand && <p className="hint rowhint">Finale set: every card is golden (an ironic, emotional scene with at most 2 characters), Categories 1–4 are 0. "Grand" is the final set position in the collection, not a card count. Always planned with AI; not part of the Movie Collection bundle.</p>}
               <div className="row two">
                 <div><label className="lbl" htmlFor="ncards">Number of cards</label>
                   <select id="ncards" value={numberOfCards} onChange={(e) => { const n = Number(e.target.value); setNumberOfCards(n); setGold((g) => Math.min(g, n)); setSeed(null); }}>
@@ -580,8 +579,14 @@ export default function App() {
                   </div>
                 </>
               ) : (
+                grand ? (
+                  <div className="grand-info" role="note">
+                    <strong><span aria-hidden>🪙</span> Grand Set — All Golden</strong>
+                    <p>All cards are automatically golden. Category distribution is disabled. AI plans iconic, cinematic scenes with up to 2 characters.</p>
+                  </div>
+                ) : (
                 <>
-                  <GoldSlider value={goldEff} max={numberOfCards} disabled={grand} onChange={(v) => { setGold(v); setSeed(null); }} />
+                  <GoldSlider value={goldEff} max={numberOfCards} disabled={false} onChange={(v) => { setGold(v); setSeed(null); }} />
                   <CategoryDistribution
                     mode={distMode}
                     counts={customDist ?? autoCounts}
@@ -596,6 +601,7 @@ export default function App() {
                     complianceNote={jobPreview?.compliance_note}
                   />
                 </>
+                )
               )}
               <div className="field">
                 <label className="lbl" htmlFor="wishes">Producer's free wishes <small>(optional)</small></label>

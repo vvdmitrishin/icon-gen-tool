@@ -143,6 +143,9 @@ main[hidden] { display: none; }
 .mys-x { position: absolute; right: 3px; top: 3px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: #fff7d6; color: #e0a100; font-size: 14px; line-height: 22px; cursor: pointer; box-shadow: 0 1px 4px rgba(27, 29, 59, .3); }
 .mys-x:hover { background: #ffe9a3; }
 .plan-step { margin-bottom: 8px; }
+.grand-info { background: #fff8e1; border: 1px solid #f0d28a; border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; color: #5b4a12; }
+.grand-info strong { display: block; font-size: 14px; }
+.grand-info p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.4; }
 .primary.big.planbtn { width: 100%; padding: 12px 12px; font-size: 16px; background: linear-gradient(180deg, #14b8a6, #0d9488); box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset; }
 .primary.big.planbtn:hover:not(:disabled) { background: #0f766e; }
 .primary.big.planbtn:disabled { opacity: .55; }
@@ -182,3 +185,5 @@ main[hidden] { display: none; }
 .vremove:hover:not(:disabled) { background: #fdecea; }
 .vremove.armed { background: #c62828; color: #fff; border-color: #c62828; }
 .vremove:disabled { opacity: .5; cursor: not-allowed; }
+
+.helptip { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 8px; border-radius: 50%; border: 1px solid var(--line-2, #cfd3f0); color: var(--muted, #6b7280); font-size: 11px; font-weight: 600; cursor: help; vertical-align: middle; }
