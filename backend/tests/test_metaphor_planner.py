@@ -116,3 +116,27 @@ def test_one_click_generation_still_plans_automatically_when_there_is_no_plan(se
         assert r.status_code == 200
         wait(c, r.json()["job_id"])
         assert len(seq.requests) == 1  # the automatic planning call
+
+
+@pytest.mark.parametrize("raw", ["A", "a", "Variant A", "VARIANT A", "variant-a", " Variant  A "])
+def test_equivalent_variant_identifiers_are_accepted(settings, raw):
+    seq = Seq(ai_plan_json(1, COUNTS), {"replacements": [dict(variant_id=raw, position=3, object_name="Sandcastle Flag",
+                                                              object_description="a flag", rationale="fits")]})
+    with TestClient(create_app(settings, gemini_transport=seq.transport)) as c:
+        plan = c.post("/api/plan/test", json=dict(BASE, number_of_variants=1)).json()["plan"]
+        r = c.post("/api/plan/regenerate", json=dict(BASE, number_of_variants=1, plan=plan, selected=[dict(variant_id="A", position=3)]))
+        assert r.status_code == 200, r.text
+        assert cards_of(r.json()["plan"])[("A", 3)]["object_name"] == "Sandcastle Flag"
+
+
+@pytest.mark.parametrize("variant,position", [("B", 3), ("Variant B", 3), ("A", 4), ("Z", 3), ("", 3)])
+def test_normalization_does_not_weaken_validation(settings, variant, position):
+    seq = Seq(ai_plan_json(1, COUNTS), {"replacements": [dict(variant_id=variant or "?", position=position, object_name="Sandcastle Flag",
+                                                              object_description="a flag", rationale="x")]})
+    with TestClient(create_app(settings, gemini_transport=seq.transport)) as c:
+        plan = c.post("/api/plan/test", json=dict(BASE, number_of_variants=1)).json()["plan"]
+        before = c.get("/api/costs").json()
+        r = c.post("/api/plan/regenerate", json=dict(BASE, number_of_variants=1, plan=plan, selected=[dict(variant_id="A", position=3)]))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "ai_plan_invalid"
+        after = c.get("/api/costs").json()  # the call was made, so its estimated text cost is recorded once (not hidden)
+        assert after["planning_calls"] == before["planning_calls"] + 1 and after["total_usd"] == pytest.approx(after["planning_usd"] + after["generation_usd"])

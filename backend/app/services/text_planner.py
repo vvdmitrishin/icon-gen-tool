@@ -8,6 +8,7 @@ plan never costs more than one tiny text call. Identical inputs (preview then cr
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -106,6 +107,17 @@ class _AICard(BaseModel):
     object_description: str = Field(min_length=1)
     characters: int | None = None  # required for golden cards (validated in _build / validate_plan)
     rationale: str = ""  # optional short "why it belongs to this Set" (passed concisely into the image prompt)
+
+
+_VARIANT_ID_RE = re.compile(r"(?:VARIANT\s*[:#_-]?\s*)?([A-E])")
+
+
+def normalize_variant_id(raw: Any) -> str:
+    """'A', 'a', 'Variant A', 'VARIANT A', 'variant-a' -> 'A'. Anything else is returned upper-cased and unchanged, so it still
+    fails the strict match against the selected cards (card numbers and categories are never normalized or guessed)."""
+    s = str(raw).strip().strip("\"'` .").upper()
+    m = _VARIANT_ID_RE.fullmatch(s)
+    return m.group(1) if m else s
 
 
 class _AIRegenCard(BaseModel):
@@ -379,7 +391,7 @@ class TextPlanner:
             first = exc.errors()[0]
             raise PlanningError(f"The AI replacements are malformed ({'.'.join(str(x) for x in first.get('loc', ()))}: "
                                 f"{first.get('msg')}). Nothing was changed.", "ai_plan_invalid") from None
-        got = {(r.variant_id.strip().upper(), r.position): r for r in parsed.replacements}
+        got = {(normalize_variant_id(r.variant_id), r.position): r for r in parsed.replacements}
         if len(parsed.replacements) != len(selected) or set(got) != set(selected):
             raise PlanningError(f"The AI returned replacements for {sorted(got)}, expected {sorted(selected)}. Nothing was changed.",
                                 "ai_plan_invalid")

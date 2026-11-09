@@ -720,6 +720,10 @@ class JobService:
                                                      pre_call=lambda: self._check_plan_budget(cost),
                                                      grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
+            if exc.code == "ai_plan_invalid":  # the model WAS called and answered unusably: still an (estimated) text cost
+                self.guard.record(artifact_id=None, provider_id="gemini", model_id=self.gen.registry.effective.gemini_text_model,
+                                  est_cost_usd=cost, usage={"kind": "text_plan", "regenerated_cards": len(selected)},
+                                  outcome="failed:ai_plan_invalid:plan", kind="plan")
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
         self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model, est_cost_usd=res.cost_usd,
                           usage={"kind": "text_plan", "regenerated_cards": len(selected)}, outcome="ok:plan", kind="plan")
