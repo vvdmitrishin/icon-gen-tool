@@ -312,7 +312,13 @@ class JobStore:
                    (job_id, variant_id, now(), by))
 
     def remove_variant(self, job_id: str, variant_id: str, plan: dict[str, Any], request: dict[str, Any]) -> None:
-        """Drop an ungenerated variant: its card rows go, the stored plan/request no longer list it. Nothing else is touched."""
+        """Drop a variant from a job: its cards, versions, approval and comparison links go and the stored plan/request no longer list it.
+        The image FILES stay in the artifact store (History), so nothing on disk is destroyed."""
+        ids = [c["card_id"] for c in self.cards(job_id) if c["variant_id"] == variant_id]
+        for cid in ids:
+            self._exec("DELETE FROM card_versions WHERE card_id=?", (cid,))
+            self._exec("DELETE FROM comparison_refs WHERE card_id=?", (cid,))
+        self._exec("DELETE FROM variant_approvals WHERE job_id=? AND variant_id=?", (job_id, variant_id))
         self._exec("DELETE FROM cards WHERE job_id=? AND variant_id=?", (job_id, variant_id))
         self._exec("UPDATE jobs SET plan_json=?, request_json=?, updated_at=? WHERE job_id=?",
                    (json.dumps(plan), json.dumps(request), now(), job_id))
@@ -857,7 +863,7 @@ class JobService:
         return self.detail(job_id)
 
     def remove_variant(self, job_id: str, variant_id: str) -> dict[str, Any]:
-        """Skip/delete a variant that has NO generated image yet (so Continue no longer spends on it). A variant with images is never removed."""
+        """Skip/delete a variant (also one with generated images, on the Producer's explicit request): Continue no longer spends on it."""
         job = self._job_for_edit(job_id)
         plan, rq = job["plan"], job["request"]
         if variant_id not in [v["variant_id"] for v in plan["variants"]]:
@@ -865,12 +871,11 @@ class JobService:
         if len(plan["variants"]) <= 1:
             raise JobFailure(409, "last_variant", "This is the only variant of the job; it cannot be removed.")
         cards = [c for c in self.store.cards(job_id) if c["variant_id"] == variant_id]
-        if any(c["artifact_id"] for c in cards):
-            raise JobFailure(409, "variant_has_images", "This variant already has generated images, so it is kept (nothing generated is ever deleted).")
         plan["variants"] = [v for v in plan["variants"] if v["variant_id"] != variant_id]
         rq["number_of_variants"] = len(plan["variants"])
         self.store.remove_variant(job_id, variant_id, plan, rq)
-        self.store.add_event(job_id, f"Variant {variant_id} removed before generation ({len(cards)} planned card(s) dropped; nothing was spent on it).", "warn")
+        imgs = sum(1 for c in cards if c["artifact_id"])
+        self.store.add_event(job_id, f"Variant {variant_id} removed ({len(cards)} card(s), {imgs} with generated images; image files stay in History).", "warn")
         rest = self.store.cards(job_id)
         if job["status"] in ("cancelled", "partial_success", "failed") and rest and all(c["status"] == "done" for c in rest):
             self.store.set_status(job_id, "ready_for_review")  # nothing left to continue
