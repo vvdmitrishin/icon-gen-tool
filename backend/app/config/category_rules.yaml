@@ -12,11 +12,11 @@ categories:
     composition: A simple object with no small details, placed on a simple surface.
     background: A simple vertical background behind the surface. Keep the whole image clean and minimal; do not turn it into a complex scene.
   3:
-    name: Object on a realistic surface
+    name: Collectible on a context-appropriate physical surface, in stylized casual-game 3D
     composition: The object is placed on a more realistic surface in a more volumetric scene, and stays centered and readable.
     background: A volumetric spatial background with depth, in stylized casual-game realism (not photographic). The object is still clearly the hero.
   4:
-    name: Object in a realistic environment
+    name: Dominant collectible inside a simplified stylized contextual environment
     composition: The object is embedded in a realistic environment (stylized casual-game realism) and remains the central focus of the image.
     background: A full recognizable environment that tells a small local story. The object must not get lost in the decor.
   5:

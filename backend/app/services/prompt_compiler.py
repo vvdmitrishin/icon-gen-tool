@@ -27,7 +27,7 @@ _ROLE_LABEL = {
     "style": "general style reference",
     "category_1": "Category 1 example (simple floating object)",
     "category_2": "Category 2 example (simple object on a surface)",
-    "category_3": "Category 3 example (object on a realistic surface)",
+    "category_3": "Category 3 example (object on a context-appropriate surface)",
     "category_4": "Category 4 example (object in an environment)",
     "category_5": "Category 5 example (golden card, key characters)",
     "character": "character reference (the key characters of the collection)",

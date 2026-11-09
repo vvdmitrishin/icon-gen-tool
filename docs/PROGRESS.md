@@ -153,3 +153,5 @@ python scripts\verify_clean_checkout.py                      # re-prove it works
 ```
 
 - **Prompt System v0.7 (collectible-subject refinement):** system_style, category_3, category_4 and image_closing saved once as v4 (v1/v0.5/v0.6 stay restorable); category_1/2/5 and repair untouched. Stronger: one dominant subject (~60-75%), low-noise simplified environment, place-like subjects reduced to one iconic focal element, no wide/top-down/location art, no readable text or signage. Only upgrades templates whose active version is the untouched v0.6; Producer edits/rollbacks never overridden. Reference handling unchanged. Not pushed.
+
+- **Prompt System v0.8:** six templates (system_style, category_1-4, image_closing) saved once as new permanent versions (v0.7 snapshot archived in docs/prompt-archive/, DB backup data/collection_studio.before-v08-*.sqlite3); category_5 and repair untouched; Category 3/4 compiler labels corrected. Offline tests only, not pushed.

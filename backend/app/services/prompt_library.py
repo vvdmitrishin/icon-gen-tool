@@ -39,6 +39,8 @@ def v06_templates() -> dict[str, str]:
     """The seven Prompt System v0.6 image templates, verbatim (config/prompt_system_v06.yaml)."""
     return _load_release("prompt_system_v06.yaml")
 
+V08_AUTHOR = "Prompt System v0.8"
+V08_NOTE = "Prompt System v0.8: per-category composition rules (six templates); category_5 and repair unchanged"
 V07_AUTHOR = "Prompt System v0.7"
 V07_NOTE = "Prompt System v0.7: collectible-subject dominance, low-noise environments, no readable text"
 
@@ -47,6 +49,12 @@ V07_NOTE = "Prompt System v0.7: collectible-subject dominance, low-noise environ
 def v07_templates() -> dict[str, str]:
     """Only the templates v0.7 changes (system_style, category_3, category_4, image_closing); the rest stay as they are."""
     return _load_release("prompt_system_v07.yaml")
+
+
+@lru_cache(maxsize=1)
+def v08_templates() -> dict[str, str]:
+    """The six templates v0.8 changes (system_style, category_1..4, image_closing); category_5 and repair are untouched."""
+    return _load_release("prompt_system_v08.yaml")
 
 
 _SCHEMA = """
@@ -86,18 +94,20 @@ class PromptLibrary:
                 self._insert(name, 1, defaults[name], "system", "built-in default")
 
     def apply_releases(self) -> list[str]:
-        """Prompt System releases in order (v0.5 -> v0.6): each is saved ONCE as a NEW permanent version and activated. Older versions
+        """Prompt System releases in order (v0.5 -> v0.8): each is saved ONCE as a NEW permanent version and activated. Older versions
         stay for rollback. A template is only upgraded while its active version is still the untouched previous release, so
         Producer edits and deliberate rollbacks are never overridden, and a release that already has a version is never saved again."""
         applied: list[str] = []
         for texts, author, note, previous in ((v05_templates(), V05_AUTHOR, V05_NOTE, "system"),
                                               (v06_templates(), V06_AUTHOR, V06_NOTE, V05_AUTHOR),
-                                              (v07_templates(), V07_AUTHOR, V07_NOTE, V06_AUTHOR)):
+                                              (v07_templates(), V07_AUTHOR, V07_NOTE, V06_AUTHOR),
+                                              (v08_templates(), V08_AUTHOR, V08_NOTE, (V06_AUTHOR, V07_AUTHOR))):
             for name, text in texts.items():
                 if self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=? AND author=?", (name, author)):
                     continue
                 row = self.active().get(name)
-                if row is None or row["author"] != previous or (previous == "system" and row["version"] != 1):
+                allowed = previous if isinstance(previous, tuple) else (previous,)  # untouched earlier release(s)
+                if row is None or row["author"] not in allowed or (previous == "system" and row["version"] != 1):
                     continue
                 self.save(name, text, author, note)
                 applied.append(f"{name}:{author}")
@@ -178,7 +188,7 @@ class PromptLibrary:
         out = []
         active = self.active()
         defaults = default_templates()
-        shipped = (v05_templates(), v06_templates(), v07_templates())
+        shipped = (v05_templates(), v06_templates(), v07_templates(), v08_templates())
         for name in TEMPLATE_NAMES:
             a = active[name]
             out.append({"name": name, "label": LABELS[name], "version": a["version"], "text": a["text"],
