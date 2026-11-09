@@ -32,7 +32,7 @@ development fallback (Credential Manager first, then `.env`). Without any key yo
 | Compare | Reference Compare: Split Slider, Side by Side (1×1), Grid Overview; auto/manual reference match; Compare Variants |
 | Configure | Versioned **Prompt Library**, **Templates** (presets), read-only **Settings**, **History** of jobs/exports |
 | Deliver | ZIP export per variant (artwork + manifest + set plan + QA report + contact sheet) and a three-genre **final bundle**; collection readiness overview; batch "plan all three genres" |
-| Safety | Cost estimate + explicit confirmation, per-run and cumulative caps from a local ledger, circuit breaker, no auto-resume of paid work after a restart, keys only in Credential Manager / `.env`, loopback-only API |
+| Safety | Cost estimate + explicit confirmation, estimated cost tracked in a local ledger (no spending caps), circuit breaker, no auto-resume of paid work after a restart, keys only in Credential Manager / `.env`, loopback-only API |
 
 ## Implementation status (honest)
 

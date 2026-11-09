@@ -189,12 +189,11 @@ def test_batch_creates_one_job_per_genre_under_one_confirmation(big, rec):
         assert len(rec.requests) == 8
 
 
-def test_batch_respects_caps_and_validation(settings, rec):
+def test_batch_has_no_spending_cap_and_validates(settings, rec):
     with TestClient(create_app(settings, gemini_transport=rec.transport)) as c:
         three = dict(genres=["Science Fiction", "Detective", "Fantasy"], number_of_variants=1, scope="pilot", confirmed=True, **GEMINI)
-        r = c.post("/api/collection/batch", json=three)  # 12 images = $0.804 > per-run cap $0.75
-        assert r.status_code == 402 and r.json()["detail"]["code"] == "job_cap"
-        assert c.get("/api/jobs").json() == [] and rec.requests == []
+        r = c.post("/api/collection/batch", json=three)  # 12 images = $0.804: no per-run cap any more
+        assert r.status_code == 200, r.text
         assert c.post("/api/collection/batch", json={**three, "genres": ["Detective", "detective"]}).status_code == 400
         assert c.post("/api/collection/batch", json={**three, "genres": []}).status_code == 400
         free = c.post("/api/collection/batch", json=dict(genres=["Science Fiction", "Detective", "Fantasy"], number_of_variants=1,

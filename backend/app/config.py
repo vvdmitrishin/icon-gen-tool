@@ -50,7 +50,6 @@ class Settings:
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     paid_image_calls_enabled: bool = True
-    job_budget_usd: float = 0.75
     max_card_retries: int = 0
     max_regenerations_per_card: int = 2
     max_parallel_generations: int = 1
@@ -108,7 +107,6 @@ class Settings:
             gemini_timeout_s=_float(g("GEMINI_TIMEOUT_SECONDS"), 120.0),
             gemini_est_cost_per_image_usd=_float(g("GEMINI_EST_COST_PER_IMAGE_USD"), 0.067),
             paid_image_calls_enabled=_bool(g("PAID_IMAGE_CALLS_ENABLED"), True),
-            job_budget_usd=_float(g("GEMINI_JOB_BUDGET_USD"), 0.75),
             max_card_retries=_int(g("MAX_CARD_RETRIES"), 0),
             max_regenerations_per_card=_int(g("MAX_REGENERATIONS_PER_CARD"), 2),
             max_parallel_generations=_int(g("MAX_PARALLEL_GENERATIONS"), 1),

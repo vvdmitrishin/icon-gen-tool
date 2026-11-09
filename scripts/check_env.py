@@ -50,7 +50,7 @@ def main() -> int:
     else:
         line(None, "Credential manager", "not available (keys come from .env only)")
     line(None, "OpenAI GPT Image", f"disabled by design (enabled flag = {s.openai_image_enabled}); no calls are made")
-    line(None, "Budget guard", f"no cumulative cap; ${s.job_budget_usd:.2f} per-run size guard, retries {s.max_card_retries}, "
+    line(None, "Budget guard", f"no spending cap (cost is only tracked), retries {s.max_card_retries}, "
                                f"regenerations/card {s.max_regenerations_per_card}")
 
     for name, path in (("data", s.data_root), ("artifacts", s.artifact_root)):

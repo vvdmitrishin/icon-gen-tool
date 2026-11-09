@@ -8,7 +8,6 @@
 | Variable | Meaning |
 |---|---|
 | `GEMINI_API_KEY` | Gemini key (server-side only). Never paste it into chat, tickets or commits |
-| `GEMINI_JOB_BUDGET_USD` (0.75) | max estimated spend of one run; fits one full 10-card variant (~0.67) |
 | `GEMINI_EST_COST_PER_IMAGE_USD` (0.067) | estimate used by the guard; verify against Google Billing |
 | `MAX_CARD_RETRIES` (0) / `MAX_REGENERATIONS_PER_CARD` (2) | automatic retries stay off; per-card regenerations |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | both are needed to enable Cloudflare (or enter them in Settings > API Connections) |
@@ -27,7 +26,7 @@ Restart the backend after editing `.env` (credentials entered in the UI apply im
 | Symptom | Action |
 |---|---|
 | Job shows **Interrupted** | The server restarted mid-run. Finished cards are kept. Press **Continue** (optionally *retry failed*) |
-| `402 job_cap` | The one run is larger than the per-run size guard. Lower variants/scope, or raise `GEMINI_JOB_BUDGET_USD` deliberately |
+| `400 too_many_images` | One request asks for more images than `MAX_IMAGES_PER_JOB`. Lower variants/scope or raise it in `.env` |
 | Gemini `400` mentioning `imageConfig` | Set `GEMINI_SEND_IMAGE_CONFIG=false` |
 | Gemini `429/5xx` | The circuit breaker stops after 2 failures; wait, then Continue |
 | Cloudflare disabled | Add the Account ID as well (the token alone is not enough): Settings > API Connections or `.env` |

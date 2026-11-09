@@ -44,7 +44,6 @@ export interface ModelOption {
 
 export interface Budget {
   paid_calls_enabled: boolean;
-  job_budget_usd: number;
   spent_estimated_usd: number; // lifetime estimate = planning + generation
   planning_estimated_usd: number;
   generation_estimated_usd: number;

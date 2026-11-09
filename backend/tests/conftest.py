@@ -23,7 +23,6 @@ def settings(tmp_path):
         gemini_api_key=FAKE_KEY,
         data_root=tmp_path / "data",
         artifact_root=tmp_path / "data" / "artifacts",
-        job_budget_usd=0.75,
     )
 
 

@@ -126,11 +126,10 @@ def test_custom_distribution_is_applied_to_the_plan(settings, rec):
 
 
 # ------------------------------------------------------------------------- budget / safety
-def test_budget_caps_block_before_any_call(settings, rec):
-    with TestClient(create_app(replace(settings, job_budget_usd=0.20), gemini_transport=rec.transport)) as c:
-        r = c.post("/api/jobs", json=body())
-        assert r.status_code == 402 and r.json()["detail"]["code"] == "job_cap"
-    assert rec.requests == []  # (there is no cumulative cap any more; only the per-run guard above)
+def test_no_spending_cap_blocks_a_run(settings, rec):
+    with TestClient(create_app(settings, gemini_transport=rec.transport)) as c:
+        r = c.post("/api/jobs", json=body(number_of_variants=3))  # 30 images, ~$2: far above the former $0.75 per-run cap
+        assert r.status_code == 200, r.text
 
 
 def test_budget_guard_mid_job_stops_and_keeps_finished_cards(settings, rec):

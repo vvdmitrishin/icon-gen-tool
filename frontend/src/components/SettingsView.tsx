@@ -34,7 +34,6 @@ export function SettingsView({ onOpenSetup, onConnectionChanged }: { onOpenSetup
           <li><span>Planning (text)</span><strong>${b.planning_estimated_usd.toFixed(3)}</strong></li>
           <li><span>Generation (images)</span><strong>${b.generation_estimated_usd.toFixed(3)}</strong></li>
           <li><span>Total</span><strong>${b.spent_estimated_usd.toFixed(3)}</strong></li>
-          <li><span>Per-run size guard</span><strong>${b.job_budget_usd.toFixed(2)}</strong></li>
           <li><span>Paid calls enabled</span>{yes(b.paid_calls_enabled)}</li>
         </ul>
         <p className="hint">{b.note}</p>

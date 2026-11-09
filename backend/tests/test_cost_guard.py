@@ -20,10 +20,8 @@ def test_gemini_estimate_and_allowed(tmp_path):
     assert g.check("gemini") == pytest.approx(0.067)
 
 
-def test_job_cap_blocks(tmp_path):
-    with pytest.raises(BudgetExceeded) as e:
-        make(tmp_path, job_budget_usd=0.01).check("gemini")
-    assert e.value.code == "job_cap"
+def test_there_is_no_per_run_spending_cap(tmp_path):
+    assert make(tmp_path, max_images_per_job=500).check("gemini", n_images=400) == pytest.approx(0.067 * 400)  # $26.8, not refused
 
 
 def test_paid_calls_disabled_blocks(tmp_path):

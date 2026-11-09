@@ -1,8 +1,8 @@
 """Local cost tracking (spec §19.5). Estimates only — not provider billing.
 
 Every successful (or possibly-billed) provider call, image OR text-planning, is appended once to an append-only JSONL ledger,
-so the lifetime estimated spend survives restarts. There is NO cumulative spending cap: only the per-run size guard,
-the paid-calls switch and the image-count limit remain. Provider quotas and billing limits still apply on the provider's side.
+so the lifetime estimated spend survives restarts. There is NO spending cap (neither cumulative nor per run): only the paid-calls switch
+and the image-count request limit remain. Provider quotas and billing limits still apply on the provider's side.
 
 Ledger entries: {ts, entry_id, kind: "plan"|"image", job_id, artifact_id, provider, model, est_cost_usd, usage, outcome}.
 Entries written before this tracking existed have no `kind`/`job_id`: `kind` is derived (outcome "ok:plan" = planning) and
@@ -32,7 +32,6 @@ class BudgetExceeded(Exception):
 @dataclass(frozen=True)
 class BudgetSummary:
     paid_calls_enabled: bool
-    job_budget_usd: float
     spent_estimated_usd: float  # lifetime = planning + generation
     planning_estimated_usd: float
     generation_estimated_usd: float
@@ -177,19 +176,13 @@ class CostGuard:
             raise BudgetExceeded(
                 "Paid image calls are disabled (PAID_IMAGE_CALLS_ENABLED=false).", "paid_disabled"
             )
-        if est > s.job_budget_usd:
-            raise BudgetExceeded(
-                f"Estimated ${est:.3f} exceeds the per-job cap ${s.job_budget_usd:.2f}.",
-                "job_cap",
-            )
-        return est  # no cumulative cap: lifetime spend is tracked, never blocked
+        return est  # no spending cap of any kind: spend is estimated and tracked, never blocked
 
     def summary(self) -> BudgetSummary:
         s = self._s
         lt = self.lifetime()
         return BudgetSummary(
             paid_calls_enabled=s.paid_image_calls_enabled,
-            job_budget_usd=s.job_budget_usd,
             spent_estimated_usd=float(lt["total_usd"]),
             planning_estimated_usd=float(lt["planning_usd"]),
             generation_estimated_usd=float(lt["generation_usd"]),

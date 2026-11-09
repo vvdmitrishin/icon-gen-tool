@@ -94,7 +94,6 @@ export function HistoryView(p: Props) {
           </button>
           {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
         </div>
-        {est > 0.75 && <div className="alert warn">This exceeds the per-run cap (GEMINI_JOB_BUDGET_USD) and will be refused; lower the variants or the number of cards.</div>}
       </section>
 
       <section className="card-box">
