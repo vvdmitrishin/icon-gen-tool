@@ -138,7 +138,7 @@ Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 42
 - Never paste keys into chat; no secrets in Git (last scan: 0 hits in tree and history). `.env`, `data/`, `benchmarks/`, `screenshots/` are
   git-ignored; `*CONFIDENTIAL*` screenshots and `compare-reference.png` show the Playrix reference and must never be published or committed.
 - No paid or live generation without explicit approval/in-app confirmation; no OpenAI; planned models stay disabled; no auto-retries.
-- Caps: $0.75 per run, $4.00 cumulative (ledger `data/ledger.jsonl`); spent so far ~$0.80 (local estimate; Google Billing is the truth).
+- Caps: $0.75 per run, $5.00 cumulative (raised from $4.00 on 2026-11-09) (ledger `data/ledger.jsonl`); spent so far ~$0.80 (local estimate; Google Billing is the truth).
   Budget ~EUR 5; a full 3 genres x 3 variants x 10 cards on Gemini is ~$6, so stage it (pilot -> continue), reduce variants, or use the
   Cloudflare free allocation (10,000 Neurons/day, resets 00:00 UTC; not unlimited).
 - Back up `data/` (database, images, ledger) if it matters; it is not in Git.

@@ -9,7 +9,7 @@
 |---|---|
 | `GEMINI_API_KEY` | Gemini key (server-side only). Never paste it into chat, tickets or commits |
 | `GEMINI_JOB_BUDGET_USD` (0.75) | max estimated spend of one run; fits one full 10-card variant (~0.67) |
-| `GEMINI_TOTAL_BUDGET_USD` (4.00) | cumulative local cap; keep it below your prepaid balance |
+| `GEMINI_TOTAL_BUDGET_USD` (5.00) | cumulative local cap; keep it below your prepaid balance |
 | `GEMINI_EST_COST_PER_IMAGE_USD` (0.067) | estimate used by the guard; verify against Google Billing |
 | `MAX_CARD_RETRIES` (0) / `MAX_REGENERATIONS_PER_CARD` (2) | automatic retries stay off; per-card regenerations |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | both are needed to enable Cloudflare (or enter them in Settings > API Connections) |
