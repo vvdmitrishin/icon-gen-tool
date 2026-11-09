@@ -48,9 +48,10 @@ def test_library_is_seeded_with_version_one_defaults(c):
     assert [i["name"] for i in items] == ["system_style", "category_1", "category_2", "category_3",
                                           "category_4", "category_5", "image_closing", "repair"]
     assert all(i["is_default_text"] for i in items)
-    # Prompt System v0.6 is the production default (v3); v1 (built-in) and v2 (v0.5) stay for rollback; repair is untouched (v1)
+    # Prompt System v0.7 changed four templates (v4); the other three stay on v0.6 (v3); older versions stay for rollback; repair is untouched (v1)
     assert {i["name"]: (i["version"], i["versions"]) for i in items} == {
-        **{n: (3, [3, 2, 1]) for n in ("system_style", "category_1", "category_2", "category_3", "category_4", "category_5", "image_closing")},
+        **{n: (4, [4, 3, 2, 1]) for n in ("system_style", "category_3", "category_4", "image_closing")},
+        **{n: (3, [3, 2, 1]) for n in ("category_1", "category_2", "category_5")},
         "repair": (1, [1])}
 
 
@@ -71,7 +72,7 @@ def test_library_validation(c):
     assert c.post("/api/prompts", json={"name": "nope", "text": "x"}).status_code == 422
     assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 5001}).status_code == 422
     assert c.get("/api/prompts/nope/versions").status_code == 404
-    assert [i["version"] for i in c.get("/api/prompts").json()] == [3] * 7 + [1]  # nothing was saved
+    assert [i["version"] for i in c.get("/api/prompts").json()] == [4, 3, 3, 4, 4, 3, 4, 1]  # nothing was saved
 
 
 def test_edited_template_changes_generation_and_is_recorded_in_provenance(c):
@@ -81,7 +82,7 @@ def test_edited_template_changes_generation_and_is_recorded_in_provenance(c):
     assert r.status_code == 200
     p = r.json()["prompt"]
     assert "ZZ-UNIQUE" in p["effective"] and "QQ-CLOSING" in p["effective"]
-    assert p["template_versions"]["category_1"] == 4 and p["template_versions"]["image_closing"] == 4  # v1 built-in, v2 = v0.5, v3 = v0.6
+    assert p["template_versions"]["category_1"] == 4 and p["template_versions"]["image_closing"] == 5  # v1 built-in, v2 = v0.5, v3 = v0.6, v4 = v0.7, v5 = this save
     assert p["template_versions"]["category_2"] == 3
     # the preview endpoint uses the same active templates
     pv = c.post("/api/prompt/preview", json=dict(genre="Fantasy", object_name="Wand", category=1, confirmed=False, **MOCK)).json()

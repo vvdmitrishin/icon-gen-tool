@@ -9,11 +9,20 @@ from app.config import Settings
 from app.services.db import Db
 from app.services.prompt_compiler import SESSION_EDITABLE, default_templates
 from app.services.prompt_library import (
-    MAX_TEXT, V05_AUTHOR, V06_AUTHOR, _SCHEMA, PromptLibrary, v05_templates, v06_templates)
+    MAX_TEXT, V05_AUTHOR, V06_AUTHOR, V07_AUTHOR, _SCHEMA, PromptLibrary, v05_templates, v06_templates, v07_templates)
 from tests.conftest import FAKE_KEY, Recorder
 from tests.test_free_text_sets import MOCK, wait
 
 SEVEN = tuple(SESSION_EDITABLE)
+CHANGED = ('system_style', 'category_3', 'category_4', 'image_closing')  # the only templates v0.7 changes
+
+
+def active_text(n):
+    return v07_templates().get(n, v06_templates()[n])
+
+
+def active_version(n):
+    return 4 if n in CHANGED else 3
 
 
 def test_seven_v06_templates_are_present_verbatim_and_fit_the_limit():
@@ -27,20 +36,22 @@ def test_seven_v06_templates_are_present_verbatim_and_fit_the_limit():
     assert all(0 < len(v) <= MAX_TEXT for v in t.values())
 
 
-def test_fresh_library_is_v3_with_v1_and_v2_kept_for_rollback(tmp_path):
+def test_fresh_library_has_v07_on_changed_templates_and_all_older_versions_kept(tmp_path):
     lib = PromptLibrary(Db(tmp_path / "x.sqlite3"))
     act = lib.active()
     for n in SEVEN:
-        assert act[n]["version"] == 3 and act[n]["author"] == V06_AUTHOR and act[n]["text"] == v06_templates()[n]
         vs = {v["version"]: v for v in lib.versions(n)}
-        assert sorted(vs) == [1, 2, 3]
+        assert act[n]["version"] == active_version(n) and act[n]["text"] == active_text(n)
+        assert sorted(vs) == list(range(1, active_version(n) + 1))
+        assert act[n]["author"] == (V07_AUTHOR if n in CHANGED else V06_AUTHOR)
         assert vs[1]["text"] == default_templates()[n] and vs[1]["author"] == "system"
         assert vs[2]["text"] == v05_templates()[n] and vs[2]["author"] == V05_AUTHOR
+        assert vs[3]["text"] == v06_templates()[n] and vs[3]["author"] == V06_AUTHOR  # v0.6 stays restorable
     assert act["repair"]["version"] == 1
     assert all(i["is_default_text"] for i in lib.listing())  # shipped defaults, not "(edited)"
 
 
-def test_existing_v2_database_is_upgraded_once_to_v3(tmp_path):
+def test_existing_v2_database_is_upgraded_once_to_v0_6_then_v0_7(tmp_path):
     db = Db(tmp_path / "old.sqlite3")  # the state of a live install: v1 + v0.5 (v2) active
     db.script(_SCHEMA)
     lib = PromptLibrary.__new__(PromptLibrary)
@@ -52,8 +63,8 @@ def test_existing_v2_database_is_upgraded_once_to_v3(tmp_path):
     PromptLibrary(db)
     PromptLibrary(db)  # restarts: nothing is saved twice
     for n in SEVEN:
-        assert [v["version"] for v in PromptLibrary(db).versions(n)] == [3, 2, 1]
-        assert PromptLibrary(db).active()[n]["text"] == v06_templates()[n]
+        assert [v["version"] for v in PromptLibrary(db).versions(n)] == list(range(active_version(n), 0, -1))
+        assert PromptLibrary(db).active()[n]["text"] == active_text(n)
 
 
 def test_producer_edits_and_rollbacks_are_never_overridden(tmp_path):
@@ -69,7 +80,7 @@ def test_producer_edits_and_rollbacks_are_never_overridden(tmp_path):
     a = PromptLibrary(db).active()
     assert a["category_1"]["text"] == "Producer's own category 1." and a["category_1"]["version"] == 3
     assert a["category_2"]["text"] == default_templates()["category_2"] and a["category_2"]["version"] == 3
-    assert a["category_3"]["version"] == 3 and a["category_3"]["author"] == V06_AUTHOR
+    assert a["category_3"]["version"] == 4 and a["category_3"]["author"] == V07_AUTHOR  # untouched templates move on to v0.7
     again = PromptLibrary(db).active()  # and a later restart changes nothing
     assert {n: again[n]["version"] for n in SEVEN} == {n: a[n]["version"] for n in SEVEN}
 
@@ -77,20 +88,23 @@ def test_producer_edits_and_rollbacks_are_never_overridden(tmp_path):
 def test_templates_stay_editable_and_old_versions_restorable(settings):
     with TestClient(create_app(settings)) as c:
         items = {i["name"]: i for i in c.get("/api/prompts").json()}
-        assert all(items[n]["version"] == 3 and items[n]["versions"] == [3, 2, 1] for n in SEVEN)
+        assert all(items[n]["version"] == active_version(n) for n in SEVEN)
+        assert items["category_3"]["versions"] == [4, 3, 2, 1]
         r = c.post("/api/prompts", json={"name": "category_3", "text": "My tweak.", "author": "VD", "note": "tweak"})
-        assert r.status_code == 200 and r.json()["version"] == 4
+        assert r.status_code == 200 and r.json()["version"] == 5
         r = c.post("/api/prompts/category_3/restore", json={"version": 2})  # back to v0.5
         assert r.status_code == 200 and r.json()["text"] == v05_templates()["category_3"]
-        r = c.post("/api/prompts/category_3/restore", json={"version": 3})  # forward to v0.6
+        r = c.post("/api/prompts/category_3/restore", json={"version": 3})  # back to v0.6
         assert r.json()["text"] == v06_templates()["category_3"]
+        r = c.post("/api/prompts/category_3/restore", json={"version": 4})  # forward to v0.7
+        assert r.json()["text"] == v07_templates()["category_3"]
         assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 5000}).status_code == 200
         assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 5001}).status_code == 422
         assert c.post("/api/prompts/session-check", json={"overrides": {"category_1": "y" * 5001}}).status_code == 422
 
 
-def test_new_generation_uses_v06_exactly_once_and_old_snapshots_stay(settings):
-    t = v06_templates()
+def test_new_generation_uses_v07_exactly_once_and_old_snapshots_stay(settings):
+    t = {n: active_text(n) for n in SEVEN}
     with TestClient(create_app(settings)) as c:
         for cat in (1, 2, 3, 4):
             r = c.post("/api/generate-card", json=dict(collection="Winter", genre="Forest", object_name="Pine Cone", category=cat, confirmed=False, **MOCK))
@@ -99,25 +113,25 @@ def test_new_generation_uses_v06_exactly_once_and_old_snapshots_stay(settings):
             eff = p["effective"]
             assert eff.count(t["system_style"]) == 1 and eff.count(t["image_closing"]) == 1
             assert [n for n in SEVEN if n.startswith("category_") and t[n] in eff] == [f"category_{cat}"]  # exactly one category module
-            assert p["template_versions"][f"category_{cat}"] == 3 and p["template_versions"]["system_style"] == 3
-            assert v05_templates()["system_style"] not in eff and default_templates()["system_style"] not in eff
+            assert p["template_versions"][f"category_{cat}"] == active_version(f"category_{cat}") and p["template_versions"]["system_style"] == 4
+            assert v06_templates()["system_style"] not in eff and v05_templates()["system_style"] not in eff and default_templates()["system_style"] not in eff
         jr = c.post("/api/jobs", json=dict(collection="Winter", genre="Forest", number_of_cards=10, gold_cards=1, number_of_variants=1, confirmed=True, **MOCK))
         d = wait(c, jr.json()["job_id"])
         cards = [k for v in d["variants"] for k in v["cards"] if k["artifact_id"]]
         gold = next(k for k in cards if k["category"] == 5)
         meta = c.get(f"/api/artifacts/{gold['artifact_id']}").json()["prompt"]
         assert t["category_5"] in meta["effective"] and meta["effective"].count(t["system_style"]) == 1
-        assert meta["bundle"]["system_style"]["source"] == "library" and meta["bundle"]["system_style"]["version"] == 3
+        assert meta["bundle"]["system_style"]["source"] == "library" and meta["bundle"]["system_style"]["version"] == 4
         assert c.post("/api/prompts/system_style/restore", json={"version": 1}).status_code == 200  # rollback affects NEW generations only
         assert c.get(f"/api/artifacts/{gold['artifact_id']}").json()["prompt"]["effective"] == meta["effective"]
         new = c.post("/api/generate-card", json=dict(collection="Winter", genre="Forest", object_name="Pine Cone", category=1, confirmed=False, **MOCK)).json()["prompt"]
         assert default_templates()["system_style"] in new["effective"]
 
 
-def test_gemini_and_cloudflare_requests_carry_the_active_v06_prompt(tmp_path):
+def test_gemini_and_cloudflare_requests_carry_the_active_v07_prompt(tmp_path):
     from tests.test_cloudflare_models import KLEIN_ID, Cf, settings as cf_settings
 
-    t = v06_templates()
+    t = {n: active_text(n) for n in SEVEN}
     gem, cf = Recorder(), Cf()
     s = cf_settings(tmp_path)
     with TestClient(create_app(s, gemini_transport=gem.transport, cloudflare_transport=cf.transport)) as c:
@@ -131,4 +145,16 @@ def test_gemini_and_cloudflare_requests_carry_the_active_v06_prompt(tmp_path):
             assert t["system_style"] in sent and t["image_closing"] in sent and t["category_3"] in sent
             assert not any(t[n] in sent for n in ("category_1", "category_2", "category_4", "category_5"))
         for resp in (g.json(), k.json()):
-            assert resp["prompt"]["template_versions"]["system_style"] == 3 and resp["prompt"]["effective"].count(t["system_style"]) == 1
+            assert resp["prompt"]["template_versions"]["system_style"] == 4 and resp["prompt"]["effective"].count(t["system_style"]) == 1
+
+
+def test_v07_changes_exactly_four_templates_and_keeps_the_rules():
+    t = v07_templates()
+    assert tuple(t) == CHANGED and all(0 < len(v) <= MAX_TEXT for v in t.values())
+    for n in ("category_1", "category_2", "category_5"):
+        assert n not in t  # untouched
+    assert "60–75%" in t["system_style"] and "readable text" in t["system_style"]
+    assert "iconic" in t["category_3"] and "iconic" in t["category_4"]
+    assert "No readable text of any kind" in t["image_closing"] and t["image_closing"].endswith("one final artwork image for the card.")
+    assert t["category_4"].startswith("CATEGORY 4 —") and t["category_3"].startswith("CATEGORY 3 —")
+    assert "If reference images are attached" in t["system_style"] and "authoritative visual specification" in t["system_style"]  # reference handling unchanged

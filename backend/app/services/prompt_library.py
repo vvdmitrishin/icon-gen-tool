@@ -39,6 +39,16 @@ def v06_templates() -> dict[str, str]:
     """The seven Prompt System v0.6 image templates, verbatim (config/prompt_system_v06.yaml)."""
     return _load_release("prompt_system_v06.yaml")
 
+V07_AUTHOR = "Prompt System v0.7"
+V07_NOTE = "Prompt System v0.7: collectible-subject dominance, low-noise environments, no readable text"
+
+
+@lru_cache(maxsize=1)
+def v07_templates() -> dict[str, str]:
+    """Only the templates v0.7 changes (system_style, category_3, category_4, image_closing); the rest stay as they are."""
+    return _load_release("prompt_system_v07.yaml")
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS prompt_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL,
@@ -81,7 +91,8 @@ class PromptLibrary:
         Producer edits and deliberate rollbacks are never overridden, and a release that already has a version is never saved again."""
         applied: list[str] = []
         for texts, author, note, previous in ((v05_templates(), V05_AUTHOR, V05_NOTE, "system"),
-                                              (v06_templates(), V06_AUTHOR, V06_NOTE, V05_AUTHOR)):
+                                              (v06_templates(), V06_AUTHOR, V06_NOTE, V05_AUTHOR),
+                                              (v07_templates(), V07_AUTHOR, V07_NOTE, V06_AUTHOR)):
             for name, text in texts.items():
                 if self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=? AND author=?", (name, author)):
                     continue
@@ -167,7 +178,7 @@ class PromptLibrary:
         out = []
         active = self.active()
         defaults = default_templates()
-        shipped = (v05_templates(), v06_templates())
+        shipped = (v05_templates(), v06_templates(), v07_templates())
         for name in TEMPLATE_NAMES:
             a = active[name]
             out.append({"name": name, "label": LABELS[name], "version": a["version"], "text": a["text"],

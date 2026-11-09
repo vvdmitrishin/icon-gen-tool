@@ -151,3 +151,5 @@ cd backend; .\.venv\Scripts\python -m pytest                 # offline tests (36
 npm --prefix frontend run build                              # typecheck + build
 python scripts\verify_clean_checkout.py                      # re-prove it works from only the committable files
 ```
+
+- **Prompt System v0.7 (collectible-subject refinement):** system_style, category_3, category_4 and image_closing saved once as v4 (v1/v0.5/v0.6 stay restorable); category_1/2/5 and repair untouched. Stronger: one dominant subject (~60-75%), low-noise simplified environment, place-like subjects reduced to one iconic focal element, no wide/top-down/location art, no readable text or signage. Only upgrades templates whose active version is the untouched v0.6; Producer edits/rollbacks never overridden. Reference handling unchanged. Not pushed.
