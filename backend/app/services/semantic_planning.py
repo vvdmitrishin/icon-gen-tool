@@ -52,6 +52,44 @@ def near_duplicates(names: Iterable[str]) -> list[tuple[str, str]]:
     return out
 
 
+_FILLER = _STOP | {"small", "large", "big", "little", "tiny", "old", "new", "classic", "vintage", "bright", "glowing", "shiny",
+                   "vibrant", "colorful", "colourful", "simple", "worn", "single", "one", "its", "is", "are", "at", "by", "from",
+                   "that", "this", "it", "as", "into", "over", "under", "near"}
+
+
+def _concept_words(text: str) -> frozenset[str]:
+    return frozenset(w for w in (_singular(x) for x in re.findall(r"[a-z]+", (text or "").lower())) if w not in _FILLER and len(w) > 2)
+
+
+def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def similar_name(a: str, b: str) -> bool:
+    """Same subject by name words (one contains the other's content words, or Jaccard >= 0.6): 'Brass Magnifying Glass' ~ 'Magnifying Glass'."""
+    wa, wb = _concept_words(a), _concept_words(b)
+    if not wa or not wb:
+        return False
+    return wa <= wb or wb <= wa or _jaccard(wa, wb) >= 0.6
+
+
+def similar_concepts(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Pairs of (name, description) that show the same IDEA under different wording, judged on content words of the name AND the
+    description (no model call). Deliberately conservative, because an unusable plan still costs a text call: it needs mostly the same
+    name words plus clearly the same description, or a near-identical description. 'Bicycle' vs 'Bicycle Helmet' stays fine."""
+    rows = [(n, _concept_words(n), _concept_words(d)) for n, d in items if (n or "").strip()]
+    out: list[tuple[str, str]] = []
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            (na, wa, da), (nb, wb, db) = rows[i], rows[j]
+            if any(ch.isdigit() for ch in na + nb):
+                continue
+            name_sim, desc_sim = _jaccard(wa, wb), _jaccard(da | wa, db | wb)
+            if (name_sim >= 0.6 and desc_sim >= 0.45) or (name_sim >= 0.5 and desc_sim >= 0.7):
+                out.append((na, nb))
+    return out
+
+
 # --------------------------------------------------------------------------- Free Wishes exclusions
 _EXCLUDE_RE = re.compile(r"\b(?:no|without|exclude|excluding|avoid|never|don'?t (?:include|show|use))\s+([a-z][a-z ,/&'-]{1,80})", re.I)
 _SYNONYMS = {

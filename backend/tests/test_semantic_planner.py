@@ -84,8 +84,8 @@ def test_A_winter_forest_prompt_and_plan(settings):
         assert names == WINTER_FOREST
         p = prompt_of(rec.requests[0]).lower()
         assert "'winter'" in p and "'forest'" in p and "semantic boundary" in p
-        assert "do not add objects that only fit the broad collection" in p
-        assert "not fixed quotas" in p and "primary object" not in p and "accessor" not in p.replace("accessories, infrastructure", "")  # no rigid subject quotas
+        assert "not merely to the broad collection" in p
+        assert "not required categories or quotas" in p and "primary object" not in p and "accessor" not in p.replace("accessories, infrastructure", "")  # no rigid subject quotas
 
 
 def test_B_wishes_exclude_buildings(settings):
@@ -157,7 +157,7 @@ def test_cross_batch_history_is_passed_and_isolated(settings):
         d2 = _run(c, collection="Winter", genre="Forest")
         p2 = prompt_of(rec.requests[-1])
         assert "ALREADY GENERATED" in p2 and "Snowy Pine Branch" in p2 and "Red Fox in the Snow" in p2
-        assert "Prefer FRESH subjects" in p2
+        assert "Do not repeat or paraphrase" in p2
         assert any("Earlier batches" in n for n in d2["notes"])
         # unrelated Collection/Set subjects never leak in: Summer/Beach has the same names here, so use a distinct third theme
         rec.plan_body = plan_body(BIKES)

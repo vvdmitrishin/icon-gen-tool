@@ -18,7 +18,7 @@ def prompt(counts=STD, grand=False, history=None, wishes=""):
 def test_category_definitions_1_to_3_unchanged_and_4_names_a_hero_subject():
     assert CATEGORY_MEANINGS[1] == "Category 1 - a SIMPLE object floating in the air, no small details, no ground"
     assert CATEGORY_MEANINGS[2] == "Category 2 - a simple object standing on a simple surface"
-    assert CATEGORY_MEANINGS[3] == "Category 3 - an object on a realistic surface in a volumetric scene"
+    assert CATEGORY_MEANINGS[3].startswith("Category 3 - one collectible subject on a context-appropriate physical surface")
     c4 = CATEGORY_MEANINGS[4]
     assert "hero subject" in c4 and "environment" in c4 and "dominant" in c4
 
@@ -100,7 +100,7 @@ def test_grand_prompt_keeps_characters_and_has_no_object_only_focal_rule():
 
 
 def test_grand_plan_validation_unchanged():
-    cards = [dict(position=i + 1, category=5, object_name=f"Scene {chr(65 + i)} fox", object_description="two heroes laugh",
+    cards = [dict(position=i + 1, category=5, object_name=f"Scene {chr(65 + i)} fox", object_description=["two rivals share umbrella", "chef burns toast", "pilot hugs cactus", "sleepy guard snores", "twins swap hats", "clown stuck ladder"][i],
                   characters=1 + i % 2, rationale="finale") for i in range(6)]
     data = {"variants": [{"title": "t", "concept": "c", "cards": cards}]}
     plan = TextPlanner._build(data, "S", 1, GRAND, 1, "m")

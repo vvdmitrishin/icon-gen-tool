@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ..providers.model_registry import ModelRegistry
 from .category_distribution import ALL_CATEGORIES, GOLDEN_CATEGORY, assign_slots
-from .semantic_planning import forbidden_terms, near_duplicates, violates
+from .semantic_planning import forbidden_terms, near_duplicates, similar_concepts, similar_name, violates
 from .planning import VARIANT_IDS, PlanCard, PlanningError, PlanVariant, SetPlan, default_seed, validate_plan
 
 # Gemini API list prices (standard tier, USD per 1M tokens: input, output INCLUDING thinking tokens), checked 2026-11 against
@@ -50,9 +50,10 @@ CACHE_SIZE = 32
 CATEGORY_MEANINGS = {
     1: "Category 1 - a SIMPLE object floating in the air, no small details, no ground",
     2: "Category 2 - a simple object standing on a simple surface",
-    3: "Category 3 - an object on a realistic surface in a volumetric scene",
-    4: "Category 4 - ONE recognizable hero subject (it names the card) inside a rich, atmospheric environment that tells a "
-       "small story; the environment gives context and mood, the hero subject stays visually dominant",
+    3: "Category 3 - one collectible subject on a context-appropriate physical surface, with only minimal surroundings",
+    4: "Category 4 - ONE recognizable hero subject (an object, a structure or a contained place-like feature that names the "
+       "card) inside a simplified recognizable environment that tells a small story; the environment gives context and mood, "
+       "the hero subject stays visually dominant",
     5: "Category 5 - GOLDEN card: the collection's KEY CHARACTERS (at most 2 characters) in an ironic, emotional situation",
 }
 
@@ -62,13 +63,18 @@ _SYSTEM = (
     "Two-Wheeled Vehicles, Science Fiction). The SET is the semantic boundary: every card must meaningfully belong to "
     "the Set, not merely to the broader Collection. Each card is one illustrated subject. You plan WHICH subjects are "
     "illustrated; you do not draw. Be concrete, visual and family-friendly: no weapons, no violence, no real brands, no "
-    "existing franchise names or copyrighted characters, nothing that needs lettering in the image. "
+    "existing franchise names or copyrighted characters, nothing that needs lettering in the image. The cards of a set must "
+    "together represent the whole WORLD of the Set, not ten variations of its most stereotypical objects. "
     "Write all names and descriptions in English."
 )
 
 _RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
+    "propertyOrdering": ["obvious_ideas", "theme_map", "wishes_applied", "variants"],  # clichés and facets are written BEFORE the cards
     "properties": {
+        "obvious_ideas": {"type": "ARRAY", "items": {"type": "STRING"}},  # the 6 most stereotypical subjects (to be limited)
+        "theme_map": {"type": "ARRAY", "items": {"type": "STRING"}},  # 6-10 distinct facets of the Set's world
+        "wishes_applied": {"type": "STRING"},  # one sentence: how the Producer's wishes were used
         "variants": {
             "type": "ARRAY",
             "items": {
@@ -80,9 +86,12 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
                         "type": "ARRAY",
                         "items": {
                             "type": "OBJECT",
+                            "propertyOrdering": ["position", "category", "aspect", "object_name", "object_description",
+                                                 "characters", "rationale"],
                             "properties": {
                                 "position": {"type": "INTEGER"},
                                 "category": {"type": "INTEGER"},
+                                "aspect": {"type": "STRING"},  # which facet of theme_map this card expresses
                                 "object_name": {"type": "STRING"},
                                 "object_description": {"type": "STRING"},
                                 "characters": {"type": "INTEGER"},  # golden cards only: 1 or 2
@@ -96,13 +105,14 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
             },
         }
     },
-    "required": ["variants"],
+    "required": ["theme_map", "variants"],
 }
 
 
 class _AICard(BaseModel):
     position: int = 0
     category: int
+    aspect: str = ""  # facet of the Set's world the card expresses (prompting aid; not stored)
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(min_length=1)
     characters: int | None = None  # required for golden cards (validated in _build / validate_plan)
@@ -150,6 +160,9 @@ class _AIVariant(BaseModel):
 
 
 class _AIResponse(BaseModel):
+    obvious_ideas: list[str] = Field(default_factory=list)
+    theme_map: list[str] = Field(default_factory=list)
+    wishes_applied: str = ""
     variants: list[_AIVariant]
 
 
@@ -159,6 +172,20 @@ class PlannerResult:
     cached: bool
     cost_usd: float  # 0 when the plan came from the cache (no new call)
     model: str
+
+
+def _wish_lines(wishes: str) -> list[str]:
+    """The Producer's Free Wishes as a REAL brief: placed right after the theme interpretation, outranking default instincts about
+    which objects are 'typical'. Only the fixed rules (Set boundary, categories, safety, no lettering) may override a wish."""
+    if not wishes.strip():
+        return []
+    return [
+        "PRODUCER'S FREE WISHES (they outrank your default instincts about which objects are typical for the Set): "
+        f"{wishes.strip()[:500]}\n"
+        "Treat every content request in them (focus, places, kinds of things, mood) as a real requirement: the finished set must "
+        "visibly reflect it, and `theme_map` should contain the facets they ask for. Exclusions are strict. Only the fixed rules "
+        "(the Set boundary, the category rules, safety, no lettering) may override a wish. Say in `wishes_applied`, in one short "
+        "sentence, how you applied them."]
 
 
 class TextPlanner:
@@ -184,16 +211,25 @@ class TextPlanner:
         lines = [
             f"COLLECTION (broad theme): {collection!r}",
             f"SET (specific sub-theme, the semantic boundary): {set_name!r}",
-            "Step 1 - understand the Set inside the Collection. Decide what the Set is: an activity, a place, an event, "
-            "an experience, a kind of object, a creature habitat... Then work out which DIFFERENT relevant aspects it has "
-            "(for example Winter + Forest -> woodland animals, plants and berries, snow and ice features, forest "
-            "atmosphere; Technology + Two-Wheeled Vehicles -> the vehicles themselves, safety gear, repair tools, "
-            "accessories, infrastructure; Summer + Music Festival -> instruments, stage and sound equipment, visitor "
-            "gear, memorabilia). These are examples of HOW to think, not fixed quotas: the right variety depends on the Set.",
-            "Step 2 - choose subjects. Every subject must clearly belong to THIS Set. Do not add objects that only fit the "
-            "broad Collection (no generic Christmas items for Winter + Forest, no generic gadgets for Two-Wheeled "
-            "Vehicles). Each subject must be distinct and instantly recognisable; never return synonyms, near-duplicates "
-            "or ten variations of one object. Mix the aspects of the Set so the cards show real visual variety.",
+            "THEME WORLD: treat the Collection and the Set as a complete thematic WORLD, not as a class of objects. Think about "
+            "everything that belongs to that world: its signature objects and equipment, recognisable environments and "
+            "locations, everyday objects connected with it, activities and events, infrastructure and surroundings, characters, "
+            "creatures and memorable situations, and visual-storytelling elements. These are directions to consider, NOT "
+            "required categories or quotas: use only the facets that genuinely fit THIS Set and add any others the Set suggests. "
+            "Work in this order. (1) In `obvious_ideas`, name the 6 most stereotypical objects that most people think of first for "
+            "this Set: the clichés. (2) In `theme_map`, write 6-10 short, clearly DIFFERENT facets of the world. (3) Choose the cards. "
+            "At most TWO cards of the whole set may use an item from `obvious_ideas`, and only when it is truly iconic and shown in a "
+            "fresh way; every other card must come from other facets and be something a visitor would not list first.",
+            *_wish_lines(wishes),
+            "Choose subjects. Every subject must clearly belong to THIS Set, not merely to the broad Collection (no generic items "
+            "that fit the Collection but not the Set). Each subject must be distinct and instantly recognisable. Do NOT fill the "
+            "set with the first, most stereotypical objects people associate with the Set: at most a few truly iconic signature "
+            "items belong in it, the rest should come from other facets of the world. Put the facet each card expresses into its "
+            "`aspect` (use the `theme_map` wording) and spread the cards across the facets; two cards may share a facet only when "
+            "the Set is narrow. A subject may be an object, a structure or recognisable place-like feature, a creature or "
+            "character, or a small vignette or situation, as its category allows. Categories 3-4 are the natural home for places, "
+            "environments, events and situations: when the world of the Set (or the Producer's wishes) includes them, use those "
+            "richer categories for them instead of filling every slot with a single loose object.",
             "Choose subjects that are good standalone illustrations. Avoid subjects whose look depends on text or "
             "lettering (signs, posters, book covers, labels, scoreboards, banknotes, flags with writing).",
             "SET MEANING: when the Set name states a clear defining requirement, every subject must respect it. Separate the "
@@ -204,7 +240,8 @@ class TextPlanner:
             "into a rigid technical rule. Before answering, re-read every subject against the Set and replace any that "
             "contradicts it.",
             "VARIETY: prefer subjects that differ in identity, function, silhouette and role within the Set, and that differ "
-            "from earlier subjects. Avoid two close relatives in one variant (e.g. two helmets) when a relevant, "
+            "from earlier subjects. Judge similarity by IDEA, not by name: two names for the same thing, a close paraphrase, or two "
+            "subjects that play the same role in the Set count as repeats. Avoid two close relatives in one variant (e.g. two helmets) when a relevant, "
             "visually strong alternative exists. This is a preference, not a quota: legitimate related objects are allowed "
             "when they are the best fit, and never pick an obscure or weak subject just to be different.",
             f"Create {variants} DISTINCT alternative variant(s) of the set. Each variant has its own micro-theme: a short "
@@ -220,20 +257,22 @@ class TextPlanner:
         if not grand and any(counts.get(c, 0) for c in (1, 2, 3, 4)):
             lines.append(
                 "FOCAL POINT (Categories 1-4): each card needs ONE clearly identifiable primary subject that is a recognizable "
-                "collectible object, readable as a standalone illustration even at thumbnail size. Supporting objects and "
-                "surroundings are fine but must not hide or compete with it. Avoid generic crowds, silhouettes of crowds, "
-                "empty environments, abstract compositions and piles of unrelated objects; pick a central object that "
-                "expresses the same theme instead. A character may be the subject only where the category and collection "
-                "rules allow it. For Category 4, name the hero subject, not the place: not 'Victorian Study Interior' but "
-                "'Detective's Antique Writing Desk' placed in an atmospheric study; keep the richer environment, "
+                "collectible subject (an object, a structure or contained place-like feature, a creature, or for Categories 3-4 a "
+                "small focused vignette or environmental composition), readable as a standalone illustration even at thumbnail "
+                "size. Supporting objects and surroundings are fine but must not hide or compete with it, and it must never "
+                "become a full game screen or a wide landscape. Avoid generic crowds, silhouettes of crowds, empty "
+                "environments, abstract compositions and piles of unrelated objects; pick one central subject that "
+                "expresses the theme instead. A character may be the subject only where the category and collection "
+                "rules allow it. For Category 4, name the hero subject, not the place: not 'Harbour Market Square' but "
+                "'Fishmonger's Wooden Stall' placed in a bustling harbour; keep the richer environment, "
                 "atmosphere and story of Category 4. (These are composition principles, not fixed subjects.)"
             )
         if history:
             lines.append(
                 "ALREADY GENERATED in earlier batches of this same Collection + Set (subject - hint):\n"
                 + "\n".join(f"- {h}" for h in history)
-                + "\nPrefer FRESH subjects: explore other relevant ideas instead of repeating these. Reuse one only if the "
-                "Set really has too few different subjects left."
+                + "\nThese ideas are already used, so they show which facets of the world are covered. Do not repeat or paraphrase "
+                "them: move to DIFFERENT facets and ideas. Reuse a thematically valid idea only if the Set really has no fresh facet left."
             )
         if grand:
             lines.append(
@@ -251,12 +290,6 @@ class TextPlanner:
                 "The characters play out an ironic, emotional situation. AT MOST 2 characters on one golden card: "
                 "set `characters` to 1 or 2 on every golden card. "
                 "Name = the characters + situation, description = the visual scene. Characters must be original designs."
-            )
-        if wishes.strip():
-            lines.append(
-                "Producer's free wishes. Apply them to subject choice when they talk about content (focus, exclusions such as "
-                "'no buildings'), and to mood and atmosphere in the descriptions. Exclusions are strict. Never let the wishes "
-                f"break the Set boundary, the category rules or the safety rules above: {wishes.strip()[:500]}"
             )
         lines.append("Return JSON only, matching the response schema.")
         return "\n".join(lines)
@@ -516,6 +549,8 @@ class TextPlanner:
         every = [c.object_name for v in plan.variants for c in v.cards]
         for a, b in near_duplicates(every)[:2]:
             issues.append(f"near-duplicate subjects '{a}' and '{b}'")
+        for a, b in similar_concepts([(c.object_name, c.object_description) for v in plan.variants for c in v.cards])[:2]:
+            issues.append(f"same idea under different names: '{a}' and '{b}'")
         banned = forbidden_terms(wishes)
         for v in plan.variants:
             for c in v.cards:
@@ -525,6 +560,17 @@ class TextPlanner:
                     break
         if issues:
             raise PlanningError("The AI plan breaks the rules: " + "; ".join(issues[:4]), "ai_plan_invalid")
+        cliches = [c.strip() for c in parsed.obvious_ideas if c and c.strip()][:8]
+        if cliches:
+            used = [c.object_name for v in plan.variants for c in v.cards
+                    if any(similar_name(c.object_name, k) for k in cliches)]
+            plan.notes.append("Most obvious ideas deliberately limited: " + "; ".join(cliches[:6]) + "."
+                              + (f" Still used: {', '.join(used)}." if used else " None of them was used."))
+        facets = [f.strip() for f in parsed.theme_map if f and f.strip()][:10]
+        if facets:
+            plan.notes.append("Facets of the Set's world explored: " + "; ".join(facets) + ".")
+        if wishes.strip() and parsed.wishes_applied.strip():
+            plan.notes.append("How your wishes were applied: " + parsed.wishes_applied.strip()[:240])
         if history_used:
             plan.notes.append(f"Earlier batches of this Collection/Set were passed to the planner ({history_used} subjects) "
                               "so that it prefers fresh subjects.")
