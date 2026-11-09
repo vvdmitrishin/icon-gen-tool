@@ -59,7 +59,10 @@ interface Props {
   onJob: (d: JobDetail) => void;
   onError: (m: string | null) => void;
   planOnly?: PlanOnlyState | null;
+  planStale?: boolean;
   onClosePlanOnly?: () => void;
+  onTogglePlan?: (keys: string[], on: boolean) => void;
+  onRegeneratePlan?: () => void;
   /** compiled prompts of the current plan (same backend compiler as real generation); optional inspection */
   onPreviewPrompts?: () => Promise<PromptsPreviewResponse>;
 }
@@ -313,7 +316,8 @@ export function SetPanel(p: Props) {
 
       {view === "results" && (
         <div className="stage flat">
-          {p.planOnly && (p.planOnly.busy || p.planOnly.result || p.planOnly.error) && <PlanOnlyPanel state={p.planOnly} onClose={() => p.onClosePlanOnly?.()} />}
+          {p.planOnly && (p.planOnly.busy || p.planOnly.result || p.planOnly.error) && <PlanOnlyPanel state={p.planOnly} stale={!!p.planStale} onClose={() => p.onClosePlanOnly?.()}
+            onToggle={(k, on) => p.onTogglePlan?.(k, on)} onRegenerate={() => p.onRegeneratePlan?.()} />}
           {job && (
             <div className="jobbar">
               <div className="jobhead">

@@ -173,6 +173,8 @@ export interface JobRequestPayload {
   scope: "full";
   seed: number | null;
   confirmed: boolean;
+  /** a plan curated in the Metaphor Planner: the server uses it as is instead of planning again */
+  plan?: PlanOnlyResult["plan"];
 }
 
 export type PlanningMode = "rules" | "ai";
@@ -457,7 +459,13 @@ export interface PlanOnlyRequest {
   seed: number | null;
 }
 
+export interface PlanRegenerateRequest extends PlanOnlyRequest {
+  plan: PlanOnlyResult["plan"];
+  selected: { variant_id: string; position: number }[];
+}
+
 export interface PlanOnlyResult {
+  regenerated?: { variant_id: string; position: number }[];
   plan: JobPreview["plan"];
   distribution: Record<string, number>;
   set_type: "standard" | "grand";

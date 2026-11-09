@@ -1,4 +1,5 @@
 import type {
+  PlanRegenerateRequest,
   CostReport,
   Artifact,
   CardComparison,
@@ -150,6 +151,7 @@ export const api = {
     call<JobPromptsResponse>(`/api/jobs/${jobId}/prompts${variantId ? `?variant_id=${encodeURIComponent(variantId)}` : ""}`),
   sessionCheck: (overrides: Record<string, string>) => call<SessionCheckResponse>("/api/prompts/session-check", json({ overrides })),
   planTest: (req: PlanOnlyRequest) => call<PlanOnlyResult>("/api/plan/test", json(req)),
+  planRegenerate: (req: PlanRegenerateRequest) => call<PlanOnlyResult>("/api/plan/regenerate", json(req)),
   exportCollection: (flags: { include_unapproved?: boolean; allow_mock?: boolean; allow_partial?: boolean } = {}) =>
     call<ExportRecord>("/api/collection/export", json({ collection: "Movie Collection", ...flags })),
 };

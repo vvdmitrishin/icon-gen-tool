@@ -166,6 +166,9 @@ export default function App() {
     [collection, genre, setType, variants, numberOfCards, goldEff, distMode, customDist, wishes, seed],
   );
   const aiPlanned = aiPlanKey === planKey;
+  // Metaphor Planner: the plan the Producer curated. It is only used while every plan-defining input is unchanged.
+  const planStale = !!planOnly?.result && planOnly.key !== planKey;
+  const curatedPlan = mode === "set" && planOnly?.result && !planOnly.busy && planOnly.key === planKey ? planOnly.result.plan : null;
   const aiKeyRef = useRef<string | null>(null);
   aiKeyRef.current = aiPlanKey;
   const jobPreview = pv?.key === planKey ? pv.preview : null;
@@ -267,12 +270,14 @@ export default function App() {
       seed,
       confirmed,
       ...(Object.keys(promptOverrides).length ? { prompt_overrides: promptOverrides } : {}),
+      ...(curatedPlan ? { plan: curatedPlan } : {}),
     }),
-    [collection, genre, setType, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed, promptOverrides],
+    [collection, genre, setType, wishes, variants, numberOfCards, goldEff, standard, outputSize, distMode, customDist, model, refIds, policy, aspect, seed, promptOverrides, curatedPlan],
   );
 
   const onBatch = useCallback(async (confirmed: boolean) => {
-    await api.batch(jobRequest(confirmed, undefined, aiPlanned), ["Science Fiction", "Detective", "Fantasy"]);
+    const { plan: _curated, ...batchReq } = jobRequest(confirmed, undefined, aiPlanned); // a curated plan belongs to ONE Set, never to the 3-genre batch
+    await api.batch(batchReq, ["Science Fiction", "Detective", "Fantasy"]);
     loadJobs();
     loadModels();
   }, [jobRequest, aiPlanned, loadJobs, loadModels]);
@@ -357,7 +362,7 @@ export default function App() {
   // A custom Collection/Set is planned by the AI automatically when Generate is clicked (one tiny text call; the estimate comes from the backend's real text-model pricing).
   // The free preview cannot show that plan yet, so Generate stays available and the cost is estimated locally.
   const aiAuto = mode === "set" && jobPreviewError?.code === "ai_plan_required";
-  const planCost = mode === "set" ? (jobPreview?.plan_cost_estimate_usd ?? (aiAuto ? (models?.planner ? models.planner.base_usd + models.planner.per_card_usd * variants * numberOfCards : 0.005) : 0)) : 0;
+  const planCost = mode === "set" ? curatedPlan ? 0 : (jobPreview?.plan_cost_estimate_usd ?? (aiAuto ? (models?.planner ? models.planner.base_usd + models.planner.per_card_usd * variants * numberOfCards : 0.005) : 0)) : 0;
   const est = mode === "single" ? (preview?.estimated_cost_usd ?? 0) : (jobPreview?.estimated_cost_usd ?? (aiAuto ? variants * numberOfCards * perImageSel : 0));
   const paid = est > 0 || planCost > 0; // the confirmation click covers planning AND images; planning never bypasses it
   const needsPolicy = refIds.length > 0 && model?.provider_id !== "mock" && !policy;
@@ -421,18 +426,50 @@ export default function App() {
   }
 
   /** "Test planner": the real semantic planner, never an image provider. Optional: Generate does not need it. */
+  const planFields = () => ({
+    collection: collection.trim(), genre: genre.trim(), wishes, number_of_variants: variants,
+    number_of_cards: numberOfCards, gold_cards: goldEff, set_type: setType, seed,
+    category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
+  });
+
+  /** "Plan Metaphors": the real semantic planner, never an image provider. Its plan is what Generate Sets uses while inputs are unchanged. */
   async function onPlanOnly() {
     const form = `${collection.trim()} · ${genre.trim()} (${grand ? "Grand Set" : "Standard Set"}, ${numberOfCards} cards)`;
-    setPlanOnly({ busy: true, result: null, error: null, form });
+    const key = planKey;
+    const base = { form, key, selected: [] as string[], regenBusy: false, regenError: null, changed: [] as string[] };
+    setPlanOnly({ busy: true, result: null, error: null, ...base });
     try {
-      const r = await api.planTest({
-        collection: collection.trim(), genre: genre.trim(), wishes, number_of_variants: variants,
-        number_of_cards: numberOfCards, gold_cards: goldEff, set_type: setType, seed,
-        category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
-      });
-      setPlanOnly({ busy: false, result: r, error: null, form });
+      const r = await api.planTest(planFields());
+      setPlanOnly({ busy: false, result: r, error: null, ...base });
       loadModels();
-    } catch (e) { setPlanOnly({ busy: false, result: null, error: errText(e, "Planner test failed"), form }); }
+    } catch (e) { setPlanOnly({ busy: false, result: null, error: errText(e, "Metaphor Planner failed"), ...base }); }
+  }
+
+  function onTogglePlan(keys: string[], on: boolean) {
+    setPlanOnly((s) => {
+      if (!s) return s;
+      const cur = new Set(s.selected);
+      keys.forEach((k) => (on ? cur.add(k) : cur.delete(k)));
+      return { ...s, selected: [...cur] };
+    });
+  }
+
+  /** "Regenerate Selected": a new text-only call for the selected concepts; everything else in the plan stays as it is. */
+  async function onRegeneratePlan() {
+    const cur = planOnly;
+    if (!cur?.result || cur.selected.length === 0 || cur.regenBusy) return;
+    const picked = cur.selected;
+    setPlanOnly({ ...cur, regenBusy: true, regenError: null });
+    try {
+      const r = await api.planRegenerate({
+        ...planFields(), plan: cur.result.plan,
+        selected: picked.map((k) => ({ variant_id: k[0], position: Number(k.slice(1)) })),
+      });
+      setPlanOnly((s) => (s ? { ...s, regenBusy: false, result: { ...s.result!, ...r }, selected: [], changed: picked } : s));
+      loadModels();
+    } catch (e) {
+      setPlanOnly((s) => (s ? { ...s, regenBusy: false, regenError: errText(e, "Regenerating the selected concepts failed.") } : s));
+    }
   }
 
   async function onCheck() {
@@ -599,18 +636,21 @@ export default function App() {
                 <button type="button" className="ghost sm" onClick={sessionPrompts.resetAll}>Reset all</button>
               </div>
             )}
+            {mode === "set" && (
+              <div className="cta-row plan-step">
+                <button type="button" className="primary big planbtn" onClick={onPlanOnly} disabled={!genre.trim() || !collection.trim() || distBad || !!planOnly?.busy || !!planOnly?.regenBusy || busy}
+                  title="Step 1: runs only the Metaphor Planner on the current Collection / Set / Free Wishes. No image provider is called; a real text call costs a few tenths of a cent. Generate Sets then uses this plan.">
+                  <span>{planOnly?.busy ? "Planning…" : "🧠 Plan Metaphors"}</span>
+                  <small>{curatedPlan ? "Plan ready · curate it below, then generate" : "Step 1 · text only, no images"}</small>
+                </button>
+              </div>
+            )}
             <div className="cta-row">
               <button type="button" className={`primary big ${armed ? "armed" : ""}`} onClick={onGenerate} disabled={!canGenerate}>
                 <span>{buttonLabel.main}</span>{buttonLabel.sub && <small>{buttonLabel.sub}</small>}{buttonLabel.sub2 && <small className="cost2">{buttonLabel.sub2}</small>}
               </button>
               {armed && <button type="button" className="ghost" onClick={() => setArmed(false)}>Cancel</button>}
             </div>
-            {mode === "set" && (
-              <button type="button" className="ghost sm planbtn" onClick={onPlanOnly} disabled={!genre.trim() || distBad || !!planOnly?.busy || busy}
-                title="Runs only the planner on the current Collection / Set / Free Wishes: no image provider is called. A real text call costs a few tenths of a cent (the exact estimate is shown on the Generate button).">
-                🧪 Test planner (no images)
-              </button>
-            )}
             {!formValid && <p className="hint">{mode === "single" ? "Enter a set and an object, and pick an available model." : "Pick an available model."}</p>}
           </div>
         </aside>
@@ -624,7 +664,8 @@ export default function App() {
             planningAi={planningAi} onPlanWithAi={planWithAi} onConnectGemini={() => setSetupOpen(true)}
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
             onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")}
-            planOnly={planOnly} onClosePlanOnly={() => setPlanOnly(null)}
+            planOnly={planOnly} planStale={planStale} onClosePlanOnly={() => setPlanOnly(null)}
+            onTogglePlan={onTogglePlan} onRegeneratePlan={onRegeneratePlan}
             onPreviewPrompts={() => api.previewPrompts(jobRequest(false, undefined, true))} />
         ) : (
           <ResultPanel artifact={artifact} history={history} onPick={setArtifact} preview={preview} generating={generating} error={genError} />

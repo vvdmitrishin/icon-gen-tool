@@ -108,6 +108,29 @@ class _AICard(BaseModel):
     rationale: str = ""  # optional short "why it belongs to this Set" (passed concisely into the image prompt)
 
 
+class _AIRegenCard(BaseModel):
+    variant_id: str = Field(min_length=1)
+    position: int
+    object_name: str = Field(min_length=1, max_length=80)
+    object_description: str = Field(min_length=1)
+    characters: int | None = None
+    rationale: str = ""
+
+
+class _AIRegen(BaseModel):
+    replacements: list[_AIRegenCard]
+
+
+_REGEN_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {"replacements": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+        "variant_id": {"type": "STRING"}, "position": {"type": "INTEGER"}, "object_name": {"type": "STRING"},
+        "object_description": {"type": "STRING"}, "characters": {"type": "INTEGER"}, "rationale": {"type": "STRING"}},
+        "required": ["variant_id", "position", "object_name", "object_description"]}}},
+    "required": ["replacements"],
+}
+
+
 class _AIVariant(BaseModel):
     title: str = Field(min_length=1)
     concept: str = Field(min_length=1)
@@ -274,12 +297,130 @@ class TextPlanner:
         cost = estimate_plan_cost_usd(model, variants, sum(counts.get(c, 0) for c in ALL_CATEGORIES))
         return PlannerResult(plan.model_copy(deep=True), False, cost, model)
 
+
+    # ------------------------------------------------------- selective regeneration (Metaphor Planner)
+    @staticmethod
+    def build_regen_prompt(collection: str, set_name: str, plan: SetPlan, selected: list[tuple[str, int]], wishes: str,
+                           grand: bool = False, history: list[str] | None = None) -> str:
+        """Context-aware prompt that asks for replacements of ONLY the selected cards. It carries the Collection, Set,
+        wishes, every existing concept (kept and replaced), the categories of the selected cards and the planning rules."""
+        sel = set(selected)
+        lines = [
+            f"COLLECTION (broad theme): {collection!r}",
+            f"SET (specific sub-theme, the semantic boundary): {set_name!r}",
+            "TASK: a Producer curates an existing plan. Replace ONLY the cards marked REPLACE with new, better subjects. "
+            "The cards marked KEEP stay exactly as they are; they are context so that your replacements do not repeat them.",
+        ]
+        for v in plan.variants:
+            lines.append(f"VARIANT {v.variant_id} - {v.title}: {v.concept}")
+            for c in v.cards:
+                tag = "REPLACE" if (v.variant_id, c.position) in sel else "KEEP"
+                extra = f" ({c.characters} character(s))" if c.characters else ""
+                lines.append(f"- {v.variant_id}{c.position} [{tag}] Category {c.category}: {c.object_name} - {c.object_description}{extra}")
+        lines.append("Cards to replace, each with its FIXED category (the category only controls how the picture is composed; "
+                     "keep each replacement suitable for it, and the subject must still fit the Set):")
+        for v in plan.variants:
+            for c in v.cards:
+                if (v.variant_id, c.position) in sel:
+                    lines.append(f"- {v.variant_id}{c.position}: {CATEGORY_MEANINGS.get(c.category, 'Category ' + str(c.category))}; "
+                                 f"current subject '{c.object_name}' must NOT be proposed again")
+        lines += [
+            "Rules for every replacement: it must clearly belong to THIS Set (not merely to the broad Collection), be a "
+            "distinct, instantly recognisable subject, and differ in identity, function, silhouette and role from ALL the other "
+            "cards above (kept or replaced) and from the card it replaces. Never return a synonym, near-duplicate or close "
+            "relative of an existing subject when a relevant, visually strong alternative exists; this is a preference for "
+            "variety, not a quota, and never pick an obscure subject just to be different. Choose good standalone illustrations "
+            "with one clear primary subject; avoid subjects that depend on text or lettering. Be concrete, visual and "
+            "family-friendly: no weapons, no violence, no real brands, no franchise names. Respect the Set's defining meaning "
+            "without turning a broad or metaphorical name into a rigid technical rule. Keep each variant's micro-theme in mind.",
+            "`object_name` max 80 chars; `object_description` one short visual sentence (max 200 chars); `rationale` a short "
+            "phrase (max 100 chars) saying why it belongs to THIS Set. Write in English.",
+        ]
+        if grand or any(c.category == GOLDEN_CATEGORY for v in plan.variants for c in v.cards if (v.variant_id, c.position) in sel):
+            lines.append("GOLDEN cards (Category 5): the collection's KEY CHARACTERS in an ironic, emotional situation; EXACTLY 1 or 2 "
+                         "characters (set `characters` to 1 or 2), original designs; name = the characters + situation, description = "
+                         "the visual scene; the scene must differ clearly from the other golden cards.")
+        if history:
+            lines.append("ALREADY GENERATED in earlier batches of this same Collection + Set (subject - hint):\n"
+                         + "\n".join(f"- {h}" for h in history) + "\nPrefer fresh subjects.")
+        if wishes.strip():
+            lines.append("Producer's free wishes (exclusions are strict; never let them break the Set boundary, the category rules or the "
+                         f"safety rules): {wishes.strip()[:500]}")
+        lines.append(f"Return JSON only: `replacements` with exactly {len(selected)} item(s), one per REPLACE card, using its "
+                     "`variant_id` and `position` exactly as listed. Do not return the KEEP cards.")
+        return "\n".join(lines)
+
+    def regenerate_cards(self, collection: str, set_name: str, plan: SetPlan, selected: list[tuple[str, int]], *,
+                         wishes: str = "", seed: int | None = None, pre_call: Callable[[], None] | None = None,
+                         grand: bool = False, history: list[str] | None = None) -> PlannerResult:
+        """Replace ONLY the selected cards' subject/description (and rationale / golden character count). Card numbers, order,
+        categories and every other card stay byte-for-byte as they were. One text call; no cache, no image provider."""
+        s = self.registry.effective
+        model = s.gemini_text_model
+        if not selected or len(set(selected)) != len(selected):
+            raise PlanningError("Select at least one card (each at most once).", "bad_selection")
+        index = {(v.variant_id, c.position): c for v in plan.variants for c in v.cards}
+        missing = [k for k in selected if k not in index]
+        if missing:
+            raise PlanningError(f"Selected card(s) not in the plan: {missing}.", "bad_selection")
+        if not s.gemini_configured:
+            raise PlanningError("A Gemini API key is needed to regenerate concepts with AI. Add it in Settings > API Connections.",
+                                "gemini_key_missing")
+        if pre_call is not None:
+            pre_call()
+        prompt = self.build_regen_prompt(collection, set_name, plan, selected, wishes, grand, list(history or []))
+        if self._backend == self._call:  # default Gemini backend: use the replacement schema
+            data = self._call(s, model, prompt, seed, _REGEN_SCHEMA)
+        else:  # custom/test backend keeps its 4-argument contract
+            data = self._backend(s, model, prompt, seed)
+        try:
+            parsed = _AIRegen.model_validate(data)
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            raise PlanningError(f"The AI replacements are malformed ({'.'.join(str(x) for x in first.get('loc', ()))}: "
+                                f"{first.get('msg')}). Nothing was changed.", "ai_plan_invalid") from None
+        got = {(r.variant_id.strip().upper(), r.position): r for r in parsed.replacements}
+        if len(parsed.replacements) != len(selected) or set(got) != set(selected):
+            raise PlanningError(f"The AI returned replacements for {sorted(got)}, expected {sorted(selected)}. Nothing was changed.",
+                                "ai_plan_invalid")
+        new_plan = plan.model_copy(deep=True)
+        issues: list[str] = []
+        for v in new_plan.variants:
+            for c in v.cards:
+                r = got.get((v.variant_id, c.position))
+                if r is None:
+                    continue  # unselected: untouched
+                old = c.object_name.strip().lower()
+                c.object_name = r.object_name.strip()
+                c.object_description = r.object_description.strip()[:300]
+                c.rationale = (r.rationale.strip()[:140] or f"{v.title.strip()}: AI-planned for Cat. {c.category}")
+                c.characters = r.characters if c.category == GOLDEN_CATEGORY else None
+                if c.object_name.lower() == old:
+                    issues.append(f"{v.variant_id}{c.position} repeated its old subject '{c.object_name}'")
+        issues += validate_plan(new_plan, {k: v for k, v in new_plan.distribution.items()})
+        every = [c.object_name for v in new_plan.variants for c in v.cards]
+        for a, b in near_duplicates(every)[:2]:
+            issues.append(f"near-duplicate subjects '{a}' and '{b}'")
+        banned = forbidden_terms(wishes)
+        for v in new_plan.variants:
+            for c in v.cards:
+                if (v.variant_id, c.position) in got:
+                    hit = violates(f"{c.object_name} {c.object_description}", banned)
+                    if hit:
+                        issues.append(f"'{c.object_name}' breaks the wish to avoid '{hit}'")
+        if issues:
+            raise PlanningError("The AI replacements break the rules, so nothing was changed: " + "; ".join(issues[:4]), "ai_plan_invalid")
+        new_plan.notes = [n for n in new_plan.notes if not n.startswith("Metaphor Planner:")] + [
+            f"Metaphor Planner: {len(selected)} concept(s) were regenerated from the other cards' context; the rest are unchanged."]
+        cost = estimate_plan_cost_usd(model, 1, len(selected))
+        return PlannerResult(new_plan, False, cost, model)
+
     # --------------------------------------------------------------- http call
-    def _call(self, s: Any, model: str, prompt: str, seed: int | None) -> dict[str, Any]:
+    def _call(self, s: Any, model: str, prompt: str, seed: int | None, schema: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{s.gemini_base_url.rstrip('/')}/models/{model}:generateContent"
         gen_cfg: dict[str, Any] = {
             "responseMimeType": "application/json",
-            "responseSchema": _RESPONSE_SCHEMA,
+            "responseSchema": schema or _RESPONSE_SCHEMA,
             # no temperature/top_p/top_k: Gemini 3.x models deprecate them (ignored, may be rejected); `seed` keeps variety reproducible
         }
         if seed is not None:

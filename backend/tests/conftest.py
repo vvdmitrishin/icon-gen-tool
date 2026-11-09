@@ -149,9 +149,9 @@ def _deterministic_text_planner(monkeypatch):
 
     original = TextPlanner._call
 
-    def fake_call(self, s, model, prompt, seed):
+    def fake_call(self, s, model, prompt, seed, schema=None):
         if getattr(getattr(self.registry, "_gemini_transport", None), "serves_text_plans", False):
-            return original(self, s, model, prompt, seed)  # a test that scripts the real text transport
+            return original(self, s, model, prompt, seed, schema)  # a test that scripts the real text transport
         return deterministic_plan(prompt)
 
     monkeypatch.setattr(TextPlanner, "_call", fake_call)

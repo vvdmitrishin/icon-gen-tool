@@ -88,10 +88,40 @@ class JobCreateRequest(BaseModel):
     # Session-only prompt overrides from the browser tab (template name -> text). Resolved ONCE at job creation into an
     # immutable server-side snapshot (request["prompt_bundle"]); nothing is written to the permanent Prompt Library.
     prompt_overrides: dict[str, str] = Field(default_factory=dict)
+    # A plan already curated in the Metaphor Planner. When present it is used AS IS (validated, never re-planned, no text call);
+    # when absent the automatic AI planning is unchanged.
+    plan: SetPlan | None = None
 
     @model_validator(mode="after")
     def _grand_set_rules(self) -> "JobCreateRequest":
         if self.set_type == SET_GRAND:  # Gold = Number of Cards, Cat.1-4 = 0 (the server enforces it, not only the UI)
+            self.gold_cards = self.number_of_cards
+            self.category_distribution = None
+        return self
+
+
+class CardRef(BaseModel):
+    variant_id: str = Field(min_length=1, max_length=2)
+    position: int = Field(ge=1, le=CARDS_PER_SET)
+
+
+class PlanRegenerateRequest(BaseModel):
+    """Metaphor Planner: replace the concepts of the selected cards only (text model only, no images)."""
+    collection: str = Field(default="Movie Collection", min_length=1, max_length=80)
+    genre: str = Field(min_length=1, max_length=80)
+    wishes: str = Field(default="", max_length=2000)
+    number_of_variants: int = Field(default=1, ge=1, le=5)
+    number_of_cards: int = Field(default=CARDS_PER_SET, ge=1, le=CARDS_PER_SET)
+    gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)
+    category_distribution: CategoryDistribution | None = None
+    set_type: Literal["standard", "grand"] = SET_STANDARD
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    plan: SetPlan
+    selected: list[CardRef] = Field(min_length=1, max_length=CARDS_PER_SET * 5)
+
+    @model_validator(mode="after")
+    def _grand_set_rules(self) -> "PlanRegenerateRequest":
+        if self.set_type == SET_GRAND:
             self.gold_cards = self.number_of_cards
             self.category_distribution = None
         return self
@@ -619,6 +649,12 @@ class JobService:
                 f"${self._plan_cost(req):.3f} for this set). Generate does this automatically; a free preview needs allow_ai_plan=true.",
                 {"plan_cost_estimate_usd": self._plan_cost(req)})
         cost = self._plan_cost(req)
+        given = getattr(req, "plan", None)
+        if given is not None:  # a plan curated in the Metaphor Planner: use it as is, no text call, no new cost
+            if given.genre.strip().lower() != req.genre.strip().lower() or len(given.variants) != req.number_of_variants:
+                raise JobFailure(409, "plan_mismatch", "The curated plan no longer matches this Set / variant count. "
+                                                       "Run Plan Metaphors again.")
+            return given.model_copy(deep=True), 0.0, []
         try:
             history = self.previous_subjects(req.collection, req.genre, req.set_type)
             res = self.text_planner.plan(req.collection, req.genre, req.number_of_variants, counts,
@@ -660,6 +696,40 @@ class JobService:
             "history_subjects_used": len(history),
             "history": history,
             "image_provider_called": False,
+            "budget": self.guard.summary().__dict__,
+        }
+
+    def plan_regenerate(self, req: PlanRegenerateRequest) -> dict[str, Any]:
+        """Metaphor Planner 'Regenerate Selected': one text call that replaces only the selected concepts. Unselected cards,
+        card numbers, order, categories and distribution are unchanged. Never resolves an image model; the text cost is recorded."""
+        try:
+            counts = resolve_distribution(req.category_distribution, number_of_cards=req.number_of_cards,
+                                          gold_cards=req.gold_cards, set_type=req.set_type)
+        except DistributionError as exc:
+            raise JobFailure(422, exc.code, exc.message) from exc
+        if req.plan.genre.strip().lower() != req.genre.strip().lower() or len(req.plan.variants) != req.number_of_variants:
+            raise JobFailure(409, "plan_mismatch", "The plan no longer matches this Set / variant count. Run Plan Metaphors again.")
+        issues = validate_plan(req.plan, counts)
+        if issues:
+            raise JobFailure(422, "plan_invalid", "; ".join(issues))
+        selected = [(r.variant_id.strip().upper(), r.position) for r in req.selected]
+        cost = estimate_plan_cost_usd(self.gen.registry.effective.gemini_text_model, 1, len(selected))
+        try:
+            history = self.previous_subjects(req.collection, req.genre, req.set_type)
+            res = self.text_planner.regenerate_cards(req.collection, req.genre, req.plan, selected, wishes=req.wishes, seed=req.seed,
+                                                     pre_call=lambda: self._check_plan_budget(cost),
+                                                     grand=req.set_type == SET_GRAND, history=history)
+        except PlanningError as exc:
+            raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
+        self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model, est_cost_usd=res.cost_usd,
+                          usage={"kind": "text_plan", "regenerated_cards": len(selected)}, outcome="ok:plan", kind="plan")
+        return {
+            "plan": res.plan.model_dump(mode="json"),
+            "distribution": {str(k): v for k, v in counts.items()},
+            "set_type": req.set_type, "planning_mode": res.plan.planning_mode, "text_model": res.model, "cached": False,
+            "text_cost_estimate_usd": round(res.cost_usd, 6), "cost_is_estimate": True,
+            "history_subjects_used": len(history), "history": history, "image_provider_called": False,
+            "regenerated": [{"variant_id": v, "position": p} for v, p in selected],
             "budget": self.guard.summary().__dict__,
         }
 
@@ -742,7 +812,8 @@ class JobService:
         # the job. Every card of every variant (and later regenerations) uses exactly these texts, even if the library or the
         # browser session changes while the job runs, and the snapshot survives a browser restart (it lives in the database).
         bundle = self._resolve_bundle(req.prompt_overrides)
-        request_json = req.model_dump(mode="json")
+        request_json = req.model_dump(mode="json", exclude={"plan"})  # the plan itself lives in plan_json
+        request_json["curated_plan"] = req.plan is not None
         request_json["prompt_overrides"] = sorted(req.prompt_overrides)  # names only; the texts live in the snapshot
         request_json["prompt_bundle"] = bundle
         self.store.create_job(job_id, "created", request_json, plan.model_dump(mode="json"), req.scope, flat)
@@ -751,7 +822,8 @@ class JobService:
         self.store.add_event(job_id, f"Job created: {req.genre}, {req.number_of_variants} variant(s), "
                                      f"scope={req.scope} ({len(scope_ids)} images, est ${est:.3f}).")
         self.store.set_status(job_id, "planning")
-        planner = "AI planner (Gemini text)" if plan.planning_mode == "ai" else "legacy planner"
+        planner = ("curated Metaphor Planner plan (no new text call)" if req.plan is not None
+                   else "AI planner (Gemini text)" if plan.planning_mode == "ai" else "legacy planner")
         session_names = sorted(n for n, b in bundle.items() if b["source"] == "session_override")
         if session_names:
             self.store.add_event(job_id, "Prompt snapshot uses SESSION overrides for: " + ", ".join(session_names)

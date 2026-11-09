@@ -38,7 +38,7 @@ from .services.exporter import ExportError, Exporter
 from .services.imports import ImportError_, import_sample
 from .services.jobs import (
     ApproveVariantRequest, ContinueRequest, JobCreateRequest, JobFailure, JobService, JobStore,
-    PatchCardRequest, PlanOnlyRequest, RegenerateRequest, ReviewRequest,
+    PatchCardRequest, PlanOnlyRequest, PlanRegenerateRequest, RegenerateRequest, ReviewRequest,
 )
 from .services.prompt_library import LibraryError, PromptLibrary
 from .services.presets import PresetError, PresetStore
@@ -384,6 +384,14 @@ def create_app(
     async def jobs_create(req: JobCreateRequest) -> dict[str, Any]:
         try:
             return await jobs.create(req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.post("/api/plan/regenerate")
+    def plan_regenerate(req: PlanRegenerateRequest) -> dict[str, Any]:
+        """Metaphor Planner: regenerate only the selected concepts (text model only; never an image provider)."""
+        try:
+            return jobs.plan_regenerate(req)
         except JobFailure as exc:
             raise _job_err(exc) from exc
 
