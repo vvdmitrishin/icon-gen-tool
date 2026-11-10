@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 TEMPLATE_VERSION = "image_base_v0"
+MAX_REPAIR_NOTE = 1000  # Repair note (regeneration corrections): one limit for the UI, API and the prompt
 MAX_WISHES = 1500  # Producer's Free Wishes: one limit for the UI, API, templates and every prompt
 TEMPLATE_NAMES = ("system_style", "category_1", "category_2", "category_3", "category_4", "category_5",
                   "image_closing", "repair")
@@ -219,7 +220,7 @@ def compile_card_prompt(
 
     repair_block = ""
     if repair_note and repair_note.strip():
-        note = repair_note.strip()[:300]
+        note = repair_note.strip()[:MAX_REPAIR_NOTE]
         try:
             repair_block = tpl["repair"].format(note=note, object_name=card.object_name)
         except (KeyError, IndexError, ValueError):  # a malformed edited template must not break generation

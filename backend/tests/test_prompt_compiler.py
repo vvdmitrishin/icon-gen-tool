@@ -91,3 +91,16 @@ def test_planner_prompt_keeps_broad_themes_wide_and_bright():
     p = TextPlanner.build_prompt("Movie", "Comedy", 1, {1: 2, 2: 2, 3: 3, 4: 3}, "")
     assert BROAD_THEME_RULE in p
     assert "no quotas" in p and "not the time of day or lighting" in p
+
+
+def test_repair_note_limit_is_1000_in_prompt_and_api():
+    from app.services.prompt_compiler import MAX_REPAIR_NOTE
+    assert MAX_REPAIR_NOTE == 1000
+    c = compile_card_prompt(card(), "", None, None, "r" * 1500)
+    assert "r" * 1000 in c.text and "r" * 1001 not in c.text
+    from app.services.jobs import RegenerateRequest
+    from pydantic import ValidationError
+    import pytest
+    assert RegenerateRequest(note="n" * 1000).note
+    with pytest.raises(ValidationError):
+        RegenerateRequest(note="n" * 1001)

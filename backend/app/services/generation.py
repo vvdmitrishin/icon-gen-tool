@@ -16,7 +16,7 @@ from ..config import Settings
 from ..providers.base import GenerationRequest, ProviderDisabled, ProviderError
 from ..providers.model_registry import ModelInfo, ModelRegistry
 from .cost_guard import BudgetExceeded, CostGuard
-from .prompt_compiler import MAX_WISHES, CardSpec, CompiledPrompt, check_overrides, compile_card_prompt
+from .prompt_compiler import MAX_REPAIR_NOTE, MAX_WISHES, CardSpec, CompiledPrompt, check_overrides, compile_card_prompt
 from .prompt_library import LibraryError, PromptLibrary
 from .reference_manager import ReferenceError_, ReferenceManager
 from .storage import ArtifactStore, new_artifact_id
@@ -37,7 +37,7 @@ class GenerateCardRequest(BaseModel):
     output_size: int = 1024  # EXACT delivered icon side in px (24..1024); the native image is up/downscaled to it
     confirmed: bool = False  # explicit user confirmation of the shown cost estimate
     context: dict[str, Any] = Field(default_factory=dict)  # e.g. job_id/variant_id/position (provenance)
-    repair_note: str = Field(default="", max_length=300)  # regeneration corrections (spec §11.4)
+    repair_note: str = Field(default="", max_length=MAX_REPAIR_NOTE)  # regeneration corrections (spec §11.4)
     # Session-only prompt overrides (template name -> text) sent by the browser for single-card calls and previews.
     prompt_overrides: dict[str, str] = Field(default_factory=dict)
     # The job's immutable prompt snapshot (set by the job runner only): name -> {text, source, version, base_version}.

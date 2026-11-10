@@ -42,7 +42,7 @@ from .generation import GenerateCardRequest, GenerationFailure, GenerationServic
 from .planning import PlanningError, SetPlan, validate_plan
 from .qa import qa_card, qa_variant
 from .reference_manager import ReferenceError_, ReferenceManager
-from .prompt_compiler import MAX_WISHES, check_overrides
+from .prompt_compiler import MAX_REPAIR_NOTE, MAX_WISHES, check_overrides
 from .prompt_library import LibraryError
 from .semantic_planning import history_summary, theme_key
 from .text_planner import TextPlanner, estimate_plan_cost_usd
@@ -155,7 +155,7 @@ class ContinueRequest(BaseModel):
 
 class RegenerateRequest(BaseModel):
     confirmed: bool = False
-    note: str = Field(default="", max_length=300)
+    note: str = Field(default="", max_length=MAX_REPAIR_NOTE)
 
 
 class ReviewRequest(BaseModel):

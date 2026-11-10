@@ -875,8 +875,8 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
           </div>
         )}
 
-        <label className="lbl" htmlFor="rnote">{hasImage ? "Repair note (what to fix)" : "Note"} <small>(optional, ≤ 300)</small></label>
-        <textarea id="rnote" rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. no text on the objects; simpler background" />
+        <label className="lbl" htmlFor="rnote">{hasImage ? "Repair note (what to fix)" : "Note"} <small>(optional, ≤ 1000)</small></label>
+        <textarea id="rnote" rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. no text on the objects; simpler background" />
         <div className="rvbtns">
           <button type="button" className={`primary small ${armed ? "armed" : ""}`} disabled={!canRegen} onClick={regenerate}>
             {armed ? `Confirm & spend ≈ $${perImage.toFixed(3)}` : `${label}${paid ? ` · ≈ $${perImage.toFixed(3)}` : ""}`}
