@@ -51,13 +51,13 @@ async function getToken(force = false): Promise<string> {
   return sessionToken;
 }
 
-async function read<T>(path: string): Promise<T> {
+export async function read<T>(path: string): Promise<T> {
   const res = await raw(path);
   if (!res.ok) await fail(res);
   return (await res.json()) as T;
 }
 
-async function write<T>(method: "PUT" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+export async function write<T>(method: "PUT" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getToken(attempt > 0);
     const res = await raw(path, {

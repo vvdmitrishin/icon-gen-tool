@@ -114,7 +114,7 @@ def test_templates_builtin_user_create_duplicate_and_delete(c):
 
 def test_template_payload_validation_rejects_secrets_and_junk(c):
     bad = [{"api_key": "x"}, {"genre": "Fantasy", "gemini_api_key": "x"}, {"number_of_variants": 9},
-           {"scope": "huge"}, {"wishes": "x" * 501}, {"category_distribution": {"mode": "weird"}}]
+           {"scope": "huge"}, {"wishes": "x" * 1501}, {"category_distribution": {"mode": "weird"}}]
     for payload in bad:
         assert c.post("/api/templates", json={"name": "t", "payload": payload}).status_code == 422, payload
     assert c.post("/api/templates", json={"name": "", "payload": {}}).status_code == 422

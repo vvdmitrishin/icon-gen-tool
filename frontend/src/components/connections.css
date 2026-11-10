@@ -35,3 +35,21 @@
 .cn-src { font-size: 12px; color: var(--muted); }
 .cn-prec { margin: 0 0 8px; font-size: 12px; color: #4b3a8a; background: var(--lav); border-radius: 8px; padding: 4px 8px; }
 .cn-revoke { margin: 8px 0 0; }
+
+/* Provider manager */
+.pm { display: grid; gap: 14px; }
+.pm h4 { margin: 0 0 6px; font-size: 14px; }
+.pm-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pm-head h2 { margin: 0; }
+.pm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pm-item { display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: #fff; }
+.pm-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pm-types { color: var(--muted); font-size: 12px; }
+.pm-models { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.pm-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pm-picker { margin-top: 10px; font-size: 13px; }
+.pm-picker select { max-width: 100%; }
+.pm-add { border-top: 1px solid var(--line); padding-top: 12px; }
+.pm-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.pm-form label { display: grid; gap: 3px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.pm-form input, .pm-form select { font-weight: 400; color: inherit; }

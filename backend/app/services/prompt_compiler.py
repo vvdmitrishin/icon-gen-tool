@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 TEMPLATE_VERSION = "image_base_v0"
-MAX_WISHES = 500
+MAX_WISHES = 1500  # Producer's Free Wishes: one limit for the UI, API, templates and every prompt
 TEMPLATE_NAMES = ("system_style", "category_1", "category_2", "category_3", "category_4", "category_5",
                   "image_closing", "repair")
 # Templates the Producer may override for the current browser session (the repair template stays permanent-only).

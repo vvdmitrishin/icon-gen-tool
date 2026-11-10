@@ -67,6 +67,13 @@ interface Props {
   onPreviewPrompts?: () => Promise<PromptsPreviewResponse>;
 }
 
+/** History dropdown label: Collection | Set xVariants | Mon D, HH:MM (local time). Status is shown elsewhere. */
+export function jobLabel(j: { collection?: string; genre: string; variants: number; created_at: string }): string {
+  const d = new Date(j.created_at);
+  const when = Number.isNaN(d.getTime()) ? j.created_at : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${(j.collection ?? "").trim() || "No collection"} | ${j.genre} x${j.variants} | ${when}`;
+}
+
 const STATUS_TEXT: Record<string, string> = {
   created: "Created", planning: "Planning", plan_qa: "Plan QA", queued: "Queued", generating: "Generating",
   image_qa: "Technical QA", set_qa: "Set QA", ready_for_review: "Ready for review",
@@ -258,7 +265,7 @@ export function SetPanel(p: Props) {
           <select className="jobpick" aria-label="Recent jobs" value={job?.job_id ?? ""} onChange={(e) => e.target.value && p.onPickJob(e.target.value)}>
             <option value="">Recent jobs…</option>
             {p.jobs.map((j) => (
-              <option key={j.job_id} value={j.job_id}>{j.genre} ×{j.variants} · {STATUS_TEXT[j.status] ?? j.status} · {new Date(j.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</option>
+              <option key={j.job_id} value={j.job_id}>{jobLabel(j)}</option>
             ))}
           </select>
         )}
@@ -685,7 +692,7 @@ function NextSteps({ job, jobExports, saved, onReview, onTweak, onExport, onSave
       await api.createTemplate(name.trim(), {
         collection: job.collection, genre: job.genre, number_of_variants: job.variants.length,
         number_of_cards: job.number_of_cards ?? job.variants[0]?.cards.length ?? 10, gold_cards: job.gold_cards ?? r.gold_cards ?? 0,
-        output_size: job.output_size ?? r.output_size ?? 1024, wishes: (r.wishes ?? "").slice(0, 500), category_distribution: r.category_distribution,
+        output_size: job.output_size ?? r.output_size ?? 1024, wishes: (r.wishes ?? "").slice(0, 1500), category_distribution: r.category_distribution,
       });
       onSaved(name.trim());
       setNaming(false);

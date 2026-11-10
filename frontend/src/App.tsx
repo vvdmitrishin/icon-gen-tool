@@ -12,14 +12,14 @@ import { HistoryView } from "./components/HistoryView";
 import { ResultPanel } from "./components/ResultPanel";
 import { SetPanel } from "./components/SetPanel";
 import { SettingsView } from "./components/SettingsView";
-import { SetupWizard, useFirstRun } from "./components/SetupWizard";
+import { PlannerModelPicker, ProviderDialog } from "./components/ProviderManager";
 import { TemplatesView } from "./components/TemplatesView";
 import type {
   Artifact, Budget, GenerateRequest, JobDetail, JobEvent, JobPreview, JobRequestPayload,
   JobSummary, ModelsResponse, PreviewResponse, RefMeta,
 } from "./types/api";
 
-const MAX_WISHES = 500;
+const MAX_WISHES = 1500;
 const CATEGORIES: { n: 1 | 2 | 3 | 4; label: string }[] = [
   { n: 1, label: "Cat. 1 — floating, simple background" },
   { n: 2, label: "Cat. 2 — on a surface" },
@@ -36,10 +36,8 @@ const clampInt = (v: unknown, lo: number, hi: number, d: number) =>
 
 export default function App() {
   const [view, setView] = useState<View>("generate");
-  // First-run setup guide / "Connect providers" dialog (credentials are handled by the backend; never stored in the browser).
+  // "Connect providers" dialog (credentials are handled by the backend; never stored in the browser).
   const [setupOpen, setSetupOpen] = useState(false);
-  const { firstRun, refresh: refreshFirstRun } = useFirstRun();
-  useEffect(() => { if (firstRun) setSetupOpen(true); }, [firstRun]);
   const [models, setModels] = useState<ModelsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refs, setRefs] = useState<RefMeta[]>([]);
@@ -496,8 +494,7 @@ export default function App() {
   return (
     <div className="app">
       <Header budget={models?.budget} view={view} onView={setView} onConnect={() => setSetupOpen(true)} />
-      <SetupWizard open={setupOpen} onClose={() => setSetupOpen(false)}
-        onConnected={() => { loadModels(); refreshFirstRun(); }} />
+      <ProviderDialog open={setupOpen} onClose={() => setSetupOpen(false)} onChange={loadModels} />
       {loadError && <div className="alert err top" role="alert">{loadError}</div>}
       {view !== "generate" && (
         <div className="page">
@@ -508,7 +505,7 @@ export default function App() {
           {view === "templates" && (
             <TemplatesView onApply={applyPreset} current={() => ({
               collection: collection.trim(), genre, number_of_variants: variants, number_of_cards: numberOfCards, gold_cards: goldEff, output_size: outputSize,
-              wishes: wishes.slice(0, 500),
+              wishes: wishes.slice(0, MAX_WISHES),
               category_distribution: distMode === "auto_balanced" ? { mode: "auto_balanced" } : { mode: "custom", counts: { ...(customDist ?? balancedSplit(standard)) } },
             })} />
           )}
@@ -625,6 +622,7 @@ export default function App() {
               {models ? (
                 <>
                   <ModelSettings models={models.models} value={modelKey} onChange={setModelKey} outputSize={outputSize} onOutputSize={setOutputSize} onManage={manageConnections} onConnectionChanged={loadModels} />
+                  <PlannerModelPicker onChanged={loadModels} />
                   <ProviderAvailability models={models.models} checking={checking} checkedAt={models.availability.checked_at} availabilityError={models.availability.error} onCheck={onCheck} />
                 </>
               ) : <p className="hint">Loading models…</p>}
@@ -716,7 +714,7 @@ function Header({ budget, view, onView, onConnect }: { budget?: Budget; view: Vi
             <em className="hide-sm">est.</em>
           </> : "…"}
         </div>
-        <button type="button" className="connect" onClick={onConnect} title="Connect or check image providers (API keys stay on the server)">Connect providers</button>
+        <button type="button" className="connect" onClick={onConnect} title="Connect, test or disconnect AI providers (API keys stay on this PC)">Connect Providers</button>
         <div className="user" title="Local single-user session">
           <span className="avatar" aria-hidden>LU</span><span className="uname">Local User</span>
         </div>

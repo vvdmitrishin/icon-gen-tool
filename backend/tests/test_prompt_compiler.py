@@ -54,7 +54,31 @@ def test_negated_wishes_do_not_warn():
     assert check_wishes("no frames, avoid text, no weapons") == []
 
 
-def test_wishes_truncated_to_500():
-    c = compile_card_prompt(card(), "x" * 900)
-    assert len(c.layers["C_free_wishes"]) < 700
-    assert any("truncated" in w for w in check_wishes("x" * 900))
+def test_wishes_limit_is_1500_and_full_text_reaches_the_prompt():
+    text = "a" * 1499 + "Z"
+    c = compile_card_prompt(card(), text)
+    assert text in c.layers["C_free_wishes"] and check_wishes(text) == []  # a 1,500-char brief is used whole
+    c = compile_card_prompt(card(), "x" * 2200)
+    assert "x" * 1500 in c.layers["C_free_wishes"] and "x" * 1501 not in c.layers["C_free_wishes"]
+    assert any("truncated" in w and "1500" in w for w in check_wishes("x" * 1501))
+
+
+def test_long_wishes_reach_planner_regeneration_and_api_validation(settings):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.services.prompt_compiler import MAX_WISHES
+    from app.services.text_planner import TextPlanner
+    from tests.test_metaphor_planner import COUNTS, cards_of  # noqa: F401
+    from tests.conftest import make_plan
+
+    long = "retro neon mood, " * 85  # ~1,450 characters
+    long = long.strip()[:1500]
+    assert MAX_WISHES == 1500 and len(long) > 500
+    plan = make_plan(1, COUNTS)
+    assert long in TextPlanner.build_prompt("Movie", "Detective", 1, COUNTS, long)  # Metaphor Planner
+    assert long in TextPlanner.build_regen_prompt("Movie", "Detective", plan, [("A", 1)], long)  # selective regeneration
+    with TestClient(create_app(settings)) as c:
+        base = dict(collection="Movie", genre="Detective", number_of_cards=10, number_of_variants=1)
+        assert c.post("/api/plan/test", json=dict(base, wishes="w" * 1500)).status_code == 200
+        assert c.post("/api/plan/test", json=dict(base, wishes="w" * 1501)).status_code == 422
+        assert c.post("/api/templates", json={"name": "long", "payload": {"wishes": "w" * 1500}}).status_code in (200, 201)

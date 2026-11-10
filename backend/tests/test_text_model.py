@@ -32,7 +32,8 @@ def test_pricing_uses_the_models_real_list_price():
 def test_models_endpoint_exposes_the_same_pricing_to_the_ui(settings):
     with TestClient(create_app(settings)) as c:
         planner = c.get("/api/models").json()["planner"]
-        assert planner == plan_cost_params(MODEL)
+        expected = plan_cost_params(MODEL)
+        assert {k: planner[k] for k in expected} == expected and planner["provider_id"] == "gemini" and planner["free"] is False
         assert round(planner["base_usd"] + planner["per_card_usd"] * 1 * 10, 5) == plan_cost(1, 10)
 
 

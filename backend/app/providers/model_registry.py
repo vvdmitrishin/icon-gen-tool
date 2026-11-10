@@ -66,6 +66,14 @@ class ModelInfo:
     price_note: str | None = None
 
 
+@dataclass(frozen=True)
+class TextTarget:
+    provider_id: str
+    model: str
+    free: bool  # local server: no per-call cost
+    ready: bool  # credentials / connection exist
+
+
 def caps(base: ProviderCapabilities, *, text_to_image: bool | None, image_editing: bool | None, notes: str) -> dict[str, Any]:
     """Capability dict with the v1.8 fields. `None` = unverified, never assumed true."""
     d = asdict(base)
@@ -104,6 +112,9 @@ class ModelRegistry:
         # set by ConnectionService: provider -> (status, message) of the last free connection test (None = unknown).
         # This is the single source of truth for provider connection state; the registry never keeps its own copy.
         self.connection_state: Callable[[str], tuple[str, str] | None] | None = None
+        # hooks set by the app wiring (all optional): user-managed text providers, the active text model, verified-by-use
+        self.ai: Any = None  # AiProviders (OpenAI / Ollama / custom OpenAI-compatible text providers)
+        self.on_success: Callable[[str], None] | None = None
 
     # ------------------------------------------------------ effective credentials
     @property
@@ -155,6 +166,33 @@ class ModelRegistry:
     # ------------------------------------------------------------------ status
     def mark_live(self, provider_id: str, model_id: str) -> None:
         self._live.add((provider_id, model_id))
+        self.note_success(provider_id)
+
+    def note_success(self, provider_id: str) -> None:
+        """A real request through this provider worked: the connection is verified (shown as Connected)."""
+        if self.on_success:
+            try:
+                self.on_success(provider_id)
+            except Exception:  # bookkeeping must never break a generation or a plan
+                pass
+
+    def live_providers(self) -> set[str]:
+        return {p for p, _m in self._live}
+
+    # ------------------------------------------------------ text model (Metaphor Planner)
+    def text_target(self) -> "TextTarget":
+        """The text provider + model the planner uses: the Producer's active choice if that provider is still connected,
+        otherwise Gemini with the configured text model (the original behaviour)."""
+        sel = self.ai.active_text() if self.ai else None
+        if sel and sel[0] == "gemini" and self.effective.gemini_configured:
+            return TextTarget("gemini", sel[1], False, True)
+        if sel and self.ai and sel[0] != "gemini":
+            p = self.ai.get(sel[0])
+            if p:
+                from ..services.ai_providers import KINDS, is_local_url
+                free = KINDS[p["kind"]]["local"] or is_local_url(p["base_url"])
+                return TextTarget(sel[0], sel[1], free, True)
+        return TextTarget("gemini", self.effective.gemini_text_model, False, self.effective.gemini_configured)
 
     def seed_live_from(self, artifact_metadata: list[dict[str, Any]]) -> None:
         for m in artifact_metadata:

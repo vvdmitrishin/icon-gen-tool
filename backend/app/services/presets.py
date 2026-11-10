@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .db import Db
+from .prompt_compiler import MAX_WISHES
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS presets (
@@ -54,8 +55,8 @@ def validate_payload(p: dict[str, Any]) -> dict[str, Any]:
         raise PresetError("set_type must be 'standard' or 'grand'.")
     if "scope" in out and out["scope"] not in ("pilot", "full"):
         raise PresetError("scope must be 'pilot' or 'full'.")
-    if "wishes" in out and (not isinstance(out["wishes"], str) or len(out["wishes"]) > 500):
-        raise PresetError("wishes must be text up to 500 characters.")
+    if "wishes" in out and (not isinstance(out["wishes"], str) or len(out["wishes"]) > MAX_WISHES):
+        raise PresetError(f"wishes must be text up to {MAX_WISHES} characters.")
     d = out.get("category_distribution")
     if d is not None and not (isinstance(d, dict) and d.get("mode") in ("auto_balanced", "custom")):
         raise PresetError("category_distribution.mode must be auto_balanced or custom.")

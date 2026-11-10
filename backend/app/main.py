@@ -28,7 +28,9 @@ from .services.category_distribution import (
     default_counts,
     resolve_distribution,
 )
+from .services.ai_providers import AiProviders, ProviderInputError
 from .services.connection_check import ConnectionInputError, ConnectionService
+from .services.provider_manager import ProviderManager
 from .services.cost_guard import CostGuard
 from .services.credentials import CredentialStore, KeyringCredentialStore, NullCredentialStore
 from .services.generation import GenerateCardRequest, GenerationFailure, GenerationService
@@ -107,6 +109,20 @@ class ConnectionSaveRequest(BaseModel):
     test: bool = False
 
 
+class ProviderConnectRequest(BaseModel):
+    kind: str = Field(max_length=40)
+    api_key: str = Field(default="", max_length=600)
+    account_id: str = Field(default="", max_length=100)
+    base_url: str = Field(default="", max_length=300)
+    model_id: str = Field(default="", max_length=120)
+    label: str = Field(default="", max_length=60)
+
+
+class ActiveTextRequest(BaseModel):
+    provider_id: str = Field(max_length=60)
+    model_id: str = Field(max_length=120)
+
+
 class BatchJobRequest(JobCreateRequest):
     genre: str = "batch"  # ignored: one job is created per entry of `genres`
     genres: list[str]
@@ -123,6 +139,7 @@ def create_app(
     cloudflare_transport: httpx.AsyncBaseTransport | None = None,
     credentials: CredentialStore | None = None,
     enforce_local: bool = False,
+    ai_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
     install_log_redaction()
     s = settings or load_settings()
@@ -176,6 +193,14 @@ def create_app(
     conn_db = Db(s.database_path)
     connections = ConnectionService(s, creds, conn_db, registry, cloudflare_transport=cloudflare_transport)
     test_limiter = RateLimiter(limit=6, window_s=60.0)
+    ai_providers = AiProviders(conn_db, creds, transport=ai_transport, timeout_s=s.gemini_timeout_s)
+    manager = ProviderManager(connections, ai_providers, registry, gemini_transport=gemini_transport)
+
+    def _values(req: ProviderConnectRequest) -> dict[str, str]:
+        v = {"api_key": req.api_key, "account_id": req.account_id, "api_token": req.api_key}
+        if req.kind == "cloudflare":
+            return {"account_id": req.account_id, "api_token": req.api_key}
+        return {"api_key": req.api_key}
 
     def local_only(request: Request) -> None:
         if not is_allowed_host(request.headers.get("host")):
@@ -233,6 +258,43 @@ def create_app(
             raise _err(429, "rate_limited", "Too many connection tests; wait a minute and try again.")
         return await connections.test(provider)
 
+    # ------------------------------------------------------------ provider manager (simple UI over the above)
+    @app.get("/api/providers", dependencies=[Depends(local_only)])
+    def providers_get() -> dict[str, Any]:
+        return manager.overview()
+
+    @app.post("/api/providers/test", dependencies=[Depends(local_mutating)])
+    async def providers_test_new(req: ProviderConnectRequest) -> dict[str, Any]:
+        if not test_limiter.allow("new-provider"):
+            raise _err(429, "rate_limited", "Too many connection tests; wait a minute and try again.")
+        return await manager.test_new(req.kind, _values(req), req.base_url or None, req.model_id or None)
+
+    @app.post("/api/providers", dependencies=[Depends(local_mutating)])
+    async def providers_connect(req: ProviderConnectRequest) -> dict[str, Any]:
+        if not test_limiter.allow("new-provider"):
+            raise _err(429, "rate_limited", "Too many connection tests; wait a minute and try again.")
+        out = await manager.connect(req.kind, _values(req), req.base_url or None, req.model_id or None, req.label)
+        return {**out, **manager.overview()}
+
+    @app.post("/api/providers/{provider_id}/test", dependencies=[Depends(local_mutating)])
+    async def providers_test_saved(provider_id: str) -> dict[str, Any]:
+        if not test_limiter.allow(provider_id):
+            raise _err(429, "rate_limited", "Too many connection tests; wait a minute and try again.")
+        return {"test": await manager.test_saved(provider_id), **manager.overview()}
+
+    @app.delete("/api/providers/{provider_id}", dependencies=[Depends(local_mutating)])
+    def providers_disconnect(provider_id: str) -> dict[str, Any]:
+        out = manager.disconnect(provider_id)
+        return {**out, **manager.overview()}
+
+    @app.put("/api/active-models/text", dependencies=[Depends(local_mutating)])
+    def active_text_put(req: ActiveTextRequest) -> dict[str, Any]:
+        try:
+            manager.set_active_text(req.provider_id, req.model_id)
+        except ProviderInputError as exc:
+            raise _err(422, exc.code, exc.message) from None
+        return manager.overview()
+
     # ------------------------------------------------------------------ health
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -256,7 +318,8 @@ def create_app(
             },
             "budget": asdict(guard.summary()),
             # text model + price constants of one AI planning call (cost = base_usd + per_card_usd * variants * cards)
-            "planner": plan_cost_params(registry.effective.gemini_text_model),
+            "planner": {**plan_cost_params(registry.text_target().model, registry.text_target().free),
+                        "provider_id": registry.text_target().provider_id, "free": registry.text_target().free},
             "availability": {
                 "checked_at": registry.availability_checked_at,
                 "error": registry.availability_error,

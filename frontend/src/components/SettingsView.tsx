@@ -1,21 +1,23 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { SettingsView as S } from "../types/api";
-import { ConnectionsPanel } from "./ConnectionsPanel";
+import { ProviderManager } from "./ProviderManager";
 
 const yes = (v: boolean) => <span className={`chip ${v ? "ok" : "warn"}`}>{v ? "yes" : "no"}</span>;
 
-export function SettingsView({ onOpenSetup, onConnectionChanged }: { onOpenSetup?: () => void; onConnectionChanged?: () => void } = {}) {
+export function SettingsView({ onConnectionChanged }: { onOpenSetup?: () => void; onConnectionChanged?: () => void } = {}) {
   const [s, setS] = useState<S | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => { api.settings().then(setS).catch((e) => setErr(e instanceof ApiError ? e.message : "Could not load settings")); }, []);
-  if (!s) return <div className="view"><ConnectionsPanel onChange={onConnectionChanged} />{err ? <div className="alert err">{err}</div> : "Loading settings…"}</div>;
+  if (!s) return <div className="view"><section className="card-box" id="cn-panel-title"><h3>AI Providers</h3><ProviderManager onChange={onConnectionChanged} /></section>{err ? <div className="alert err">{err}</div> : "Loading settings…"}</div>;
   const g = s.providers.gemini, cf = s.providers.cloudflare, oa = s.providers.openai, b = s.budget;
   return (
     <div className="view">
       <h2>Settings</h2>
-      <ConnectionsPanel onChange={onConnectionChanged} />
-      {onOpenSetup && <div><button type="button" className="ghost" onClick={onOpenSetup}>Run setup guide again</button></div>}
+      <section className="card-box" aria-labelledby="cn-panel-title">
+        <h3 id="cn-panel-title">AI Providers</h3>
+        <ProviderManager onChange={onConnectionChanged} />
+      </section>
       <p className="hint">The sections below are read-only. {s.how_to_change} App v{s.version} · spec v{s.spec_version}.</p>
 
       <section className="card-box">

@@ -42,7 +42,7 @@ from .generation import GenerateCardRequest, GenerationFailure, GenerationServic
 from .planning import PlanningError, SetPlan, validate_plan
 from .qa import qa_card, qa_variant
 from .reference_manager import ReferenceError_, ReferenceManager
-from .prompt_compiler import check_overrides
+from .prompt_compiler import MAX_WISHES, check_overrides
 from .prompt_library import LibraryError
 from .semantic_planning import history_summary, theme_key
 from .text_planner import TextPlanner, estimate_plan_cost_usd
@@ -69,7 +69,7 @@ class JobFailure(Exception):
 class JobCreateRequest(BaseModel):
     collection: str = Field(default="Movie Collection", min_length=1, max_length=80)
     genre: str = Field(min_length=1, max_length=80)
-    wishes: str = Field(default="", max_length=2000)
+    wishes: str = Field(default="", max_length=MAX_WISHES)
     number_of_variants: int = Field(default=1, ge=1, le=5)
     category_distribution: CategoryDistribution | None = None  # Custom mode: counts for Cat.1-4
     number_of_cards: int = Field(default=CARDS_PER_SET, ge=1, le=CARDS_PER_SET)  # cards per set, 10 = golden standard
@@ -109,7 +109,7 @@ class PlanRegenerateRequest(BaseModel):
     """Metaphor Planner: replace the concepts of the selected cards only (text model only, no images)."""
     collection: str = Field(default="Movie Collection", min_length=1, max_length=80)
     genre: str = Field(min_length=1, max_length=80)
-    wishes: str = Field(default="", max_length=2000)
+    wishes: str = Field(default="", max_length=MAX_WISHES)
     number_of_variants: int = Field(default=1, ge=1, le=5)
     number_of_cards: int = Field(default=CARDS_PER_SET, ge=1, le=CARDS_PER_SET)
     gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)
@@ -131,7 +131,7 @@ class PlanOnlyRequest(BaseModel):
     """Planner-only test: the real semantic planner, no image provider, no job, no images."""
     collection: str = Field(default="Movie Collection", min_length=1, max_length=80)
     genre: str = Field(min_length=1, max_length=80)  # = Set
-    wishes: str = Field(default="", max_length=2000)
+    wishes: str = Field(default="", max_length=MAX_WISHES)
     number_of_variants: int = Field(default=1, ge=1, le=5)
     number_of_cards: int = Field(default=CARDS_PER_SET, ge=1, le=CARDS_PER_SET)
     gold_cards: int = Field(default=0, ge=0, le=CARDS_PER_SET)
@@ -486,7 +486,7 @@ class JobService:
 
     def _plan_cost(self, req: Any) -> float:
         """Estimated cost of ONE planning call: same text model and formula for Plan Only and Generate."""
-        return estimate_plan_cost_usd(self.gen.registry.effective.gemini_text_model, req.number_of_variants, req.number_of_cards)
+        return estimate_plan_cost_usd(self.gen.registry.text_target().model, req.number_of_variants, req.number_of_cards, self.gen.registry.text_target().free)
 
     def _check_plan_budget(self, cost: float) -> None:
         if not self.s.paid_image_calls_enabled:
@@ -668,12 +668,12 @@ class JobService:
                                          grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
             if exc.code == "ai_plan_invalid":  # the model answered (the request completed) but the plan is unusable: estimated text cost
-                self.guard.record(artifact_id=None, provider_id="gemini", model_id=self.gen.registry.effective.gemini_text_model,
+                self.guard.record(artifact_id=None, provider_id=self.gen.registry.text_target().provider_id, model_id=self.gen.registry.text_target().model,
                                   est_cost_usd=cost, usage={"kind": "text_plan"}, outcome="failed:ai_plan_invalid:plan", kind="plan")
             # transport/HTTP errors (ai_plan_failed) are NOT recorded: whether the provider billed them is unknown
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
         if not res.cached:  # honest accounting: a real text call was made (recorded once; cached plans cost nothing)
-            entry_id = self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model,
+            entry_id = self.guard.record(artifact_id=None, provider_id=self.gen.registry.text_target().provider_id, model_id=res.model,
                                          est_cost_usd=res.cost_usd, usage={"kind": "text_plan"}, outcome="ok:plan", kind="plan")
             sink = _PLAN_COST_SINK.get()
             if sink is not None and entry_id:
@@ -723,7 +723,7 @@ class JobService:
         if issues:
             raise JobFailure(422, "plan_invalid", "; ".join(issues))
         selected = [(r.variant_id.strip().upper(), r.position) for r in req.selected]
-        cost = estimate_plan_cost_usd(self.gen.registry.effective.gemini_text_model, 1, len(selected))
+        cost = estimate_plan_cost_usd(self.gen.registry.text_target().model, 1, len(selected), self.gen.registry.text_target().free)
         try:
             history = self.previous_subjects(req.collection, req.genre, req.set_type)
             res = self.text_planner.regenerate_cards(req.collection, req.genre, req.plan, selected, wishes=req.wishes, seed=req.seed,
@@ -731,11 +731,11 @@ class JobService:
                                                      grand=req.set_type == SET_GRAND, history=history)
         except PlanningError as exc:
             if exc.code == "ai_plan_invalid":  # the model WAS called and answered unusably: still an (estimated) text cost
-                self.guard.record(artifact_id=None, provider_id="gemini", model_id=self.gen.registry.effective.gemini_text_model,
+                self.guard.record(artifact_id=None, provider_id=self.gen.registry.text_target().provider_id, model_id=self.gen.registry.text_target().model,
                                   est_cost_usd=cost, usage={"kind": "text_plan", "regenerated_cards": len(selected)},
                                   outcome="failed:ai_plan_invalid:plan", kind="plan")
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
-        self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model, est_cost_usd=res.cost_usd,
+        self.guard.record(artifact_id=None, provider_id=self.gen.registry.text_target().provider_id, model_id=res.model, est_cost_usd=res.cost_usd,
                           usage={"kind": "text_plan", "regenerated_cards": len(selected)}, outcome="ok:plan", kind="plan")
         return {
             "plan": res.plan.model_dump(mode="json"),
@@ -1053,18 +1053,18 @@ class JobService:
                 if c:
                     pc.object_name, pc.object_description = c["object_name"], c["object_description"]
         sel = [(card["variant_id"], card["position"])]
-        cost = estimate_plan_cost_usd(self.gen.registry.effective.gemini_text_model, 1, 1)
+        cost = estimate_plan_cost_usd(self.gen.registry.text_target().model, 1, 1, self.gen.registry.text_target().free)
         grand = rq.get("set_type", SET_STANDARD) == SET_GRAND
         try:
             res = self.text_planner.regenerate_cards(rq["collection"], plan.genre, plan, sel, wishes=rq.get("wishes", ""),
                                                      pre_call=lambda: self._check_plan_budget(cost), grand=grand)
         except PlanningError as exc:
             if exc.code == "ai_plan_invalid":  # the model was called and answered unusably: still an estimated text cost
-                self.guard.record(artifact_id=None, provider_id="gemini", model_id=self.gen.registry.effective.gemini_text_model,
+                self.guard.record(artifact_id=None, provider_id=self.gen.registry.text_target().provider_id, model_id=self.gen.registry.text_target().model,
                                   est_cost_usd=cost, usage={"kind": "text_plan", "suggest_card": card_id},
                                   outcome="failed:ai_plan_invalid:plan", kind="plan", job_id=job_id)
             raise JobFailure(_PLAN_ERROR_STATUS.get(exc.code, 422), exc.code, exc.message) from exc
-        self.guard.record(artifact_id=None, provider_id="gemini", model_id=res.model, est_cost_usd=res.cost_usd,
+        self.guard.record(artifact_id=None, provider_id=self.gen.registry.text_target().provider_id, model_id=res.model, est_cost_usd=res.cost_usd,
                           usage={"kind": "text_plan", "suggest_card": card_id}, outcome="ok:plan", kind="plan", job_id=job_id)
         new = next(c for v in res.plan.variants if v.variant_id == card["variant_id"] for c in v.cards if c.position == card["position"])
         self.store.add_event(job_id, f"Suggested a replacement for card {card['variant_id']}{card['position']:02d} "

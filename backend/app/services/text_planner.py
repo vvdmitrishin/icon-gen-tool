@@ -19,29 +19,31 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ..providers.model_registry import ModelRegistry
 from .category_distribution import ALL_CATEGORIES, GOLDEN_CATEGORY, assign_slots
+from .prompt_compiler import MAX_WISHES
 from .semantic_planning import forbidden_terms, near_duplicates, similar_concepts, similar_name, violates
 from .planning import VARIANT_IDS, PlanCard, PlanningError, PlanVariant, SetPlan, default_seed, validate_plan
 
 # Gemini API list prices (standard tier, USD per 1M tokens: input, output INCLUDING thinking tokens), checked 2026-11 against
 # https://ai.google.dev/gemini-api/docs/pricing . A local estimate for the budget guard and the UI, not an invoice.
-TEXT_PRICE_PER_M: dict[str, tuple[float, float]] = {"gemini-3.5-flash-lite": (0.30, 2.50)}
+TEXT_PRICE_PER_M: dict[str, tuple[float, float]] = {"gemini-3.5-flash-lite": (0.30, 2.50), "gpt-4o-mini": (0.15, 0.60)}
 DEFAULT_TEXT_PRICE_PER_M = (0.30, 2.50)  # unknown / overridden model: assume the same list price
 PLAN_INPUT_TOKENS = 2100          # system text + instructions + wishes + headroom for up to ~48 history lines
 PLAN_OUTPUT_TOKENS_PER_CARD = 110  # name + description + rationale (+ characters) as JSON
 PLAN_THINKING_HEADROOM_TOKENS = 300  # thinking tokens are billed as output (3.5 Flash-Lite thinks "minimal" by default)
 
 
-def plan_cost_params(model: str) -> dict[str, Any]:
-    """Pricing constants of one planning call: cost = base_usd + per_card_usd * variants * cards_per_variant."""
-    in_p, out_p = TEXT_PRICE_PER_M.get(model, DEFAULT_TEXT_PRICE_PER_M)
+def plan_cost_params(model: str, free: bool = False) -> dict[str, Any]:
+    """Pricing constants of one planning call: cost = base_usd + per_card_usd * variants * cards_per_variant.
+    `free` = a local model on the Producer's own machine (no per-call cost)."""
+    in_p, out_p = (0.0, 0.0) if free else TEXT_PRICE_PER_M.get(model, DEFAULT_TEXT_PRICE_PER_M)
     return {"text_model": model, "input_usd_per_m": in_p, "output_usd_per_m": out_p,
             "base_usd": round((PLAN_INPUT_TOKENS * in_p + PLAN_THINKING_HEADROOM_TOKENS * out_p) / 1e6, 6),
             "per_card_usd": round(PLAN_OUTPUT_TOKENS_PER_CARD * out_p / 1e6, 6)}
 
 
-def estimate_plan_cost_usd(model: str, variants: int, cards_per_variant: int) -> float:
+def estimate_plan_cost_usd(model: str, variants: int, cards_per_variant: int, free: bool = False) -> float:
     """Local estimate of one AI planning call for this model and set size (same formula in Plan Only and Generate)."""
-    p = plan_cost_params(model)
+    p = plan_cost_params(model, free)
     return round(p["base_usd"] + p["per_card_usd"] * max(1, variants) * max(1, cards_per_variant), 5)
 
 
@@ -181,7 +183,7 @@ def _wish_lines(wishes: str) -> list[str]:
         return []
     return [
         "PRODUCER'S FREE WISHES (they outrank your default instincts about which objects are typical for the Set): "
-        f"{wishes.strip()[:500]}\n"
+        f"{wishes.strip()[:MAX_WISHES]}\n"
         "Treat every content request in them (focus, places, kinds of things, mood) as a real requirement: the finished set must "
         "visibly reflect it, and `theme_map` should contain the facets they ask for. Exclusions are strict. Only the fixed rules "
         "(the Set boundary, the category rules, safety, no lettering) may override a wish. Say in `wishes_applied`, in one short "
@@ -321,26 +323,33 @@ class TextPlanner:
              seed: int | None = None, wishes: str = "", pre_call: Callable[[], None] | None = None,
              grand: bool = False, history: list[str] | None = None) -> PlannerResult:
         s = self.registry.effective
-        model = s.gemini_text_model
+        tt = self.registry.text_target()
+        model = tt.model
         history = list(history or [])
-        key = self.cache_key(collection, set_name, variants, counts, seed, wishes, grand, tuple(history))
+        key = self.cache_key(collection, set_name, variants, counts, seed, wishes, grand, tuple(history)) + (tt.provider_id, model)
         hit = self._get(key)
         if hit is not None:
             return PlannerResult(hit, True, 0.0, model)
         if not 1 <= variants <= 5:
             raise PlanningError("An AI plan supports 1-5 variants.", "bad_variant_count")
-        if not s.gemini_configured:
-            raise PlanningError(
-                "A Gemini API key is needed to plan a custom theme with AI. Add it in Settings > API Connections.",
-                "gemini_key_missing",
-            )
+        self._require_ready(tt)
         if pre_call is not None:
             pre_call()  # e.g. budget guard; runs only when a real call is about to be made
         data = self._backend(s, model, self.build_prompt(collection, set_name, variants, counts, wishes, grand, history), seed)
         plan = self._build(data, set_name, variants, counts, seed, model, wishes=wishes, history_used=len(history))
         self._put(key, plan)
-        cost = estimate_plan_cost_usd(model, variants, sum(counts.get(c, 0) for c in ALL_CATEGORIES))
+        cost = estimate_plan_cost_usd(model, variants, sum(counts.get(c, 0) for c in ALL_CATEGORIES), tt.free)
+        self.registry.note_success(tt.provider_id)
         return PlannerResult(plan.model_copy(deep=True), False, cost, model)
+
+    def _require_ready(self, tt: Any) -> None:
+        if tt.ready:
+            return
+        if tt.provider_id == "gemini":
+            raise PlanningError("A Gemini API key is needed to plan a custom theme with AI. Add it in Settings > API Connections.",
+                                "gemini_key_missing")
+        raise PlanningError("The selected text provider is not connected. Connect it or choose another planning model.",
+                            "gemini_key_missing")
 
 
     # ------------------------------------------------------- selective regeneration (Metaphor Planner)
@@ -390,7 +399,7 @@ class TextPlanner:
                          + "\n".join(f"- {h}" for h in history) + "\nPrefer fresh subjects.")
         if wishes.strip():
             lines.append("Producer's free wishes (exclusions are strict; never let them break the Set boundary, the category rules or the "
-                         f"safety rules): {wishes.strip()[:500]}")
+                         f"safety rules): {wishes.strip()[:MAX_WISHES]}")
         lines.append(f"Return JSON only: `replacements` with exactly {len(selected)} item(s), one per REPLACE card, using its "
                      "`variant_id` and `position` exactly as listed. Do not return the KEEP cards.")
         return "\n".join(lines)
@@ -401,16 +410,15 @@ class TextPlanner:
         """Replace ONLY the selected cards' subject/description (and rationale / golden character count). Card numbers, order,
         categories and every other card stay byte-for-byte as they were. One text call; no cache, no image provider."""
         s = self.registry.effective
-        model = s.gemini_text_model
+        tt = self.registry.text_target()
+        model = tt.model
         if not selected or len(set(selected)) != len(selected):
             raise PlanningError("Select at least one card (each at most once).", "bad_selection")
         index = {(v.variant_id, c.position): c for v in plan.variants for c in v.cards}
         missing = [k for k in selected if k not in index]
         if missing:
             raise PlanningError(f"Selected card(s) not in the plan: {missing}.", "bad_selection")
-        if not s.gemini_configured:
-            raise PlanningError("A Gemini API key is needed to regenerate concepts with AI. Add it in Settings > API Connections.",
-                                "gemini_key_missing")
+        self._require_ready(tt)
         if pre_call is not None:
             pre_call()
         prompt = self.build_regen_prompt(collection, set_name, plan, selected, wishes, grand, list(history or []))
@@ -457,11 +465,20 @@ class TextPlanner:
             raise PlanningError("The AI replacements break the rules, so nothing was changed: " + "; ".join(issues[:4]), "ai_plan_invalid")
         new_plan.notes = [n for n in new_plan.notes if not n.startswith("Metaphor Planner:")] + [
             f"Metaphor Planner: {len(selected)} concept(s) were regenerated from the other cards' context; the rest are unchanged."]
-        cost = estimate_plan_cost_usd(model, 1, len(selected))
+        cost = estimate_plan_cost_usd(model, 1, len(selected), tt.free)
+        self.registry.note_success(tt.provider_id)
         return PlannerResult(new_plan, False, cost, model)
 
     # --------------------------------------------------------------- http call
     def _call(self, s: Any, model: str, prompt: str, seed: int | None, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+        tt = self.registry.text_target()
+        if tt.provider_id != "gemini":  # OpenAI / Ollama / custom OpenAI-compatible text provider
+            from .ai_providers import ChatError
+            self.calls += 1
+            try:
+                return self.registry.ai.chat_json(tt.provider_id, model, _SYSTEM, prompt, seed, schema or _RESPONSE_SCHEMA)
+            except ChatError as exc:
+                raise PlanningError(exc.message, exc.code) from None
         url = f"{s.gemini_base_url.rstrip('/')}/models/{model}:generateContent"
         gen_cfg: dict[str, Any] = {
             "responseMimeType": "application/json",

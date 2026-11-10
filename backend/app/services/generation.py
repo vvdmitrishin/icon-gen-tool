@@ -16,7 +16,7 @@ from ..config import Settings
 from ..providers.base import GenerationRequest, ProviderDisabled, ProviderError
 from ..providers.model_registry import ModelInfo, ModelRegistry
 from .cost_guard import BudgetExceeded, CostGuard
-from .prompt_compiler import CardSpec, CompiledPrompt, check_overrides, compile_card_prompt
+from .prompt_compiler import MAX_WISHES, CardSpec, CompiledPrompt, check_overrides, compile_card_prompt
 from .prompt_library import LibraryError, PromptLibrary
 from .reference_manager import ReferenceError_, ReferenceManager
 from .storage import ArtifactStore, new_artifact_id
@@ -28,7 +28,7 @@ class GenerateCardRequest(BaseModel):
     object_name: str = Field(min_length=1, max_length=80)
     object_description: str = Field(default="", max_length=300)
     category: Literal[1, 2, 3, 4, 5]  # 5 = golden (only inside a set job; the single-card endpoint refuses it)
-    wishes: str = Field(default="", max_length=2000)
+    wishes: str = Field(default="", max_length=MAX_WISHES)
     provider: str
     model: str
     reference_ids: list[str] = Field(default_factory=list)
