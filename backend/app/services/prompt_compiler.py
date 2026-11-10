@@ -202,9 +202,18 @@ def compile_card_prompt(
         lines = [f"Reference image {i + 1}: {_ROLE_LABEL.get(r, 'reference')}"
                  for i, r in enumerate(reference_roles)]
         refs_block = (
-            "Visual target: match the rendering style, material treatment, lighting, color richness "
-            "and level of detail of the attached reference image(s), without copying their exact "
-            "objects or composition. " + "; ".join(lines) + "."
+            "Reference guidance (technical, not content): the attached image(s), together with their category, show how a "
+            "planned concept is turned into a collectible illustration at that category's complexity: how a thematic idea "
+            "becomes a recognizable visual metaphor, the abstraction and simplification, composition, object prominence and "
+            "readability, the balance of object and scene, stylized geometry and proportions, rendering and material "
+            "treatment, soft shading and lighting principles, overall colorfulness and consistency across a collection. "
+            "Learn those principles; do not copy the references literally: not their objects or subjects, exact color "
+            "combinations, backgrounds, locations or settings, character designs or scenes, nor the sheet layout, its "
+            "margins and dark canvas. The Collection, Set and requested subject decide WHAT is drawn; the Style Bible, "
+            "category rule and references guide HOW. Create an original interpretation of THIS subject and choose its "
+            "colors, lighting and rendering details yourself, keeping the artistic identity the references demonstrate. "
+            "References never override the requested subject, the Collection and Set, the style direction or the category "
+            "rule above. " + "; ".join(lines) + "."
             + (" Images labelled NEGATIVE show what to AVOID: never reproduce them." if "negative" in reference_roles else "")
         )
 

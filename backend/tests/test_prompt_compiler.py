@@ -37,11 +37,13 @@ def test_reference_roles_are_described():
     c = compile_card_prompt(card(), "", ["category_2", "negative"])
     assert "Reference image 1: Category 2 example" in c.text
     assert "NEGATIVE example" in c.text
-    assert "without copying" in c.text
+    assert "Reference guidance (technical, not content)" in c.text
+    assert "never override the requested subject" in c.text
+    assert "dark canvas" in c.text and "visual metaphor" in c.text
 
 
 def test_no_reference_block_without_refs():
-    assert "Visual target" not in compile_card_prompt(card()).text
+    assert "Reference guidance" not in compile_card_prompt(card()).text
 
 
 def test_wishes_conflicts_warn_but_never_change_rules():
@@ -82,3 +84,10 @@ def test_long_wishes_reach_planner_regeneration_and_api_validation(settings):
         assert c.post("/api/plan/test", json=dict(base, wishes="w" * 1500)).status_code == 200
         assert c.post("/api/plan/test", json=dict(base, wishes="w" * 1501)).status_code == 422
         assert c.post("/api/templates", json={"name": "long", "payload": {"wishes": "w" * 1500}}).status_code in (200, 201)
+
+
+def test_planner_prompt_keeps_broad_themes_wide_and_bright():
+    from app.services.text_planner import BROAD_THEME_RULE, TextPlanner
+    p = TextPlanner.build_prompt("Movie", "Comedy", 1, {1: 2, 2: 2, 3: 3, 4: 3}, "")
+    assert BROAD_THEME_RULE in p
+    assert "no quotas" in p and "not the time of day or lighting" in p

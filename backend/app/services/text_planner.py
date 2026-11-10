@@ -59,6 +59,20 @@ CATEGORY_MEANINGS = {
     5: "Category 5 - GOLDEN card: the collection's KEY CHARACTERS (at most 2 characters) in an ironic, emotional situation",
 }
 
+# Keeps broad "fun" themes (Comedy, Adventure, Fantasy...) wide, bright and readable instead of collapsing into one venue.
+BROAD_THEME_RULE = (
+    "BREADTH AND READABILITY: read the Set as a whole thematic WORLD, not as one location, profession, object type or "
+    "narrow interpretation of its name. Explore several meaningfully different aspects of that world, and do not let any "
+    "single location, profession, object type or reading dominate the set unless the Set itself is genuinely about it. "
+    "Several cards MAY share a location or kind of subject when their concepts are clearly different and strongly relevant; "
+    "there are no quotas, and thematic coherence matters more than diversity for its own sake. Prefer concepts that are "
+    "clear, visually readable and work as single collectible illustrations. Category rules define how complex the picture "
+    "is, not the time of day or lighting: a Set may legitimately call for night, dim or moody settings (Mystery, Horror, "
+    "Science Fiction, Fantasy...) and the subject's thematic identity comes first. Do not default to a particular mood, "
+    "lighting or setting that the Set does not call for. The variant `title` and `concept` should name an idea or "
+    "mood rather than a single venue. (A general principle for any Collection and Set, not a list of subjects.)"
+)
+
 _SYSTEM = (
     "You are the semantic set planner of a casual mobile game's collectible-card art pipeline. A COLLECTION is a broad "
     "theme (Winter, Summer, Technology, Movies); a SET is a specific sub-theme inside it (Forest, Music Festival, "
@@ -269,6 +283,7 @@ class TextPlanner:
                 "'Fishmonger's Wooden Stall' placed in a bustling harbour; keep the richer environment, "
                 "atmosphere and story of Category 4. (These are composition principles, not fixed subjects.)"
             )
+        lines.append(BROAD_THEME_RULE)
         if history:
             lines.append(
                 "ALREADY GENERATED in earlier batches of this same Collection + Set (subject - hint):\n"
@@ -387,6 +402,7 @@ class TextPlanner:
             "with one clear primary subject; avoid subjects that depend on text or lettering. Be concrete, visual and "
             "family-friendly: no weapons, no violence, no real brands, no franchise names. Respect the Set's defining meaning "
             "without turning a broad or metaphorical name into a rigid technical rule. Keep each variant's micro-theme in mind.",
+            BROAD_THEME_RULE,
             "`object_name` max 80 chars; `object_description` one short visual sentence (max 200 chars); `rationale` a short "
             "phrase (max 100 chars) saying why it belongs to THIS Set. Write in English.",
         ]
