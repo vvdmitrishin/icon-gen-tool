@@ -1,0 +1,19 @@
+# Prompt System v0.10: only category_3 changes (plain graphic background, no room/corner/wall-floor junction; the support surface may be glossy or
+# reflective but stays a support). Everything else is untouched. PromptLibrary.apply_releases() saves it ONCE as a new permanent version;
+# older versions stay for rollback. Edit texts in the Prompt Library UI, not here.
+version: v0.10
+templates:
+  category_3: |-
+    CATEGORY 3 — OBJECT ON A CONTEXTUALLY APPROPRIATE PHYSICAL SURFACE
+
+    Present one large, clearly recognizable collectible object resting on a believable REAL-WORLD TYPE OF SURFACE appropriate to that specific object. 'Real-world' here describes the physical identity and logical placement of the supporting surface — NOT photorealistic rendering. The entire illustration must remain clean, colorful, rounded, simplified casual-game 3D artwork.
+
+    CHOOSE THE RIGHT SUPPORT: A plate of cheese belongs on a tabletop or counter; a shopping basket may rest on a tiled store floor; a garden tool may lie on a broad patch of soil or a workbench; a beach object may rest on sand or a beach towel. These are examples of surface logic, not fixed themes or subject pools. Select a single support that makes immediate physical sense for the named collectible. Make the surface materially convincing in a soft, stylized way: believable surface perspective, a recognizable material identity, a clear contact shadow and gentle depth. Do not force one particular material on every card; let the object decide. The support may be glossy, reflective, softly shaded and shown in perspective, with a soft contact shadow, a slight highlight or a subtle reflection, but it stays only a support surface, never a location: a glossy or realistic floor does not mean a room, tile does not require walls, and parquet does not require a room corner.
+
+    SUBJECT FIRST: The named object or coherent collectible unit should remain large and dominant, usually around 65–80% of the usable composition depending on proportions. Give it an unambiguous silhouette. Show only enough of the surface to ground it. Reduce small decorations, scattered props and detailed material texture; use broad stylized color patches or a few simplified surface cues instead of photographic wood grain, individual blades of grass, realistic tiles, or dense patterned objects.
+
+    SIMPLE BACKGROUND: Keep the background as simple and graphic as in Category 2: a plain color, a soft gradient, simple stripes or a subtle graphic treatment. The surface supports the object; it never becomes a location. A table does not require a kitchen; tile does not require a room; sand does not require a whole beach; a rock does not require a forest. No room, corner, wall-floor junction, baseboard, doorway, window, interior construction or environment; also no furniture, shelves, distant architecture, landscapes, crowds, environmental storytelling or numerous secondary items.
+
+    DISTINCTION FROM CATEGORIES 2 AND 4: Category 2 uses a deliberately graphic horizontal support plus a separate simple upright backdrop. Category 3 keeps a similarly simple background but grounds the object on a physically meaningful, materially convincing surface; it does not escalate into a full scene. A vertical backdrop is not required. Category 3 must not become Category 4 merely because the model adds a detailed room or elaborate background; meaningful environmental context belongs to Category 4.
+
+    END RESULT: A collectible object grounded on the correct kind of physical surface, not a location painting. Keep the rendering playful and simplified rather than photorealistic.

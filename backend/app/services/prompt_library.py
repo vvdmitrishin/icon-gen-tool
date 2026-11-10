@@ -67,6 +67,16 @@ def v09_templates() -> dict[str, str]:
     return _load_release("prompt_system_v09.yaml")
 
 
+V10_AUTHOR = "Prompt System v0.10"
+V10_NOTE = "Prompt System v0.10: Category 3 background stays plain and graphic (no room, corner or wall-floor junction); the support surface may be glossy"
+
+
+@lru_cache(maxsize=1)
+def v10_templates() -> dict[str, str]:
+    """Only category_3 changes in v0.10."""
+    return _load_release("prompt_system_v10.yaml")
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS prompt_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL,
@@ -104,7 +114,7 @@ class PromptLibrary:
                 self._insert(name, 1, defaults[name], "system", "built-in default")
 
     def apply_releases(self) -> list[str]:
-        """Prompt System releases in order (v0.5 -> v0.9): each is saved ONCE as a NEW permanent version and activated. Older versions
+        """Prompt System releases in order (v0.5 -> v0.10): each is saved ONCE as a NEW permanent version and activated. Older versions
         stay for rollback. A template is only upgraded while its active version is still the untouched previous release, so
         Producer edits and deliberate rollbacks are never overridden, and a release that already has a version is never saved again."""
         applied: list[str] = []
@@ -112,7 +122,8 @@ class PromptLibrary:
                                               (v06_templates(), V06_AUTHOR, V06_NOTE, V05_AUTHOR),
                                               (v07_templates(), V07_AUTHOR, V07_NOTE, V06_AUTHOR),
                                               (v08_templates(), V08_AUTHOR, V08_NOTE, (V06_AUTHOR, V07_AUTHOR)),
-                                              (v09_templates(), V09_AUTHOR, V09_NOTE, V08_AUTHOR)):
+                                              (v09_templates(), V09_AUTHOR, V09_NOTE, V08_AUTHOR),
+                                              (v10_templates(), V10_AUTHOR, V10_NOTE, V09_AUTHOR)):
             for name, text in texts.items():
                 if self.db.one("SELECT 1 AS x FROM prompt_templates WHERE name=? AND author=?", (name, author)):
                     continue
@@ -199,7 +210,7 @@ class PromptLibrary:
         out = []
         active = self.active()
         defaults = default_templates()
-        shipped = (v05_templates(), v06_templates(), v07_templates(), v08_templates(), v09_templates())
+        shipped = (v05_templates(), v06_templates(), v07_templates(), v08_templates(), v09_templates(), v10_templates())
         for name in TEMPLATE_NAMES:
             a = active[name]
             out.append({"name": name, "label": LABELS[name], "version": a["version"], "text": a["text"],

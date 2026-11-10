@@ -9,23 +9,24 @@ from app.config import Settings
 from app.services.db import Db
 from app.services.prompt_compiler import SESSION_EDITABLE, default_templates
 from app.services.prompt_library import (
-    MAX_TEXT, V05_AUTHOR, V06_AUTHOR, V07_AUTHOR, V08_AUTHOR, V09_AUTHOR, _SCHEMA, PromptLibrary, v05_templates, v06_templates, v07_templates, v08_templates,
-    v09_templates)
+    MAX_TEXT, V05_AUTHOR, V06_AUTHOR, V07_AUTHOR, V08_AUTHOR, V09_AUTHOR, V10_AUTHOR, _SCHEMA, PromptLibrary, v05_templates, v06_templates, v07_templates, v08_templates,
+    v09_templates, v10_templates)
 from tests.conftest import FAKE_KEY, Recorder
 from tests.test_free_text_sets import MOCK, wait
 
 SEVEN = tuple(SESSION_EDITABLE)
 CHANGED = ('system_style', 'category_3', 'category_4', 'image_closing')  # templates v0.7 changed (and v0.8 changes again)
 V09 = ('category_3', 'category_4')  # the only templates v0.9 changes
+V10 = ('category_3',)  # the only template v0.10 changes
 V08 = ('system_style', 'category_1', 'category_2', 'category_3', 'category_4', 'image_closing')  # the only templates v0.8 changes
 
 
 def active_text(n):
-    return v09_templates()[n] if n in V09 else v08_templates()[n] if n in V08 else v06_templates()[n]
+    return v10_templates()[n] if n in V10 else v09_templates()[n] if n in V09 else v08_templates()[n] if n in V08 else v06_templates()[n]
 
 
 def active_version(n):
-    return 6 if n in V09 else 5 if n in CHANGED else 4 if n in V08 else 3  # category_5 stays at v0.6 (v3)
+    return 7 if n in V10 else 6 if n in V09 else 5 if n in CHANGED else 4 if n in V08 else 3  # category_5 stays at v0.6 (v3)
 
 
 def test_seven_v06_templates_are_present_verbatim_and_fit_the_limit():
@@ -46,7 +47,7 @@ def test_fresh_library_has_v07_on_changed_templates_and_all_older_versions_kept(
         vs = {v["version"]: v for v in lib.versions(n)}
         assert act[n]["version"] == active_version(n) and act[n]["text"] == active_text(n)
         assert sorted(vs) == list(range(1, active_version(n) + 1))
-        assert act[n]["author"] == (V09_AUTHOR if n in V09 else V08_AUTHOR if n in V08 else V06_AUTHOR)
+        assert act[n]["author"] == (V10_AUTHOR if n in V10 else V09_AUTHOR if n in V09 else V08_AUTHOR if n in V08 else V06_AUTHOR)
         assert vs[1]["text"] == default_templates()[n] and vs[1]["author"] == "system"
         assert vs[2]["text"] == v05_templates()[n] and vs[2]["author"] == V05_AUTHOR
         assert vs[3]["text"] == v06_templates()[n] and vs[3]["author"] == V06_AUTHOR  # v0.6 stays restorable
@@ -54,7 +55,9 @@ def test_fresh_library_has_v07_on_changed_templates_and_all_older_versions_kept(
             assert vs[4]["text"] == v07_templates()[n] and vs[4]["author"] == V07_AUTHOR  # v0.7 stays restorable
             assert vs[5]["text"] == v08_templates()[n]
             if n in V09:
-                assert vs[6]["text"] == v09_templates()[n] and vs[6]["author"] == V09_AUTHOR  # v0.9 = the active version
+                assert vs[6]["text"] == v09_templates()[n] and vs[6]["author"] == V09_AUTHOR  # v0.9 stays restorable
+            if n in V10:
+                assert vs[7]["text"] == v10_templates()[n] and vs[7]["author"] == V10_AUTHOR  # v0.10 = the active version
         elif n in V08:  # category_1 / category_2 were never changed by v0.7: v0.8 is their v4
             assert vs[4]["text"] == v08_templates()[n]
     assert act["repair"]["version"] == 1
@@ -90,7 +93,7 @@ def test_producer_edits_and_rollbacks_are_never_overridden(tmp_path):
     a = PromptLibrary(db).active()
     assert a["category_1"]["text"] == "Producer's own category 1." and a["category_1"]["version"] == 3
     assert a["category_2"]["text"] == default_templates()["category_2"] and a["category_2"]["version"] == 3
-    assert a["category_3"]["version"] == 6 and a["category_3"]["author"] == V09_AUTHOR  # untouched templates move on through v0.7 and v0.8 to v0.9
+    assert a["category_3"]["version"] == 7 and a["category_3"]["author"] == V10_AUTHOR  # untouched templates move on through v0.7-v0.9 to v0.10
     assert a["category_1"]["version"] == 3 and a["category_2"]["version"] == 3 and a["category_5"]["version"] == 3  # edited / rolled back / unchanged
     again = PromptLibrary(db).active()  # and a later restart changes nothing
     assert {n: again[n]["version"] for n in SEVEN} == {n: a[n]["version"] for n in SEVEN}
@@ -100,9 +103,9 @@ def test_templates_stay_editable_and_old_versions_restorable(settings):
     with TestClient(create_app(settings)) as c:
         items = {i["name"]: i for i in c.get("/api/prompts").json()}
         assert all(items[n]["version"] == active_version(n) for n in SEVEN)
-        assert items["category_3"]["versions"] == [6, 5, 4, 3, 2, 1]
+        assert items["category_3"]["versions"] == [7, 6, 5, 4, 3, 2, 1]
         r = c.post("/api/prompts", json={"name": "category_3", "text": "My tweak.", "author": "VD", "note": "tweak"})
-        assert r.status_code == 200 and r.json()["version"] == 7
+        assert r.status_code == 200 and r.json()["version"] == 8
         r = c.post("/api/prompts/category_3/restore", json={"version": 2})  # back to v0.5
         assert r.status_code == 200 and r.json()["text"] == v05_templates()["category_3"]
         r = c.post("/api/prompts/category_3/restore", json={"version": 3})  # back to v0.6
@@ -113,6 +116,8 @@ def test_templates_stay_editable_and_old_versions_restorable(settings):
         assert r.json()["text"] == v08_templates()["category_3"]
         r = c.post("/api/prompts/category_3/restore", json={"version": 6})  # forward to v0.9
         assert r.json()["text"] == v09_templates()["category_3"]
+        r = c.post("/api/prompts/category_3/restore", json={"version": 7})  # forward to v0.10
+        assert r.json()["text"] == v10_templates()["category_3"]
         assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 5000}).status_code == 200
         assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 5001}).status_code == 422
         assert c.post("/api/prompts/session-check", json={"overrides": {"category_1": "y" * 5001}}).status_code == 422
@@ -204,8 +209,10 @@ def test_v09_separates_grounded_category_3_from_environment_category_4(tmp_path)
     c3 = compile_card_prompt(CardSpec(collection="C", genre="G", object_name="Mug Tower", category=3), "", None, t).text
     c4 = compile_card_prompt(CardSpec(collection="C", genre="G", object_name="Bus", category=4), "", None, t).text
     assert "SIMPLE BACKGROUND" in c3 and "must not become Category 4" in c3 and "materially convincing" in c3
-    assert "no wall-and-baseboard construction, doorways, windows, furniture" in c3 and "at most a few soft" not in c3.lower()
+    assert "No room, corner, wall-floor junction, baseboard, doorway, window, interior construction or environment" in c3
+    assert "a glossy or realistic floor does not mean a room" in c3 and "minimal plain wall" not in c3
+    assert "at most a few soft" not in c3.lower() and "also no furniture, shelves" in c3
     assert "DISTINCTION FROM CATEGORY 3" in c4 and "integrates the subject into a recognizable setting" in c4
     assert "SIMPLE BACKGROUND" not in c4 and "DISTINCTION FROM CATEGORY 3" not in c3
-    assert set(v09_templates()) == {"category_3", "category_4"} and all(len(v) <= MAX_TEXT for v in v09_templates().values())
-    assert v09_templates()["category_3"] != v08_templates()["category_3"] and active_text("category_1") == v08_templates()["category_1"]
+    assert set(v10_templates()) == {"category_3"} and set(v09_templates()) == {"category_3", "category_4"} and all(len(v) <= MAX_TEXT for v in v09_templates().values())
+    assert v10_templates()["category_3"] != v09_templates()["category_3"] and v09_templates()["category_3"] != v08_templates()["category_3"] and active_text("category_1") == v08_templates()["category_1"]
