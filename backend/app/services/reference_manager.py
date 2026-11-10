@@ -24,6 +24,7 @@ ALLOWED_FORMATS = {"PNG", "JPEG", "WEBP"}
 MAX_DIMENSION = 8192
 MAX_STORED_LONG_SIDE = 2048
 THUMB_SIZE = 256
+DEFAULTS_MARKER = ".default_references.json"
 _REF_RE = re.compile(r"^ref-[0-9a-f]{10}$")
 
 
@@ -109,6 +110,44 @@ class ReferenceManager:
         self._p(ref_id, "_thumb.png").write_bytes(tbuf.getvalue())
         self._p(ref_id, ".json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         return meta
+
+    def seed_defaults(self, source_dir: Path | None) -> list[str]:
+        """Import the curated default category references (`Ref_category_<n>.png`, n = 1..5) once.
+
+        A marker file records what was seeded, so a default the producer later deleted or replaced is never
+        re-imported; a changed source file is imported again and replaces its previous seeded copy. Returns the
+        file names imported by this call. Missing files or folders are skipped silently.
+        """
+        if source_dir is None or not Path(source_dir).is_dir():
+            return []
+        marker_path = self.root / DEFAULTS_MARKER
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8")) if marker_path.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            marker = {}
+        imported: list[str] = []
+        for n in range(1, 6):
+            name = f"Ref_category_{n}.png"
+            src = Path(source_dir) / name
+            if not src.is_file():
+                continue
+            data = src.read_bytes()
+            sha = hashlib.sha256(data).hexdigest()
+            prev = marker.get(name)
+            if prev and prev.get("source_sha256") == sha:
+                continue
+            try:
+                meta = self.save_upload(name, data, f"category_{n}")
+            except ReferenceError_:
+                continue  # an unreadable default must never stop the app from starting
+            if prev and prev.get("ref_id") and prev["ref_id"] != meta["ref_id"]:
+                self.delete(prev["ref_id"])
+            marker[name] = {"source_sha256": sha, "ref_id": meta["ref_id"]}
+            imported.append(name)
+        if imported:
+            self.root.mkdir(parents=True, exist_ok=True)
+            marker_path.write_text(json.dumps(marker, indent=2), encoding="utf-8")
+        return imported
 
     def get(self, ref_id: str) -> dict[str, Any] | None:
         p = self._p(ref_id, ".json")

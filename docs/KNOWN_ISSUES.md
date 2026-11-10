@@ -10,7 +10,7 @@
 - Baseline for comparisons: `benchmarks/phase3_gemini_baseline` (local, untracked).
 
 ## UI vs the mockup (mostly closed; remaining deviations are deliberate)
-The UI now follows `Specification/Mockup.png` closely (pipeline strip, title row, tabs, variant rows, Set Summary, Quick Actions,
+The UI now follows `specification/Mockup.png` closely (pipeline strip, title row, tabs, variant rows, Set Summary, Quick Actions,
 Next Steps; no horizontal scroll at 1672x940, 1366x768, 1280x720). Remaining differences, mostly spec-driven:
 - No style score, best match, Creativity/Consistency sliders or fake cost/time figures (spec: no fake scores).
 - Cat. 1-4 are cards-per-category steppers with Auto/Custom (the real distribution feature); Cat. 5 is locked off.
@@ -22,10 +22,9 @@ Next Steps; no horizontal scroll at 1672x940, 1366x768, 1280x720). Remaining dif
 
 ## Functional limits
 - **QA is structural.** It cannot detect text, frames, wrong style or wrong object. Human review is required (spec: no fake scores).
-- **Planner is rules-based:** only Sci-Fi, Detective and Fantasy are supported; free wishes affect image prompts, not object choice.
-  A TextPlanner for arbitrary themes is not implemented.
-- **Pool limits:** at most 5 distinct variants per genre, and a distribution that needs many Cat. 1–2 cards (simple objects)
-  can exhaust a pool with many variants (the error says so).
+- **Planner is AI-based (Gemini text model):** it needs a Gemini key and network; there is no offline planner and no silent fallback.
+  At most 5 variants per job. Planner state in the UI (including manual edits before Generate) lives in page state and is lost on reload.
+- **My Selection is browser-session only:** favourites are not stored by the app; export or package them before closing the tab.
 - **Cloudflare (FLUX.2 Klein 4B, FLUX.1 Schnell) is NOT verified live.** The adapter follows the documented contract and has only run
   against a mocked transport. No Account ID is configured on the dev machine; a live check (`scripts/smoke_cloudflare.py --yes`)
   needs explicit approval. Doc-based capabilities and Neuron estimates are flagged `verified:false`.
@@ -38,7 +37,8 @@ Next Steps; no horizontal scroll at 1672x940, 1366x768, 1280x720). Remaining dif
   (in-memory credential store + mocked providers, 18/18 checks), not against the real store with real keys.
 - **No automatic provider fallback** (switching providers is a manual, visible choice).
 - **One final variant per job**, one running job at a time, single user, Windows-oriented `start.bat`.
-- **Frontend has no automated tests** (typecheck + build only; the backend has 275 passed, 1 skipped).
+- **Frontend has no automated tests** (typecheck + build only).
+- **Intermittent Python segmentation faults** (python312.dll access violation, Python 3.12.7 + pydantic-core on the dev machine) can crash pytest runs and, once, the backend. Re-running the affected file passes; no code cause was found. Use a newer Python patch release if it recurs.
 
 ## Cost
 - Spend shown is a **local estimate** (≈ $0.067/image assumed from the spec); it can differ from the invoice and Google Billing may lag.

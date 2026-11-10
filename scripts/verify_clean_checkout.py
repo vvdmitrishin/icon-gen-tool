@@ -34,7 +34,7 @@ def main() -> int:
     files = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=ROOT,
                            capture_output=True, text=True).stdout.splitlines()
     leaked = [f for f in files if f != ".env.example" and any(f.startswith(s) or f.endswith(s) or ("/" + s) in f for s in SENSITIVE)]
-    leaked = [f for f in leaked if not f.startswith("Specification/PLAYRIX_SOURCE")]
+    leaked = [f for f in leaked if not f.startswith("specification/PLAYRIX_SOURCE")]
     print(f"{len(files)} files would be committed; sensitive paths among them: {leaked or 'none'}")
     if leaked:
         return 2

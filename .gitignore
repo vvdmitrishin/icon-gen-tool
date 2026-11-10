@@ -12,9 +12,10 @@ data/
 
 # --- Confidential Playrix reference material & generated test outputs ---
 # Spec §18/§19.2: employer references must not enter the public repo without permission.
-Specification/playrix_*.png
-Specification/gemini_ref_test.png
-Specification/gemini_*.png
+# NOTE: specification/Ref_category_1..5.png (curated defaults) ARE tracked; see docs/HANDOFF.md (asset ownership).
+specification/playrix_*.png
+specification/gemini_ref_test.png
+specification/gemini_*.png
 references/
 private/
 
@@ -49,3 +50,10 @@ screenshots/
 
 # local Windows shortcut (machine-specific path)
 *.lnk
+
+# Local scratch / logs
+*.log
+*.bak
+.coverage
+htmlcov/
+backend/.venv/

@@ -72,6 +72,8 @@ class Settings:
     artifact_root: Path = REPO_ROOT / "data" / "artifacts"
     max_upload_bytes: int = 10 * 1024 * 1024
     max_refs_per_request: int = 5
+    # Folder holding the curated default category references (Ref_category_1..5.png); None disables seeding.
+    default_references_dir: Path | None = None
 
     @property
     def reference_root(self) -> Path:
@@ -124,6 +126,7 @@ class Settings:
             artifact_root=_path(g("ARTIFACT_ROOT"), "./data/artifacts"),
             max_upload_bytes=_int(g("MAX_UPLOAD_BYTES"), 10 * 1024 * 1024),
             max_refs_per_request=_int(g("MAX_REFS_PER_REQUEST"), 5),
+            default_references_dir=_path(g("DEFAULT_REFERENCES_DIR"), "./specification"),
         )
 
 

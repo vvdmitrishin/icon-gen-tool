@@ -1,6 +1,6 @@
 # Phase 3 Report — AI Collection Studio
 
-Date: 2026-11-08 · Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` · Status: Phase 3 built, **not yet committed**.
+Date: 2026-11-08 · Spec: `specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` · Status: Phase 3 built, **not yet committed**.
 
 ## 1. What's developed
 

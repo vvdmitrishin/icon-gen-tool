@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PlanOnlyResult } from "../types/api";
 import { catText } from "../lib/cards";
 
@@ -15,6 +15,8 @@ export interface PlanOnlyState {
   regenError: string | null;
   /** concepts replaced by the last "Regenerate Selected" (highlighted) */
   changed: string[];
+  /** concepts edited by hand (marked "edited") */
+  edited?: string[];
 }
 
 export const cardKey = (variantId: string, position: number) => `${variantId}${position}`;
@@ -26,11 +28,18 @@ interface Props {
   onClose: () => void;
   onToggle: (keys: string[], on: boolean) => void;
   onRegenerate: () => void;
+  /** manual Subject/Description override; resolves to an error text, or null when saved. Text only: no AI call. */
+  onEditConcept: (variantId: string, position: number, patch: { object_name?: string; object_description?: string }) => Promise<string | null>;
 }
 
 /** Metaphor Planner: text-only concepts for a Set. The Producer curates them (select + Regenerate Selected) before paying for images. */
-export function PlanOnlyPanel({ state, stale, onClose, onToggle, onRegenerate }: Props) {
+export function PlanOnlyPanel({ state, stale, onClose, onToggle, onRegenerate, onEditConcept }: Props) {
   const r = state.result;
+  const [editing, setEditing] = useState<string | null>(null);
+  const [dName, setDName] = useState("");
+  const [dDesc, setDDesc] = useState("");
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const sel = new Set(state.selected);
   const busy = state.busy || state.regenBusy;
   const allKeys = r ? r.plan.variants.flatMap((v) => v.cards.map((c) => cardKey(v.variant_id, c.position))) : [];
@@ -72,18 +81,52 @@ export function PlanOnlyPanel({ state, stale, onClose, onToggle, onRegenerate }:
                   <thead><tr>
                     <th className="po-check"><HeaderCheck checked={keys.every((k) => sel.has(k))} some={keys.some((k) => sel.has(k))} disabled={busy}
                       label={`Select all cards of Variant ${v.variant_id}`} onChange={(on) => onToggle(keys, on)} /></th>
-                    <th>#</th><th>Cat.</th><th>Subject</th><th>Description</th></tr></thead>
+                    <th>#</th><th>Cat.</th><th>Subject</th><th>Description</th><th aria-label="Edit"></th></tr></thead>
                   <tbody>
                     {v.cards.map((c) => {
                       const k = cardKey(v.variant_id, c.position);
                       const chars = (c as { characters?: number | null }).characters;
+                      if (editing === k) {
+                        const nameOk = dName.trim().length > 0, descOk = dDesc.trim().length > 0;
+                        const unchanged = dName.trim() === c.object_name && dDesc.trim() === c.object_description;
+                        const save = async () => {
+                          setSaving(true); setEditErr(null);
+                          const patch: { object_name?: string; object_description?: string } = {};
+                          if (dName.trim() !== c.object_name) patch.object_name = dName.trim();
+                          if (dDesc.trim() !== c.object_description) patch.object_description = dDesc.trim();
+                          const err = await onEditConcept(v.variant_id, c.position, patch);
+                          setSaving(false);
+                          if (err) setEditErr(err); else setEditing(null);
+                        };
+                        return (
+                          <tr key={c.position} className="po-edit">
+                            <td colSpan={6}>
+                              <div className="po-editor" role="group" aria-label={`Edit concept ${k}`}>
+                                <label className="lbl" htmlFor={`pe-n-${k}`}>Subject</label>
+                                <input id={`pe-n-${k}`} value={dName} maxLength={80} onChange={(e) => setDName(e.target.value)} disabled={saving} />
+                                <label className="lbl" htmlFor={`pe-d-${k}`}>Description</label>
+                                <textarea id={`pe-d-${k}`} rows={2} value={dDesc} maxLength={300} onChange={(e) => setDDesc(e.target.value)} disabled={saving} />
+                                {(!nameOk || !descOk) && <p className="hint err-note">Subject and Description cannot be empty.</p>}
+                                {editErr && <div className="alert err compact" role="alert">{editErr}</div>}
+                                <div className="po-editbtns">
+                                  <button type="button" className="primary small" disabled={saving || !nameOk || !descOk || unchanged} onClick={save}>Save</button>
+                                  <button type="button" className="ghost sm" disabled={saving} onClick={() => { setEditing(null); setEditErr(null); }}>Cancel</button>
+                                  <span className="muted">Text only: no AI call, no image. Existing images stay as they are.</span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
                       return (
                         <tr key={c.position} className={`${sel.has(k) ? "po-sel" : ""} ${state.changed.includes(k) ? "po-new" : ""}`}>
                           <td className="po-check"><input type="checkbox" checked={sel.has(k)} disabled={busy} onChange={(e) => onToggle([k], e.target.checked)}
                             aria-label={`Select card ${v.variant_id}${c.position}: ${c.object_name}`} /></td>
                           <td>{c.position}</td><td className={c.category === 5 ? "goldtxt" : ""}>{catText(c.category)}</td>
-                          <td><strong>{c.object_name}</strong>{state.changed.includes(k) && <span className="chip new-chip">new</span>}</td>
+                          <td><strong>{c.object_name}</strong>{state.changed.includes(k) && <span className="chip new-chip">new</span>}{state.edited?.includes(k) && <span className="chip">edited</span>}</td>
                           <td className="muted">{c.object_description}{chars ? ` (${chars} character${chars === 1 ? "" : "s"})` : ""}</td>
+                          <td className="po-editcell"><button type="button" className="ghost sm" disabled={busy || editing !== null} aria-label={`Edit concept ${k}: ${c.object_name}`} title="Edit Subject / Description (no AI call)"
+                            onClick={() => { setEditing(k); setDName(c.object_name); setDDesc(c.object_description); setEditErr(null); }}>✎</button></td>
                         </tr>
                       );
                     })}

@@ -117,6 +117,8 @@ export const api = {
     call<JobDetail>(`/api/jobs/${job}/cards/${card}/regenerate`, json({ confirmed, note })),
   replaceCard: (job: string, card: string, object_name: string, object_description: string, extra?: { rationale?: string; characters?: number | null }) =>
     call<JobDetail>(`/api/jobs/${job}/cards/${card}`, send("PATCH", { object_name, object_description, ...(extra ?? {}) })),
+  editCardConcept: (job: string, card: string, patch: { object_name?: string; object_description?: string }) =>
+    call<JobDetail>(`/api/jobs/${job}/cards/${card}/concept`, send("PATCH", patch)),
   suggestReplacement: (job: string, card: string) =>
     call<ReplacementSuggestion>(`/api/jobs/${job}/cards/${card}/suggest-replacement`, json({})),
   approveVariant: (job: string, variant: string) =>

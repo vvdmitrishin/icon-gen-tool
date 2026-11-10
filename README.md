@@ -1,68 +1,116 @@
 # AI Collection Studio
 
-Local web app for the Playrix AI Producer assignment. It plans and generates **collectible-card artwork** (artwork only: no
-frames, stars or game UI) for themed 10-card sets, checks it, lets a human review and approve it, and exports it.
+**AI Collection Studio is an AI-assisted production workflow for creating, reviewing, refining, and exporting collectible card artwork for casual mobile games.**
 
-Source of truth: [`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) ·
-Docs: [Progress and handoff](docs/PROGRESS.md) · [User guide](docs/USER_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Known issues](docs/KNOWN_ISSUES.md)
+A producer picks a *Collection* and a *Set* (for example Movie / Detective), the app plans ten distinct visual metaphors, the
+producer reviews and edits them, images are generated one card at a time with category-specific rules and references, and the
+approved set is quality-checked and exported. Built as the Playrix AI Producer test assignment.
 
-## Quick start (Windows)
+## View the Final Presentation
 
-```powershell
-.\start.bat          # first run: creates .env, venv, installs, builds the UI, opens http://127.0.0.1:8000
-```
+| | |
+|---|---|
+| **Miro board (final presentation)** | `PASTE-MIRO-LINK-HERE` (placeholder, see [docs/PRESENTATION_BOARD.md](docs/PRESENTATION_BOARD.md)) |
+| **Live demo** | none: the app runs locally (no hosted instance exists) |
+| **Detective, 10 cards** | [deliverables/README.md](deliverables/README.md#detective-10-cards) · [contact sheet](deliverables/previews/detective.png) |
+| **Comedy, 10 cards** | pending final selection: [deliverables/README.md](deliverables/README.md) |
+| **Adventure, 10 cards** | pending final selection: [deliverables/README.md](deliverables/README.md) |
 
-On the first run, when no provider is configured, a 3-step **setup guide** opens (Welcome with "Try the demo without a key",
-Connect providers, Done). Connect Google Gemini (API key) and/or Cloudflare Workers AI (Account ID + API token) in
-**Settings > API Connections**; they are stored in Windows Credential Manager, not in files. The guide can be reopened from
-Settings ("Run setup guide again") or the header button "Connect providers". The git-ignored `.env` still works as the
-development fallback (Credential Manager first, then `.env`). Without any key you can try everything with the free **Mock** provider.
-`start.bat dev` runs the Vite dev server (hot reload) instead. `python scripts\check_env.py` shows what is configured
-(never prints a secret).
+You will see the three Movie-collection Standard Sets (10 cards each, no golden cards): each card is a finished 512x512
+illustration with its category and subject. Open `deliverables/index.html` in a browser for an offline gallery, no app and
+no API key required. The Miro board walks through the workflow, the five visual categories with their references,
+producer review and selective regeneration, and the QA/approval process.
 
 ## What it does
 
-| Step | Capability |
+| Capability | Status |
 |---|---|
-| Plan | AI semantic planner (Collection + Set + Free Wishes; one mechanism for every theme, no curated pools; avoids repeats across batches), 1–5 variants, **Card Category Distribution** (Auto `[2,2,3,3]` or Custom; Cat. 5 locked 0) applied to category slots, plan QA |
-| Connect | Settings > API Connections: add/replace/remove Gemini and Cloudflare credentials (Windows Credential Manager), free "Test connection", first-run setup guide |
-| Generate | Gemini Nano Banana 2.1 (primary, model selectable), Cloudflare FLUX.2 Klein 4B (up to 4 references) and FLUX.1 Schnell (text-only) on the Workers Free allocation, OpenAI GPT Image (listed, **disabled**), Mock (free). References per category; one call per card; sequential; retries off; no silent provider fallback |
-| Check | Technical QA per image (format, size, aspect, blank, integrity, metadata) and set QA (completeness, distribution, duplicates, rejects) |
-| Review | Approve / reject cards, repair-note **regeneration of one card** (versions kept), replace a card's object, approve one variant as final |
-| Compare | Reference Compare: Split Slider, Side by Side (1×1), Grid Overview; auto/manual reference match; Compare Variants |
-| Configure | Versioned **Prompt Library**, **Templates** (presets), read-only **Settings**, **History** of jobs/exports |
-| Deliver | ZIP export per variant (artwork + manifest + set plan + QA report + contact sheet) and a three-genre **final bundle**; collection readiness overview; batch "plan all three genres" |
-| Safety | Cost estimate + explicit confirmation, estimated cost tracked in a local ledger (no spending caps), circuit breaker, no auto-resume of paid work after a restart, keys only in Credential Manager / `.env`, loopback-only API |
+| AI **Metaphor Planner** (Collection + Set + Free Wishes, 1-5 variants, no repeats across batches) | implemented |
+| **Manual metaphor editing** (edit a card's Subject/Description in the plan; text only, no AI call) | implemented |
+| **Selective concept regeneration** (replace one object; keep the rest) | implemented |
+| Five **visual categories** with a Style Bible and category rules; Auto `[2,2,3,3]` or Custom distribution | implemented |
+| **Reference images**: curated defaults auto-loaded; each card receives only its own category reference | implemented |
+| Image generation per card, **regeneration with a repair note**, immutable **version history** | implemented |
+| **Version comparison** and Reference Compare (split slider, side by side, grid) | implemented |
+| **Technical QA** (format, size, aspect, blank, integrity) + set QA; human **producer review** and variant approval | implemented |
+| Versioned **Prompt Library** (releases v0.5-v0.10, rollback, session overrides, per-job immutable snapshots) | implemented |
+| **Generation history and provenance** (exact prompt, model, references, cost per image) | implemented |
+| **Cost visibility** (local estimates, confirmation before paid work, ledger) | implemented |
+| **My Selection** and **ZIP export** (artwork + manifest + set plan + QA report + contact sheet) | implemented |
+| Providers | Gemini Nano Banana 2.1 (verified live), Mock (free); Cloudflare FLUX (mock-tested only), OpenAI (disabled) |
+| Not implemented | vision/LLM QA, automatic provider fallback, multi-user, hosted deployment, frontend unit tests |
 
-## Implementation status (honest)
+## Production workflow
 
-| Area | Status |
-|---|---|
-| Phases 0–7 of the plan | implemented; **275 backend tests pass, 1 skipped** (the paid live Gemini test, `RUN_LIVE=1`); frontend has typecheck + build only (no unit tests); offline smoke test (`scripts/run_smoke_test.py`) |
-| API Connections + setup guide | implemented. Verified in a real browser against an isolated harness (in-memory credential store, mocked providers): 18/18 checks, no secret in browser storage, DOM or API responses. The real Windows Credential Manager round trip is covered by one Windows-only automated test; no fake credentials were saved to the real credential store |
-| Gemini | **verified live** in earlier sessions: text-only image, reference image, 4-card pilot, one full 10-card set. This sprint made no paid or live provider calls; everything since is mocked |
-| Cloudflare (FLUX.2 Klein 4B, FLUX.1 Schnell) | implemented from the documented REST contract; **mock-tested only, NOT verified live**. A model becomes "Live in app" only after a real request succeeds. Live check: `scripts/smoke_cloudflare.py` (needs your explicit approval; no Account ID on the dev machine yet). The free tier is a daily allocation (10,000 Neurons/day), not unlimited |
-| OpenAI GPT Image | in registry/UI/settings, **disabled, no network code** |
-| Model roadmap (spec §12.7) | future backlog, **not MVP scope**: the selector is grouped by runtime and lists Seedream 4.5 (via Cloudflare) and local FLUX.2 Klein 4B, Z-Image, ERNIE-Image, Qwen-Image as **planned / disabled**; nothing is downloaded or enabled |
-| Art quality | **not tuned** (by decision). Known: Cat. 3 drifts to full scenes and can render text; Cat. 4 can be dark. See [known issues](docs/KNOWN_ISSUES.md) |
-| UI | follows `Specification/Mockup.png` closely (pipeline strip, title row, Set Summary, Quick Actions, Next Steps, category chips); remaining deliberate deviations in [known issues](docs/KNOWN_ISSUES.md) |
-| Not implemented | TextPlanner (free-form genres/wishes), Vision/LLM QA, automatic provider fallback, Miro automation (manual per spec), multi-user, frontend unit tests |
+`Collection & Set -> Metaphor Planning -> Producer Review -> Image Generation -> Iteration -> QA -> Selection -> Export`
 
-## Commands
+1. **Collection & Set:** theme, optional Free Wishes, category distribution, reference selection.
+2. **Metaphor Planning:** the text model proposes variants with 10 subjects each (nothing is drawn yet; planning is cheap).
+3. **Producer Review:** edit a subject/description by hand (pencil icon) or replace an object; approve the plan.
+4. **Image Generation:** one paid image call per card, sequential, with explicit cost confirmation.
+5. **Iteration:** regenerate a single card with a note (up to `MAX_REGENERATIONS_PER_CARD`), compare versions.
+6. **QA:** automatic technical checks, then human art review.
+7. **Selection & Export:** star favourites into My Selection, approve a variant, export a ZIP.
 
-```powershell
-backend\.venv\Scripts\python -m pytest                       # offline tests (free), from the backend folder
-backend\.venv\Scripts\python scripts\run_smoke_test.py       # offline end-to-end walk-through (mock)
-python scripts\verify_clean_checkout.py                      # proves it works from only the files Git would contain
-backend\.venv\Scripts\python scripts\smoke_gemini.py --yes   # ONE real paid Gemini image (dry run without --yes)
-backend\.venv\Scripts\python scripts\smoke_cloudflare.py     # dry run; add --yes to send ONE real Cloudflare request (free allocation, needs approval)
-backend\.venv\Scripts\python scripts\export_benchmark.py --job <id> --name <folder>   # freeze a job as a local benchmark
+## Real examples
+
+The three final Movie-collection sets are packaged in [`deliverables/`](deliverables/) (built by
+`scripts/package_deliverables.py`, which only copies images the app already produced).
+Status: **Detective is packaged; Comedy and Adventure await your final selection** (see
+[docs/HANDOFF.md](docs/HANDOFF.md#final-content)).
+
+## Technical architecture
+
+- **Frontend:** React 18 + TypeScript + Vite (`frontend/`), served by the backend in production.
+- **Backend:** Python 3.11+, FastAPI, SQLite (`backend/`), loopback-only API.
+- **Text planning model:** Gemini `gemini-3.5-flash-lite` (`GEMINI_TEXT_MODEL`).
+- **Image model:** Gemini `gemini-nano-banana-2.1` ("Nano Banana 2.1"), 1:1, downscaled to 512x512.
+- **Prompt compilation:** Style Bible + category rule + set context + wishes + reference guidance + closing, from versioned Prompt Library templates snapshotted per job.
+- **References:** curated `specification/Ref_category_1..5.png` imported on first start; category N reference goes only to category N cards.
+- **Storage:** SQLite (`data/collection_studio.sqlite3`) plus files (`data/artifacts`, `references`, `exports`, `ledger.jsonl`).
+
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Installation
+
+Prerequisites: Python 3.11+, Node.js 18+, and optionally a Google Gemini API key (planning and real images need one; the Mock
+image provider needs none for UI exploration).
+
+```bash
+# 1. configuration
+cp .env.example .env          # Windows: copy .env.example .env   then set GEMINI_API_KEY (or enter it in Settings > API Connections)
+
+# 2. backend
+python -m venv backend/.venv
+backend/.venv/bin/pip install -e "backend[dev]"      # Windows: backend\.venv\Scripts\pip
+# 3. frontend (build once; the backend serves it)
+npm --prefix frontend ci && npm --prefix frontend run build
+# 4. run
+backend/.venv/bin/python -m uvicorn app.main:app_factory --factory --app-dir backend --host 127.0.0.1 --port 8000
 ```
+
+Open <http://127.0.0.1:8000>. On Windows, `start.bat` does steps 1-4 in one go (`start.bat dev` runs Vite with hot reload on :5173).
+Keys: Windows Credential Manager (Settings > API Connections) or `.env`; they never reach the browser.
+
+Tests and checks:
+
+```bash
+cd backend && python -m pytest                 # offline, free (mocked providers)
+npm --prefix frontend run build                # typecheck + production build
+python scripts/verify_clean_checkout.py        # proves the repo works from tracked files only
+```
+
+## Handover
+
+- Source of truth: [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (Ukrainian) and `specification/Mockup.png`.
+- Start with [docs/HANDOFF.md](docs/HANDOFF.md) (what is included, default references, asset ownership, limitations),
+  then [Architecture](docs/ARCHITECTURE.md), [User guide](docs/USER_GUIDE.md), [Runbook](docs/RUNBOOK.md),
+  [Known issues](docs/KNOWN_ISSUES.md), [Presentation board](docs/PRESENTATION_BOARD.md), [Progress log](docs/PROGRESS.md).
+- Historical prompt releases live in `backend/app/config/prompt_system_v0*.yaml` and `docs/prompt-archive/`.
 
 ## Secrets and rights
 
-- API keys live only in Windows Credential Manager (entered in Settings > API Connections) or the local `.env` (development
-  fallback). The backend reads them; they never reach browser storage, SQLite, logs, API responses or the exports.
-- `.env`, `data/` (generated images, references, ledger, database, exports), `benchmarks/` and the Playrix reference PNGs are
-  git-ignored. The provided Playrix references are **not** part of this repository.
-- Costs shown are **local estimates**; Google Billing is the source of truth.
+- API keys are never committed; `.env`, `data/`, `benchmarks/` and `screenshots/` are git-ignored.
+- **Reference artwork originates from Playrix materials.** Do not redistribute this repository publicly with
+  `specification/Ref_category_*.png` unless Playrix permits it; see [docs/HANDOFF.md](docs/HANDOFF.md#asset-ownership).
+- Costs shown are local estimates; the provider's billing is the source of truth.

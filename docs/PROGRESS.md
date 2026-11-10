@@ -1,8 +1,8 @@
 # Progress log and handoff
 
 Last updated: 2026-11-09 (after Unified AI Planning & Session Prompt System, committed locally). Source of Truth:
-`Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (v1.12 update block / ADR-020: unified AI planner, session prompts, snapshots, prompt transparency; v1.11 / ADR-019: semantic planner, My Selection, Plan Only; v1.10 update block, section 3.5 Grand Set, ADR-018; v1.9: 6.15, 12.7.1, 19.1.1, ADR-017).
-Last commit: see `git log` (UI stabilization `2f16222`, docs commit on top). Mockup: `Specification/Mockup.png`.
+`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (v1.12 update block / ADR-020: unified AI planner, session prompts, snapshots, prompt transparency; v1.11 / ADR-019: semantic planner, My Selection, Plan Only; v1.10 update block, section 3.5 Grand Set, ADR-018; v1.9: 6.15, 12.7.1, 19.1.1, ADR-017).
+Last commit: see `git log` (UI stabilization `2f16222`, docs commit on top). Mockup: `specification/Mockup.png`.
 
 ## Status in one paragraph
 Working local MVP (Phases 0-7 plus the Production-Ready MVP Sprint). Backend: 427 tests collected, all pass except 1 skipped (paid live Gemini test,

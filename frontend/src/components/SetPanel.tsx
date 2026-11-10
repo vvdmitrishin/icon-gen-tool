@@ -63,6 +63,7 @@ interface Props {
   onClosePlanOnly?: () => void;
   onTogglePlan?: (keys: string[], on: boolean) => void;
   onRegeneratePlan?: () => void;
+  onEditPlanConcept?: (variantId: string, position: number, patch: { object_name?: string; object_description?: string }) => Promise<string | null>;
   /** compiled prompts of the current plan (same backend compiler as real generation); optional inspection */
   onPreviewPrompts?: () => Promise<PromptsPreviewResponse>;
 }
@@ -298,7 +299,8 @@ export function SetPanel(p: Props) {
       {view === "results" && (
         <div className="stage flat">
           {p.planOnly && (p.planOnly.busy || p.planOnly.result || p.planOnly.error) && <PlanOnlyPanel state={p.planOnly} stale={!!p.planStale} onClose={() => p.onClosePlanOnly?.()}
-            onToggle={(k, on) => p.onTogglePlan?.(k, on)} onRegenerate={() => p.onRegeneratePlan?.()} />}
+            onToggle={(k, on) => p.onTogglePlan?.(k, on)} onRegenerate={() => p.onRegeneratePlan?.()}
+            onEditConcept={(vid, pos, patch) => p.onEditPlanConcept?.(vid, pos, patch) ?? Promise.resolve("Editing is not available.")} />}
           {job && (
             <div className="jobbar">
               <div className="jobhead">

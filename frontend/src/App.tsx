@@ -106,7 +106,17 @@ export default function App() {
       setLoadError(e instanceof ApiError ? e.message : "Failed to load models");
     }
   }, []);
-  const loadRefs = useCallback(async () => { try { setRefs(await api.references()); } catch { /* shown via loadError */ } }, []);
+  const refsSeeded = useRef(false);
+  const loadRefs = useCallback(async () => {
+    try {
+      const list = await api.references();
+      setRefs(list);
+      if (!refsSeeded.current) { // first load: the curated defaults start selected; the producer can deselect or replace any
+        refsSeeded.current = true;
+        setSelectedRefs((cur) => cur.length ? cur : list.filter((r) => r.ref_type.startsWith("category_")).slice(0, 5).map((r) => r.ref_id));
+      }
+    } catch { /* shown via loadError */ }
+  }, []);
   const loadHistory = useCallback(async () => {
     try {
       const h = await api.artifacts();
@@ -470,6 +480,44 @@ export default function App() {
     }
   }
 
+  /** Manual Subject/Description override of one planned concept: text only (no AI call, no image). Existing images stay as they are;
+   *  when the loaded job holds the very same concept, its card text is updated too so a later regeneration uses the new text. */
+  async function onEditPlanConcept(variantId: string, position: number, patch: { object_name?: string; object_description?: string }): Promise<string | null> {
+    const cur = planOnly;
+    if (!cur?.result) return "There is no plan to edit.";
+    const plan = cur.result.plan;
+    const card = plan.variants.find((v) => v.variant_id === variantId)?.cards.find((c) => c.position === position);
+    if (!card) return "That concept no longer exists in the plan.";
+    const name = (patch.object_name ?? card.object_name).trim();
+    const desc = (patch.object_description ?? card.object_description).trim();
+    if (!name || !desc) return "Subject and Description cannot be empty.";
+    const dup = plan.variants.some((v) => v.cards.some((c) => !(v.variant_id === variantId && c.position === position) && c.object_name.trim().toLowerCase() === name.toLowerCase()));
+    if (dup) return `'${name}' is already used by another concept in this plan.`;
+    let updated: JobDetail | null = null;
+    const jc = job && !job.active
+      ? job.variants.find((v) => v.variant_id === variantId)?.cards.find((c) => c.position === position && c.category === card.category && c.object_name === card.object_name)
+      : undefined;
+    if (job && jc) {
+      try { updated = await api.editCardConcept(job.job_id, jc.card_id, patch); }
+      catch (e) { return errText(e, "Could not save the edit"); }
+    }
+    const subjectChanged = name !== card.object_name;
+    const k = `${variantId}${position}`;
+    setPlanOnly((s) => {
+      if (!s?.result) return s;
+      const variants = s.result.plan.variants.map((v) => v.variant_id !== variantId ? v : {
+        ...v,
+        cards: v.cards.map((c) => c.position !== position ? c : {
+          ...c, object_name: name, object_description: desc,
+          ...(subjectChanged && "rationale" in c ? { rationale: `${name}: subject chosen by the Producer for this Set`.slice(0, 140) } : {}),
+        }),
+      });
+      return { ...s, result: { ...s.result, plan: { ...s.result.plan, variants } }, edited: [...new Set([...(s.edited ?? []), k])], changed: s.changed.filter((x) => x !== k) };
+    });
+    if (updated) { setJob(updated); loadJobs(); }
+    return null;
+  }
+
   async function onCheck() {
     setChecking(true);
     try { await api.checkAvailability(); } catch { /* error surfaces via availability.error */ }
@@ -669,7 +717,7 @@ export default function App() {
             continueArmed={continueArmed} onCancelContinue={() => setContinueArmed(false)} onCancelJob={onCancelJob}
             onNew={() => { setJob(null); setEvents([]); setJobError(null); }} onSimilar={startSimilar} onOpenHistory={() => setView("history")}
             planOnly={planOnly} planStale={planStale} onClosePlanOnly={() => setPlanOnly(null)}
-            onTogglePlan={onTogglePlan} onRegeneratePlan={onRegeneratePlan}
+            onTogglePlan={onTogglePlan} onRegeneratePlan={onRegeneratePlan} onEditPlanConcept={onEditPlanConcept}
             onPreviewPrompts={() => api.previewPrompts(jobRequest(false, undefined, true))} />
         ) : (
           <ResultPanel artifact={artifact} history={history} onPick={setArtifact} preview={preview} generating={generating} error={genError} />

@@ -53,3 +53,9 @@
 .pm-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .pm-form label { display: grid; gap: 3px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .pm-form input, .pm-form select { font-weight: 400; color: inherit; }
+
+/* Metaphor Planner manual edit */
+.po-editor { display: grid; gap: 6px; padding: 8px 4px; }
+.po-editor input, .po-editor textarea { width: 100%; }
+.po-editbtns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.po-editcell { width: 1%; white-space: nowrap; }

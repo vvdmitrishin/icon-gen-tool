@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .category_distribution import ALL_CATEGORIES, CARDS_PER_SET, GOLDEN_CATEGORY, assign_slots
+from .category_distribution import ALL_CATEGORIES, CARDS_PER_SET, GOLDEN_CATEGORY
 
 MAX_VARIANTS = 5
 VARIANT_IDS = "ABCDE"

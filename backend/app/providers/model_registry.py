@@ -19,8 +19,6 @@ from .base import (
 )
 from .cloudflare_models import CLOUDFLARE_MODELS, estimate_usd as cf_estimate
 from .cloudflare_image import (
-    CLOUDFLARE_CAPABILITIES,
-    CLOUDFLARE_MODEL_ID,
     CloudflareImageProvider,
 )
 from .gemini_image import GEMINI_CAPABILITIES, GeminiImageProvider

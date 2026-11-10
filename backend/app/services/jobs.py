@@ -175,6 +175,12 @@ class PatchCardRequest(BaseModel):
     characters: int | None = Field(default=None, ge=1, le=2)
 
 
+class EditConceptRequest(BaseModel):
+    """Manual override of one card's concept: either field alone or both. Unset fields keep their value; empty text is refused."""
+    object_name: str | None = Field(default=None, max_length=80)
+    object_description: str | None = Field(default=None, max_length=300)
+
+
 # ----------------------------------------------------------------------------------------- store
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -1031,6 +1037,40 @@ class JobService:
         self.store.set_plan(job_id, plan)
         self.store.add_event(job_id, f"Card {card['variant_id']}{card['position']:02d} replaced: "
                                      f"'{card['object_name']}' → '{name}' (previous images kept in history).")
+        return self.detail(job_id)
+
+    def edit_concept(self, job_id: str, card_id: str, req: EditConceptRequest) -> dict[str, Any]:
+        """Metaphor Planner manual edit of a card's Subject and/or Description. Text only: no AI call, no image. Unlike 'Replace object'
+        the card keeps its status, current image, versions, approvals and regeneration count; earlier artifacts keep the concept they were
+        generated from (their own metadata). The next explicit generation/regeneration of the card uses the new text."""
+        job = self._job_for_edit(job_id)
+        card = self._card_or_404(job_id, card_id)
+        if card["status"] in ("queued", "generating"):
+            raise JobFailure(409, "card_busy", "The card is queued or generating.")
+        if req.object_name is None and req.object_description is None:
+            raise JobFailure(422, "nothing_to_edit", "Provide a new Subject and/or Description.")
+        name = card["object_name"] if req.object_name is None else req.object_name.strip()
+        desc = card["object_description"] if req.object_description is None else req.object_description.strip()
+        if not name or not desc:
+            raise JobFailure(422, "empty_concept", "Subject and Description cannot be empty.")
+        if name.lower() != card["object_name"].strip().lower():
+            if any(c["card_id"] != card_id and c["object_name"].strip().lower() == name.lower() for c in self.store.cards(job_id)):
+                raise JobFailure(422, "duplicate_object", f"'{name}' is already used in this job.")
+        if name == card["object_name"] and desc == card["object_description"]:
+            return self.detail(job_id)  # nothing changed
+        subject_changed = name != card["object_name"]
+        self.store.update_card(card_id, object_name=name, object_description=desc)
+        plan = job["plan"]  # the stored plan feeds the image prompt and the Set Plans view
+        for v in plan.get("variants", []):
+            if v.get("variant_id") == card["variant_id"]:
+                for pc in v.get("cards", []):
+                    if pc.get("position") == card["position"]:
+                        pc["object_name"], pc["object_description"] = name, desc
+                        if subject_changed:  # the old subject's reason must not describe the new one
+                            pc["rationale"] = f"{name}: subject chosen by the Producer for this Set"[:140]
+        self.store.set_plan(job_id, plan)
+        self.store.add_event(job_id, f"Card {card['variant_id']}{card['position']:02d} concept edited by the Producer: "
+                                     f"'{card['object_name']}' → '{name}' (existing images unchanged).")
         return self.detail(job_id)
 
     def suggest_replacement(self, job_id: str, card_id: str) -> dict[str, Any]:

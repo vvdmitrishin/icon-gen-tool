@@ -13,7 +13,7 @@ SQLite (data/collection_studio.sqlite3) + files (data/artifacts, references, exp
 
 Single process on the laptop; inference is a cloud call. `start.bat` builds the UI and the backend serves it
 (`frontend/dist`); dev mode uses Vite with an `/api` proxy. Keys are server-side only.
-Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (sections 6.15, 12.7.1, 19.1.1, ADR-017 cover the API Connections sprint; the v1.10 update block, section 3.5 and ADR-018 cover stabilization and the pending Grand Set).
+Spec: `specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (sections 6.15, 12.7.1, 19.1.1, ADR-017 cover the API Connections sprint; the v1.10 update block, section 3.5 and ADR-018 cover stabilization and the pending Grand Set).
 
 ## Backend modules (`backend/app`)
 
@@ -26,11 +26,11 @@ Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (sections 6.15, 12.7.1, 1
 | `providers/openai_image.py` | scaffold only: no HTTP client imported, always refuses |
 | `providers/model_registry.py` | catalogue with honest per-model status; a model is selectable only when configured/available |
 | `services/prompt_compiler.py` | Layer A (style) + B (CardSpec/category rules) + C (free wishes) + references + repair note + closing; library templates override editable blocks |
-| `services/prompt_library.py` | versioned templates (7), save/restore create new immutable versions |
-| `services/category_distribution.py` | Auto `[2,2,3,3]`/Custom, Σ=10, each Cat. 1–4 ≥ 1, Cat. 5 = 0, slot assignment |
+| `services/prompt_library.py` | versioned templates (8 keys), save/restore create new immutable versions; releases v0.5-v0.10 (`config/prompt_system_v*.yaml`) are saved once as new versions and never override producer edits |
+| `services/category_distribution.py` | Auto `[2,2,3,3]`/Custom, Σ=10, Cat. 5 = 0; a category may have 0 cards (four-category coverage is reported as non-compliant, not enforced) |
 | `services/planning.py` | plan data model + plan QA (HR rules); `services/text_planner.py` the AI semantic planner; `services/semantic_planning.py` duplicates / wish exclusions / batch history; no curated pools |
 | `services/generation.py` | one card: validate → compile → confirm/cap → provider → PNG + provenance JSON |
-| `services/jobs.py` | store + state machine + runner; versions, review, approval, regenerate, replace card, QA orchestration, restart recovery |
+| `services/jobs.py` | store + state machine + runner; versions, review, approval, regenerate, replace card, **edit concept** (`PATCH /api/jobs/{job}/cards/{card}/concept`), `select_references` routing, QA orchestration, restart recovery |
 | `services/qa.py` | deterministic checks TQ-01..09 and SQ-01..08 (structure only) |
 | `services/comparison.py` | generated ↔ reference pairing (auto by category, manual override persisted) |
 | `services/exporter.py` | variant ZIP, final bundle, collection readiness |
@@ -38,8 +38,22 @@ Spec: `Specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md` (sections 6.15, 12.7.1, 1
 | `services/credentials.py` | credential store over `keyring` (Windows Credential Manager); precedence Credential Manager, then `.env`, then none |
 | `services/connection_check.py` | free metadata-only connection tests (Gemini ListModels, Cloudflare model-catalog search) |
 | `services/security.py` | loopback Host/Origin checks, per-session token (`X-Studio-Token`), test rate limit (helpers; the whole-API guard middleware is wired in `main.py`) |
-| `services/reference_manager.py` | decode-validated uploads, PNG re-encode, dedupe, thumbnails |
+| `services/reference_manager.py` | decode-validated uploads, PNG re-encode, dedupe, thumbnails; `seed_defaults()` imports `Ref_category_1..5.png` once at startup |
 | `services/presets.py`, `imports.py`, `db.py` | templates, honest sample import, SQLite helper (always closes connections) |
+
+## Planner-to-image data flow
+
+1. `TextPlanner` (Gemini text model) returns variants x 10 cards (`object_name`, `object_description`, `category`, rationale); `semantic_planning` rejects duplicates and wish violations.
+2. **Plan Only** shows the plan in the Metaphor Planner. The producer may edit Subject/Description per card (client state, no API call) or replace an object. The curated plan is sent as `plan` in the job request, so **Generate makes no second planning call**.
+3. `JobService` stores the plan and cards in SQLite and freezes the prompt bundle (`prompt_bundle`) for the job.
+4. Per card: `select_references` (category N -> only category N; character -> category 5; style/composition/negative -> all) -> `compile_card_prompt` (set context, subject, category rule, Style Bible, wishes, reference guidance, closing) -> provider -> PNG + JSON sidecar (prompt, references, usage, template versions) -> `card_versions` row.
+5. Regeneration uses the card's *current* subject text and adds a version; old versions and their provenance are never rewritten.
+
+**Manual concept editing** on an existing job (`edit_concept`) changes only `object_name`/`object_description` (and the stored plan) of a non-busy card: status, images, versions, approvals and regeneration count are untouched, empty or duplicate subjects are rejected, and no AI or image call is made.
+
+## Default references
+
+`DEFAULT_REFERENCES_DIR` (default `./specification`, repo-relative) is scanned at startup for `Ref_category_<1..5>.png`; each is imported as a `category_<n>` reference. A marker file `data/references/.default_references.json` remembers what was imported, so a default the producer deletes or replaces is not re-imported; a changed source file replaces its earlier seeded copy. The UI selects these by default on first load; the external-provider rights checkbox is still required before generation.
 
 ## Credentials and local security
 
@@ -101,7 +115,7 @@ optional settings such as ERNIE Prompt Enhancement) is part of each registry ent
 
 ## Tests
 
-`pytest` (275 passed, 1 skipped): credentials/connections/local-only guard, Cloudflare models and registry, providers (mocked transports), planner, distribution, QA, jobs (lifecycle, budget, breaker, cancel,
+`pytest` (see README/HANDOFF for the current count): credentials/connections/local-only guard, Cloudflare models and registry, providers (mocked transports), planner, distribution, QA, jobs (lifecycle, budget, breaker, cancel,
 restart, migration), review/approval/regeneration, prompt library, compare, export, collection, batch, imports, settings,
-static serving, scripts. The skipped test is the paid live Gemini test, gated behind `RUN_LIVE=1`. One Windows-only test
+static serving, scripts, default references, manual concept editing. The skipped test is the paid live Gemini test, gated behind `RUN_LIVE=1`. One Windows-only test
 covers the real Credential Manager round trip. The frontend has typecheck + build only, no unit tests.

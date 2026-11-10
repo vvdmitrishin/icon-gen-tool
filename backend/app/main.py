@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import REPO_ROOT, Settings, load_settings
-from .providers.base import ProviderError
+from .providers.base import ProviderDisabled, ProviderError
 from .providers.model_registry import ModelRegistry
 from .services.category_distribution import (
     CategoryDistribution,
@@ -40,7 +40,7 @@ from .services.exporter import ExportError, Exporter
 from .services.imports import ImportError_, import_sample
 from .services.jobs import (
     ApproveVariantRequest, ContinueRequest, JobCreateRequest, JobFailure, JobService, JobStore,
-    PatchCardRequest, PlanOnlyRequest, PlanRegenerateRequest, RegenerateRequest, ReviewRequest,
+    EditConceptRequest, PatchCardRequest, PlanOnlyRequest, PlanRegenerateRequest, RegenerateRequest, ReviewRequest,
 )
 from .services.prompt_library import LibraryError, PromptLibrary
 from .services.presets import PresetError, PresetStore
@@ -149,6 +149,7 @@ def create_app(
     guard = CostGuard(s)
     store = ArtifactStore(s.artifact_root)
     refs = ReferenceManager(s.reference_root, s.max_upload_bytes)
+    refs.seed_defaults(s.default_references_dir)  # curated Ref_category_1..5 on a fresh install; producer edits stick
     shared_db = Db(s.database_path)
     library = PromptLibrary(shared_db)
     presets = PresetStore(shared_db)
@@ -197,7 +198,6 @@ def create_app(
     manager = ProviderManager(connections, ai_providers, registry, gemini_transport=gemini_transport)
 
     def _values(req: ProviderConnectRequest) -> dict[str, str]:
-        v = {"api_key": req.api_key, "account_id": req.account_id, "api_token": req.api_key}
         if req.kind == "cloudflare":
             return {"account_id": req.account_id, "api_token": req.api_key}
         return {"api_key": req.api_key}
@@ -542,6 +542,14 @@ def create_app(
     def card_patch(job_id: str, card_id: str, req: PatchCardRequest) -> dict[str, Any]:
         try:
             return jobs.patch_card(job_id, card_id, req)
+        except JobFailure as exc:
+            raise _job_err(exc) from exc
+
+    @app.patch("/api/jobs/{job_id}/cards/{card_id}/concept")
+    def card_edit_concept(job_id: str, card_id: str, req: EditConceptRequest) -> dict[str, Any]:
+        """Manual Subject/Description edit (Metaphor Planner). No AI call, no image; existing images and metadata are untouched."""
+        try:
+            return jobs.edit_concept(job_id, card_id, req)
         except JobFailure as exc:
             raise _job_err(exc) from exc
 
