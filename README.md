@@ -6,6 +6,23 @@ A producer picks a *Collection* and a *Set* (for example Movie / Detective), the
 producer reviews and edits them, images are generated one card at a time with category-specific rules and references, and the
 approved set is quality-checked and exported. Built as the Playrix AI Producer test assignment.
 
+## Handover
+
+- 🚀 **Run the web app:** the app runs locally (GitHub cannot host it). Follow [Installation](#installation); on Windows just run `start.bat`, which installs everything and opens <http://127.0.0.1:8000>. Without an API key you can still explore the UI with the free Mock image provider.
+- 🎨 **Final presentation:** [Miro board](https://miro.com/app/board/uXjVEQ0lWao=/) · [how it is organised](docs/PRESENTATION_BOARD.md).
+- 📘 **Source of truth:** [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (English) and the UI mockup [`specification/Mockup.png`](specification/Mockup.png).
+- 🧭 **Start with** [docs/HANDOFF.md](docs/HANDOFF.md) (what is included, default references, asset ownership, limitations), then [Architecture](docs/ARCHITECTURE.md), [User guide](docs/USER_GUIDE.md), [Runbook](docs/RUNBOOK.md), [Known issues](docs/KNOWN_ISSUES.md), [Progress log](docs/PROGRESS.md).
+- 🧠 **Prompts** (all in `backend/app/config/`; the Prompt Library tab in the app shows the active texts and version history):
+  - 🎯 Base style prompt (`system_style`) and Categories 1-2: [`prompt_system_v08.yaml`](backend/app/config/prompt_system_v08.yaml)
+  - 🖼️ Category 3: [`prompt_system_v10.yaml`](backend/app/config/prompt_system_v10.yaml) (latest, v0.10)
+  - 🏞️ Category 4: [`prompt_system_v09.yaml`](backend/app/config/prompt_system_v09.yaml)
+  - ⭐ Category 5 (golden cards): [`prompt_system_v05.yaml`](backend/app/config/prompt_system_v05.yaml)
+  - 🔚 Closing constraints (`image_closing`): [`prompt_system_v08.yaml`](backend/app/config/prompt_system_v08.yaml)
+  - 🎨 Style Bible: [`style_bible.yaml`](backend/app/config/style_bible.yaml)
+  - 🗂️ Older releases v0.5-v0.7 (rollback history): [`backend/app/config/`](backend/app/config/) · snapshots: [`docs/prompt-archive/`](docs/prompt-archive/)
+  - ⚙️ How prompts are assembled: [`prompt_compiler.py`](backend/app/services/prompt_compiler.py) · planner prompt: [`text_planner.py`](backend/app/services/text_planner.py)
+- 🖼️ **Default category references:** [`specification/Ref_category_1..5.png`](specification) (see [HANDOFF](docs/HANDOFF.md#default-references)).
+
 ## View the Final Presentation
 
 | | |
@@ -92,16 +109,6 @@ cd backend && python -m pytest                 # offline, free (mocked providers
 npm --prefix frontend run build                # typecheck + production build
 python scripts/verify_clean_checkout.py        # proves the repo works from tracked files only
 ```
-
-## Handover
-
-- **Run the web app:** the app runs locally (GitHub cannot host it). Follow [Installation](#installation); on Windows just run `start.bat`, which installs everything and opens <http://127.0.0.1:8000>. Without an API key you can still explore the UI with the free Mock image provider.
-- Source of truth: [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (English) and `specification/Mockup.png`.
-- Start with [docs/HANDOFF.md](docs/HANDOFF.md) (what is included, default references, asset ownership, limitations),
-  then [Architecture](docs/ARCHITECTURE.md), [User guide](docs/USER_GUIDE.md), [Runbook](docs/RUNBOOK.md),
-  [Known issues](docs/KNOWN_ISSUES.md), [Presentation board](docs/PRESENTATION_BOARD.md), [Progress log](docs/PROGRESS.md).
-- Final presentation: [Miro board](https://miro.com/app/board/uXjVEQ0lWao=/).
-- Historical prompt releases live in `backend/app/config/prompt_system_v0*.yaml` and `docs/prompt-archive/`.
 
 ## Secrets and rights
 
