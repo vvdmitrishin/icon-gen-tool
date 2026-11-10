@@ -901,7 +901,7 @@ function CardDetail({ job, card, variant, perImage, onJob, onError, onClose, onC
         )}
         <div className="rvbtns">
           {card.artifact_id && <a className="ghost link" href={`/api/artifacts/${card.artifact_id}`} target="_blank" rel="noreferrer">Provenance JSON</a>}
-          {img && <a className="ghost link" href={img} download={`${card.card_id}.png`}>Download PNG</a>}
+          {img && <a className="ghost link" href={img} download={`${card.object_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "icon"}_cat${card.category}.png`}>Download PNG</a>}
         </div>
       </div>
     </div>

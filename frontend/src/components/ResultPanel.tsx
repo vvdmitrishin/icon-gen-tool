@@ -87,7 +87,7 @@ export function ResultPanel({ artifact, history, onPick, preview, generating, er
                   <input type="checkbox" checked={framed} onChange={(e) => setFramed(e.target.checked)} />
                   <span>Preview inside a card frame (preview only — not part of the file)</span>
                 </label>
-                <a className="ghost link" href={artifact.image.url} download={`${artifact.artifact_id}.png`}>Download PNG</a>
+                <a className="ghost link" href={artifact.image.url} download={`${(artifact.card.object_name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "icon"}_cat${artifact.card.category}.png`}>Download PNG</a>
               </div>
             </div>
           )}
