@@ -50,7 +50,8 @@ def test_library_is_seeded_with_version_one_defaults(c):
     assert all(i["is_default_text"] for i in items)
     # Prompt System v0.8 changed six templates (v0.6 -> v0.7 -> v0.8); category_5 stays on v0.6 (v3); older versions stay for rollback; repair is untouched (v1)
     assert {i["name"]: (i["version"], i["versions"]) for i in items} == {
-        **{n: (5, [5, 4, 3, 2, 1]) for n in ("system_style", "category_3", "category_4", "image_closing")},
+        **{n: (5, [5, 4, 3, 2, 1]) for n in ("system_style", "image_closing")},
+        **{n: (6, [6, 5, 4, 3, 2, 1]) for n in ("category_3", "category_4")},  # v0.9
         **{n: (4, [4, 3, 2, 1]) for n in ("category_1", "category_2")},
         "category_5": (3, [3, 2, 1]),
         "repair": (1, [1])}
@@ -73,7 +74,7 @@ def test_library_validation(c):
     assert c.post("/api/prompts", json={"name": "nope", "text": "x"}).status_code == 422
     assert c.post("/api/prompts", json={"name": "system_style", "text": "x" * 5001}).status_code == 422
     assert c.get("/api/prompts/nope/versions").status_code == 404
-    assert [i["version"] for i in c.get("/api/prompts").json()] == [5, 4, 4, 5, 5, 3, 5, 1]  # nothing was saved
+    assert [i["version"] for i in c.get("/api/prompts").json()] == [5, 4, 4, 6, 6, 3, 5, 1]  # nothing was saved
 
 
 def test_edited_template_changes_generation_and_is_recorded_in_provenance(c):

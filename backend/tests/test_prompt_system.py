@@ -85,7 +85,7 @@ def test_override_changes_the_compiled_prompt_and_reset_restores_default(setting
         reset = c.post("/api/prompt/preview", json=CARD).json()  # "reset" = the browser stops sending the override
         assert reset["effective_prompt"] == base["effective_prompt"] and reset["session_overrides"] == []
         # nothing permanent changed: still version 1 of every template
-        assert [i["version"] for i in c.get("/api/prompts").json()] == [5, 4, 4, 5, 5, 3, 5, 1] and all(i["is_default_text"] for i in c.get("/api/prompts").json())
+        assert [i["version"] for i in c.get("/api/prompts").json()] == [5, 4, 4, 6, 6, 3, 5, 1] and all(i["is_default_text"] for i in c.get("/api/prompts").json())
 
 
 def test_override_validation_and_mandatory_warnings(settings):
@@ -121,7 +121,7 @@ def test_job_applies_overrides_to_every_card_and_records_provenance(settings):
             assert (SESSION_CAT1 in p["effective"]) == (k["category"] == 1)
             assert p["mandatory_block_appended"] is True
         assert [e for e in c.get(f"/api/jobs/{d['job_id']}/events").json() if "SESSION overrides" in e["message"]]
-        assert [i["version"] for i in c.get("/api/prompts").json()] == [5, 4, 4, 5, 5, 3, 5, 1]  # no permanent version was created
+        assert [i["version"] for i in c.get("/api/prompts").json()] == [5, 4, 4, 6, 6, 3, 5, 1]  # no permanent version was created
 
 
 def test_snapshot_is_immutable_for_the_whole_job_even_if_the_library_changes_while_it_runs(settings):

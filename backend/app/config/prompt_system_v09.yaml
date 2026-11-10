@@ -1,0 +1,35 @@
+# Prompt System v0.9: only category_3 and category_4 change (Category 3 = grounded object, simple background; Category 4 = object integrated
+# into a recognizable environment). All other templates, incl. the Style Bible, are untouched. PromptLibrary.apply_releases() saves these
+# ONCE as new permanent versions; older versions stay for rollback. Edit texts in the Prompt Library UI, not here.
+version: v0.9
+templates:
+  category_3: |-
+    CATEGORY 3 — OBJECT ON A CONTEXTUALLY APPROPRIATE PHYSICAL SURFACE
+
+    Present one large, clearly recognizable collectible object resting on a believable REAL-WORLD TYPE OF SURFACE appropriate to that specific object. 'Real-world' here describes the physical identity and logical placement of the supporting surface — NOT photorealistic rendering. The entire illustration must remain clean, colorful, rounded, simplified casual-game 3D artwork.
+
+    CHOOSE THE RIGHT SUPPORT: A plate of cheese belongs on a tabletop or counter; a shopping basket may rest on a tiled store floor; a garden tool may lie on a broad patch of soil or a workbench; a beach object may rest on sand or a beach towel. These are examples of surface logic, not fixed themes or subject pools. Select a single support that makes immediate physical sense for the named collectible. Make the surface materially convincing in a soft, stylized way: believable surface perspective, a recognizable material identity, a clear contact shadow and gentle depth. Do not force one particular material on every card; let the object decide.
+
+    SUBJECT FIRST: The named object or coherent collectible unit should remain large and dominant, usually around 65–80% of the usable composition depending on proportions. Give it an unambiguous silhouette. Show only enough of the surface to ground it. Reduce small decorations, scattered props and detailed material texture; use broad stylized color patches or a few simplified surface cues instead of photographic wood grain, individual blades of grass, realistic tiles, or dense patterned objects.
+
+    SIMPLE BACKGROUND: Keep the background as simple and unobtrusive as in Category 2: a smooth gradient, a flat color field, a minimal plain wall or another restrained backdrop. The surface supports the object; it never becomes a location. A table does not require a kitchen; tile does not require a room; sand does not require a whole beach; a rock does not require a forest. Do not build rooms or interiors: no wall-and-baseboard construction, doorways, windows, furniture, shelves, distant architecture, landscapes, crowds, environmental storytelling or numerous secondary items.
+
+    DISTINCTION FROM CATEGORIES 2 AND 4: Category 2 uses a deliberately graphic horizontal support plus a separate simple upright backdrop. Category 3 keeps a similarly simple background but grounds the object on a physically meaningful, materially convincing surface; it does not escalate into a full scene. A vertical backdrop is not required. Category 3 must not become Category 4 merely because the model adds a detailed room or elaborate background; meaningful environmental context belongs to Category 4.
+
+    END RESULT: A collectible object grounded on the correct kind of physical surface, not a location painting. Keep the rendering playful and simplified rather than photorealistic.
+  category_4: |-
+    CATEGORY 4 — DOMINANT COLLECTIBLE WITH SIMPLIFIED CONTEXTUAL ENVIRONMENT
+
+    Show one clear, prominent collectible subject placed in an immediately recognizable but highly simplified environment. Category 4 introduces meaningful location context and modest spatial depth, yet the image must still read as a polished collectible icon at thumbnail size, not as a full concept-art scene, landscape illustration or panoramic story frame.
+
+    DISTINCTION FROM CATEGORY 3: Category 3 grounds the object on a believable surface against a simple background. Category 4 integrates the subject into a recognizable setting: surrounding elements and spatial relationships communicate where the subject belongs (for example a bus on a city street, a tent in a forest, a sandcastle on a beach), while the subject stays dominant and the environment stays simplified.
+
+    SUBJECT AND FRAMING: Identify the one subject named by the plan: an object, a vehicle, a structure, an installation, or a contained place-like focal feature. Make that specific subject the visual anchor. Typically aim for roughly 60–75% of image height or visual mass when its form permits, using a close or medium-close composition. Show the iconic shape in full enough to identify it; do not shrink it to explain a broad location. Favor a clear slightly elevated three-quarter view where suitable, not a distant establishing shot or overhead map.
+
+    SIMPLIFY THE ENVIRONMENT AGGRESSIVELY: Support the subject with only a few large readable environmental shapes — for example, a broad shoreline, a soft foliage mass, a simple path, a distant color-block building, or a quiet sky. They should establish context and mood, not become independent points of interest. Keep background geometry low-frequency, surfaces clean, and the number of small objects very limited. If a natural feature such as a tidal pool is itself the subject, make that contained feature a single strong, recognizable focal shape and simplify the surrounding rocks, water plants and tiny wildlife rather than filling every corner.
+
+    DETAIL BUDGET: Simplify construction, textures, railings, planks, leaves, stones, waves, interior fixtures and other repetitive details to large stylized forms. The finished result should feel approximately two to three times less busy than an elaborate environmental illustration of the same subject. Avoid intricate micro-props, thin repeating lines, dense decorative vegetation, heavily textured surfaces, realistic architecture, photographic lighting and full-scene atmosphere. Retain a few essential details that communicate the subject's identity.
+
+    DEPTH AND BACKGROUND: Allow some recognizable spatial layering, but maintain broad quiet areas and a clean silhouette. Use bright, controlled colors and soft dimensional lighting, consistent with Categories 1–3. Do not introduce cinematic fog, extreme depth of field, wide landscapes, heavy bloom, many small creatures or visual noise simply because the environment is more developed.
+
+    CONTENT: No readable letters, signage, product names, menus, numbers, logos or labels on buildings, carts, stalls, boards or equipment. Express the identity through shape and color instead. The environmental setting enhances the named collectible; it never replaces or visually dominates it.
