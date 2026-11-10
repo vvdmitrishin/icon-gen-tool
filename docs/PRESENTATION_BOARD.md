@@ -9,7 +9,7 @@
 |---|---|---|
 | 1 | Project overview | One-paragraph positioning from the README; the three sets side by side |
 | 2 | Production workflow | `Collection & Set -> Metaphor Planning -> Producer Review -> Image Generation -> Iteration -> QA -> Selection -> Export` (screenshots of the pipeline strip) |
-| 3 | Three 10-card sets | `deliverables/previews/detective.png` (ready); Comedy and Adventure contact sheets once packaged (`scripts/package_deliverables.py`) |
+| 3 | Three 10-card sets | Contact sheets / screenshots of the Comedy, Adventure and Detective sets |
 | 4 | Five visual categories | `specification/Ref_category_1..5.png` with the one-line category rule from the Prompt Library |
 | 5 | Producer review and selective regeneration | Before/after versions of one card, a repair note, the manual-edit pencil in the Metaphor Planner |
 | 6 | QA and approval | Technical QA report, set QA, variant approval, ZIP export contents |

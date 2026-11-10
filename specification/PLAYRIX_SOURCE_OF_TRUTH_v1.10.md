@@ -5,7 +5,7 @@
 **Date:** 9 November 2026 (v1.10 update: stabilization; v1.9: API Connections, Cloudflare free-tier models, UI alignment; v1.8.1: status refresh; v1.8: model roadmap; v1.7: Card Category Distribution; v1.6: Gemini REST API and reference input verified)  
 **Status:** **WORKING LOCAL MVP: Phases 0–7 implemented** (actual state — README, "Implementation status"); this document remains the source of requirements. **Gemini Nano Banana 2.1 verified live** (text-to-image, reference-to-image, a 4-card pilot in the app); **Cloudflare FLUX.2 Klein 4B**: adapter implemented and mock-tested, live verification awaits `CLOUDFLARE_ACCOUNT_ID`; **OpenAI GPT Image: planned, disabled, no network code**; Seedream 4.5 and local models — backlog (§12.7). **Artistic quality is not tuned** (known Cat. 3/4 issues — `docs/KNOWN_ISSUES.md`).  
 **Concept owner:** candidate for the AI Producer role  
-**Working document language:** English (translated from the original Ukrainian, kept as `PLAYRIX_SOURCE_OF_TRUTH_v1.10.uk.md`); button, object and API names — in English  
+**Working document language:** English (translated from the original Ukrainian); button, object and API names — in English  
 **Goal:** a single document for development, delegation to an AI coding agent, scope verification, and preparing the presentation of the test assignment results.
 
 > **Key rule:** this document deliberately distinguishes **[P] a Playrix requirement**, **[U] a wish of the user / concept author**, **[D] a proposed design decision**, **[A] an assumption that needs verification**, **[F] a possible future extension**. [D], [A] or [F] must not be presented as employer requirements.

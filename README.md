@@ -12,14 +12,10 @@ approved set is quality-checked and exported. Built as the Playrix AI Producer t
 |---|---|
 | **Miro board (final presentation)** | [https://miro.com/app/board/uXjVEQ0lWao=/](https://miro.com/app/board/uXjVEQ0lWao=/) (see [docs/PRESENTATION_BOARD.md](docs/PRESENTATION_BOARD.md)) |
 | **Live demo** | none: the app runs locally (no hosted instance exists) |
-| **Detective, 10 cards** | [deliverables/README.md](deliverables/README.md#detective-10-cards) · [contact sheet](deliverables/previews/detective.png) |
-| **Comedy, 10 cards** | pending final selection: [deliverables/README.md](deliverables/README.md) |
-| **Adventure, 10 cards** | pending final selection: [deliverables/README.md](deliverables/README.md) |
 
-You will see the three Movie-collection Standard Sets (10 cards each, no golden cards): each card is a finished 512x512
-illustration with its category and subject. Open `deliverables/index.html` in a browser for an offline gallery, no app and
-no API key required. The Miro board walks through the workflow, the five visual categories with their references,
-producer review and selective regeneration, and the QA/approval process.
+The Miro board shows the three Movie-collection Standard Sets (Comedy, Adventure, Detective: 10 cards each, no golden cards),
+the production workflow, the five visual categories with their references, producer review and selective regeneration,
+and the QA/approval process.
 
 ## What it does
 
@@ -54,10 +50,7 @@ producer review and selective regeneration, and the QA/approval process.
 
 ## Real examples
 
-The three final Movie-collection sets are packaged in [`deliverables/`](deliverables/) (built by
-`scripts/package_deliverables.py`, which only copies images the app already produced).
-Status: **Detective is packaged; Comedy and Adventure await your final selection** (see
-[docs/HANDOFF.md](docs/HANDOFF.md#final-content)).
+The three final Movie-collection sets (Comedy, Adventure, Detective) are shown on the [Miro board](https://miro.com/app/board/uXjVEQ0lWao=/).
 
 ## Technical architecture
 
@@ -102,7 +95,8 @@ python scripts/verify_clean_checkout.py        # proves the repo works from trac
 
 ## Handover
 
-- Source of truth: [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (English; the original Ukrainian is kept as `PLAYRIX_SOURCE_OF_TRUTH_v1.10.uk.md`) and `specification/Mockup.png`.
+- **Run the web app:** the app runs locally (GitHub cannot host it). Follow [Installation](#installation); on Windows just run `start.bat`, which installs everything and opens <http://127.0.0.1:8000>. Without an API key you can still explore the UI with the free Mock image provider.
+- Source of truth: [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (English) and `specification/Mockup.png`.
 - Start with [docs/HANDOFF.md](docs/HANDOFF.md) (what is included, default references, asset ownership, limitations),
   then [Architecture](docs/ARCHITECTURE.md), [User guide](docs/USER_GUIDE.md), [Runbook](docs/RUNBOOK.md),
   [Known issues](docs/KNOWN_ISSUES.md), [Presentation board](docs/PRESENTATION_BOARD.md), [Progress log](docs/PROGRESS.md).
