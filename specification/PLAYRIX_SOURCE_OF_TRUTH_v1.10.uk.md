@@ -1,0 +1,2664 @@
+# Playrix AI Producer — Collection Studio
+## Source of Truth / Product Requirements + UX + Technical Design + Execution Plan
+
+**Версія:** 1.10 (стабілізація UI/функціоналу: вільний текст Collection/Set із AI-плануванням, 1–10 карток, golden cards, Output Resolution, точні розміри PNG; 1.9: API Connections: безпечне збереження credentials; безкоштовні Cloudflare-моделі FLUX.2 Klein 4B + FLUX.1 Schnell; UI вирівняно з мокапом; v1.8.1 status refresh; v1.7 + model roadmap: runtime-grouped Model Selector, future cloud/local model backlog, capability metadata; Card Category Distribution: `Auto (Balanced)` / `Custom`, Σ=10, Cat.5 locked 0; Gemini Nano Banana 2.1 REST image + image-reference smoke tests verified; Gemini-first integration; OpenAI GPT Image planned/disabled)  
+**Дата:** 9 листопада 2026 року (оновлення v1.10: стабілізація; v1.9: API Connections, Cloudflare free-tier models, UI alignment; v1.8.1: status refresh; v1.8: model roadmap; v1.7: Card Category Distribution; v1.6: Gemini REST API and reference-input verified)  
+**Статус:** **ПРАЦЮЮЧИЙ ЛОКАЛЬНИЙ MVP: Phases 0–7 реалізовано** (фактичний стан — README, «Implementation status»); цей документ лишається джерелом вимог. **Gemini Nano Banana 2.1 перевірено live** (text-to-image, reference-to-image, pilot із 4 карток у застосунку); **Cloudflare FLUX.2 Klein 4B**: adapter реалізовано й mock-tested, live-перевірка очікує `CLOUDFLARE_ACCOUNT_ID`; **OpenAI GPT Image: planned, disabled, без network-коду**; Seedream 4.5 і local-моделі — backlog (§12.7). **Художня якість не налаштована** (відомі проблеми Cat. 3/4 — `docs/KNOWN_ISSUES.md`).  
+**Власник концепції:** кандидат на роль AI Producer  
+**Мова робочого документа:** українська; назви кнопок, об'єктів та API — англійською  
+**Мета:** єдиний документ для розробки, делегування AI coding agent, перевірки scope та підготовки презентації результатів тестового завдання.
+
+> **Головне правило:** цей документ навмисно розрізняє **[P] вимогу Playrix**, **[U] побажання користувача / автора концепції**, **[D] запропоноване дизайн-рішення**, **[A] припущення, що потребує перевірки**, **[F] можливе майбутнє розширення**. Не можна подавати [D], [A] чи [F] як вимоги роботодавця.
+
+> **Обмеження достовірності (оновлено в v1.8.1):** застосунок реалізовано й протестовано (171 automated backend tests, offline smoke test, clean-checkout verification), але **live-генерація виконана лише як одиничні Gemini smoke tests, reference-тест і pilot із 4 карток (≈ $0.40 за локальною оцінкою)**. Повний live 10-card set, три жанри × 3–5 варіантів і **художня відповідність референсам не перевірені**. Автоматичний QA структурний (не виявляє текст у зображенні чи стиль). Cloudflare adapter перевірено лише на mock. Не вигадувати QA scores, API credits, кількість згенерованих карток або фінальний readiness; вартість — локальна оцінка, не рахунок.
+
+---
+
+## АКТУАЛЬНЕ РІШЕННЯ v1.6 — ВАЖЛИВІШЕ ЗА ІСТОРИЧНІ РОЗДІЛИ НИЖЧЕ (07.11.2026)
+
+Це **єдиний поточний статус** підключення провайдерів. Пізніші рішення v1.6 мають пріоритет над застарілими прикладами, де Cloudflare названо основним, Gemini позначено `Samples only` або runtime-budget вимагав суворо `$0`.
+
+| Provider | Model | Факт, підтверджений користувачем | Роль у застосунку після реалізації | Активний у власному Web UI зараз? |
+|---|---|---|---|---|
+| **Google Gemini** | **`gemini-nano-banana-2.1`** | **API key + оплата налаштовані; текстовий REST `generateContent` повернув PNG; REST із `inlineData` Playrix PNG повернув PNG.** На акаунт внесено **€5**. | **Default / primary image generation provider** | **Ні — app ще не створений; API smoke test пройдено в PowerShell** |
+| Google Gemini | `gemini-3.1-flash-image` (Nano Banana 2), `gemini-3.1-flash-lite-image` (2 Lite), `gemini-3-pro-image` (Pro) | Є офіційна документація; **ці моделі не тестувалися в акаунті користувача** | Вибір моделей під одним Gemini adapter за наявності доступу | Ні — `Available after live model check` |
+| **Cloudflare Workers AI** | `@cf/black-forest-labs/flux-2-klein-4b` | Раніше перевірені текстовий REST і REST із reference PNG | **Free baseline / fallback**; без автоматичного paid upgrade | **Ні — app ще не створений; зовнішній API smoke test пройдено** |
+| **OpenAI GPT Image** | `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` (та інші після перевірки) | Офіційні Image API/Edits API задокументовані; **особистий API key, оплата і live-виклики НЕ налаштовані/НЕ тестувалися** | **Planned provider, visible in UI, disabled until separately configured and approved** | **Ні, `Not configured`** |
+
+**Рішення власника [U]:** **Gemini підключаємо першим**; **OpenAI GPT Image всюди передбачаємо** (UI, provider registry, adapters interface, settings/env template, jobs, image refs, cost counters, provenance, README, QA/tests), але **не виконуємо OpenAI API-запитів і не активуємо його оплату** без окремого рішення. Cloudflare зберігаємо як резервну альтернативу.
+
+**Verified evidence у Windows PowerShell [U]:**
+- Text-to-image з `gemini-nano-banana-2.1` → `SUCCESS! Image saved: C:\Users\vd\gemini_test.png`.
+- Reference-to-image з `playrix_single_reference_calculator.png` → `SUCCESS! Image saved to: C:\Users\vd\Documents\GitHub\icon-gen-tool\Specification\gemini_ref_test.png`.
+- Для reference було використано `contents[].parts[].inlineData = {mimeType: 'image/png', data: '<base64>'}`. **Факт успіху = файл створився; не означає перевіреного стилю Playrix.**
+- Початкова помилка `400 Bad Request` у першому text smoke test виникла через некоректний запит `generationConfig.responseFormat.image`; виправлений запит **без цього блоку** успішний. Перший reference `400 Unable to process input image` виник через **неіснуючий локальний шлях і порожній Base64**; виправлений шлях дав успішний PNG. Не записувати ці 400 як дефекти Gemini.
+
+**Перед великими jobs:** перевірити зображення `gemini_ref_test.png` в Art Review; порівняти Cat. 1–4, зробити 10-card mini pilot, підтвердити реальні квоти й доступність потрібних модельних ID. Відстежувати залишок €5 у Google AI Studio. **App-level budget guard — best-effort, а не гарантія жорсткої межі від Google**, бо usage/billing можуть оновлюватися із затримкою. Відмовляти в запуску, якщо обсяг job не вписується в консервативний ліміт.
+
+**Офіційна документація:** https://ai.google.dev/gemini-api/docs/image-generation ; https://ai.google.dev/gemini-api/docs/pricing ; https://developers.openai.com/api/docs/guides/image-generation ; https://developers.cloudflare.com/workers-ai/platform/pricing/ .
+
+---
+
+## ОНОВЛЕННЯ v1.12 — Єдиний AI-планувальник, session-only промпти, snapshot промптів, прозорість (09.11.2026)
+
+Доповнює v1.11. **Де є розбіжність — чинне цей блок** (зокрема п. 2 v1.11 про curated pools і `planner = "auto"`).
+
+1. **Один механізм планування [D].** `Collection + Set + Free Wishes → AI Semantic Set Planner → Card Specifications → Prompt Builder → Image Generation`. Curated pools і rules planner **видалено з production** (`object_pools.yaml`, `plan_set`, `curated_genre_for`, поле `planner`): Movies / Science Fiction, Detective, Fantasy і будь-яка інша пара Collection/Set проходять **той самий** AI-планувальник. Імена трьох Movie-жанрів лишилися лише як підказки форми та для Movie Collection export workflow (`MOVIE_DELIVERABLE_GENRES`), без пулів. Детерміновані плани існують **лише як test fixtures** (`backend/tests/conftest.py`, `deterministic_plan`) і в offline smoke-скрипті.
+2. **Без тихого fallback.** Якщо text planner недоступний (немає Gemini key, paid calls вимкнені, помилка/некоректна відповідь), створення job завершується зрозумілою помилкою (`gemini_key_missing` / `paid_disabled` / `ai_plan_failed` / `ai_plan_invalid`) **до** будь-якої генерації зображень; жодних curated-суб'єктів. Mock **image** provider лишається (безкоштовне тестування UI/pipeline; зображення позначені Mock), але планування карток завжди потребує AI text planner. Створення job (= дія Generate) саме дозволяє дешевий planning-виклик; безкоштовний preview без `allow_ai_plan` лишається `ai_plan_required`; підтвердження вартості зображень без змін (вартість планування ≈ $0.002 входить у «Confirm & spend»). Plan Only працює як раніше.
+3. **Session-only prompt overrides.** Редагуються: System Style, Category 1–5 rules, Closing Constraints (repair — лише permanent). Потік: View → Edit → **Apply to Session** → **Reset to Default** / **Reset All Session Overrides**. Зберігаються в `sessionStorage` вкладки (`ics.promptOverrides.v1`): переживають refresh, нова вкладка/сесія — дефолти. Постійна Prompt Library **не змінюється** і нових версій не створює; Permanent versioning лишився окремим режимом («Permanent versions»), у UI їх різницю підкреслено; індикатор «Session Override Active» у Prompt Library та біля Generate.
+4. **Immutable prompt snapshot per job.** При створенні job сервер один раз резолвить повний bundle (усі 8 шаблонів: постійна активна версія + session override), записує точні тексти й походження в `request.prompt_bundle` (БД), прив'язує до всіх варіантів; кожна картка й **регенерація** цього job використовує лише його snapshot. Редагування бібліотеки чи сесії під час роботи job не змінює вже створений job; після закриття браузера snapshot лишається на сервері. Старі job без snapshot продовжують завантажуватись (планові промпти — з поточної бібліотеки; вже збережені промпти зображень не змінюються).
+5. **Захист обов'язкових правил.** Поки активний session override, до кожного промпта сервер додає блок MANDATORY (artwork only, без text/labels/frame/border/stars/badges; для golden — максимум 2 персонажі). Суперечливий текст дає попередження (`POST /api/prompts/session-check`, у provenance та preview). Структура Standard Set, Grand Set, `characters` ≤ 2, Movie export — перевіряються **на сервері**, не в тексті промпта.
+6. **Shared Set context у промпті.** До Layer B кожної картки додаються Collection, Set, **variant title**, **variant concept** і стисле **rationale** (поле `rationale` з AI-плану, ≤ 140 символів; шаблонне rationale пропускається) з приміткою «shared art direction only; never replaces this subject or the rules». Предмет і правила категорії лишаються головними.
+7. **Вибір референсів [D].** Лише застосовні: `category_N` → тільки картки категорії N; `character` (новий тип) → тільки golden (Cat. 5); `style`/`composition`/`negative` → весь сет (`negative` підписано NEGATIVE: «never reproduce»). Fallback «надіслати все» **видалено**: якщо нічого не застосовно — зображення без референсів + текстові правила (`reference_selection = none_applicable`). Пріоритет під ліміт провайдера: категорія > character > style > composition > negative. Обробка Gemini (inlineData), FLUX.2 Klein 4B (до 4 зображень, зменшення <512 px) і FLUX.1 Schnell (text-only) не змінена.
+8. **Прозорість промптів.** (а) «View Prompt» у деталі картки: точний immutable промпт, збережений із зображенням (модель, референси, версії шаблонів, SESSION-позначки, set context, Copy), без виклику провайдера; (б) «Preview Prompts» (необов'язково): для job — збережені промпти згенерованих зображень + компільовані для запланованих (`GET /api/jobs/{id}/prompts`); для плану без job — `POST /api/jobs/preview-prompts`. Той самий `_card_request` + `compile_card_prompt`, що й у реальній генерації (не frontend-наближення). Approve-кроку немає.
+9. **Provenance зображення** тепер містить: `prompt.effective`, `bundle` (джерело `library`/`session_override`, постійна версія, base_version), `session_overrides`, `effective_texts` (system style, category rule, closing), `mandatory_block_appended`, `planning_context` (collection, set, variant title/concept, rationale), посилання (id, роль), `template_versions`; manifest експорту (варіант і Selection) містить bundle/session_overrides.
+10. **Не змінено:** Standard Set (категорії/розподіл), Grand Set, ≤ 2 персонажі, відмінність art category ≠ rarity, обмеження Movie Collection deliverables, cost confirmations і ліміти, Prompt System v0.2 **не імпортовано** (окремий бенчмарк).
+11. **Текстова модель планувальника (виправлення після першого live Plan Only: HTTP 404 для `gemini-2.5-flash`).** Єдина модель для Plan Only і для автоматичного планування при Generate — **`gemini-3.5-flash-lite`** (`GEMINI_TEXT_MODEL`, stable; у документації Google заявлено structured outputs; `ListModels` для ключа проєкту показує її з `generateContent`). Запит: `generateContent`, `responseMimeType: application/json` + `responseSchema`, `systemInstruction`, `seed`; **`temperature` прибрано** (на Gemini 3.x deprecated/ігнорується, може відхилятись). Ціна planning-виклику рахується за реальним прайсом моделі: **$0.30 / 1M input, $2.50 / 1M output (включно з thinking)**: `вартість = base_usd + per_card_usd × варіанти × картки` (≈ $0.0041 для 1×10, ≈ $0.015 для 5×10); ті самі константи віддає `GET /api/models → planner`, UI не має власних чисел. Примітка Google: запити до `gemini-2.5-flash` перенаправлятимуться на `gemini-3.5-flash-lite` з 01.12.2026. Live-виклик у цій зміні **не** виконувався.
+12. **Якість планувальника (тюнінг інструкцій, без змін архітектури):** одна й та сама текстова інструкція `TextPlanner` для Plan Only та Generate тепер вимагає: (а) чітку фокусну точку для карток Cat.1-4 (впізнаваний колекційний предмет, читається в мініатюрі, без натовпів/порожніх локацій); для Grand Set / золотих карток це правило НЕ застосовується (1 персонаж або взаємодія 2 персонажів, максимум 2, емоції та іронія зберігаються); (б) Cat.4 = ОДИН герой-предмет у багатому середовищі (назва вказує на предмет, а не на місце); визначення Cat.1-3 не змінені; (в) повагу до визначального змісту Сету (ядро має мати визначальну властивість, супутнє спорядження допустиме, без жорстких ключових слів і без винятків під конкретні Сети; модель перевіряє себе в тому самому виклику, додаткових платних викликів немає); (г) різноманітність як перевагу, а не квоту (ідентичність, функція, силует, роль, попередні батчі). Точні/синонімічні дублікати, як і раніше, відхиляє `semantic_planning`. Тести: `tests/test_planner_quality.py`. Реальну якість LLM-планів ще не виміряно.
+13. **Prompt System v0.5 (виробничі промпти за замовчуванням):** сім шаблонів (`system_style`, `category_1..5`, `image_closing`) із `AI_Collection_Studio_Prompt_System_v0.5_reviewed.md` збережено дослівно в `backend/app/config/prompt_system_v05.yaml` і одноразово записано в Prompt Library як НОВІ перманентні версії (v2, автор «Prompt System v0.5»), активні для всіх нових генерацій; v1 лишається для відкату (Restore). Шаблон, який Продюсер уже редагував, не перезаписується; після відкату на v1 v0.5 повторно не застосовується. `repair` не змінено. Ліміт шаблону: 5000 символів (перманентні версії, session-перевизначення, snapshot). Історичні генерації та їх snapshot не змінюються. Тести: `tests/test_prompt_v05.py`. Реальний вплив на арт ще не виміряно.
+14. **Prompt System v0.6 (виробничі промпти за замовчуванням, замінює v0.5):** сім шаблонів із `AI_Collection_Studio_Prompt_System_v0.6_candidate.md` дослівно в `backend/app/config/prompt_system_v06.yaml`; `PromptLibrary.apply_releases()` одноразово зберігає їх як нові перманентні версії (v3, автор «Prompt System v0.6») і активує; v1 і v2 (v0.5) лишаються для відкату. Шаблон оновлюється лише поки активна версія — нетронутий попередній реліз, тож правки Продюсера та свідомі відкати не перезаписуються. Один і той самий компілятор для Gemini і Cloudflare Klein; ліміт 5000 символів збережено. Тести: `tests/test_prompt_releases.py`. Вплив на арт ще не виміряно.
+15. **Prompt System v0.7 → v0.8:** v0.7 (чотири шаблони, v4) і v0.8 (шість шаблонів: `system_style`, `category_1`–`category_4`, `image_closing`; `prompt_system_v08.yaml`, дослівно) встановлюються тим самим механізмом `apply_releases()`; `category_5` і `repair` не змінено. Підписи Cat.3/Cat.4 у `category_rules.yaml` виправлено (без «realistic»). Знімки: `docs/prompt-archive/` (v0.7 effective, v0.8 resolved). Вплив на арт не виміряно.
+16. **Обмеження:** якість реальних LLM-планів і ефект session-промптів на арт ще не виміряно (лише mocked/Mock-image перевірки); історія між батчами беруться з усіх збережених job теми; зірка лише в режимі набору.
+
+---
+
+## ОНОВЛЕННЯ v1.11 — Semantic Set Planner, Session Favorites, Plan Only (09.11.2026)
+
+Доповнює (не скасовує) v1.10. Де нижче сказано інакше, ніж у п. 1 блоку v1.10 («кастомна тема потребує явного Plan with AI»), **чинне цей блок**.
+
+1. **Collection → Set → Cards [P]/[D].** Collection — широка тема (Winter, Technology), Set — конкретна підтема (Forest, Two-Wheeled Vehicles); повна колекція = 16 сетів, фінальний — Grand Set. Кожна картка має осмислено належати **саме Set**, а не лише Collection.
+2. **Semantic Set Planner (AI за замовчуванням) — curated/`planner` частину замінено v1.12 (єдиний AI-планувальник).** Для будь-якої пари Collection/Set план робить AI TextPlanner (один структурований текстовий виклик, без auto-retry). Промпт: Set = смислова межа; AI сам визначає, чим є Set (активність, місце, подія, категорія предметів), які в нього різні аспекти, і добирає впізнавані, різні суб'єкти. **Жорстких квот немає.** Curated pools лишаються лише для пресетів Movie Collection (Sci-Fi / Detective / Fantasy) при `planner = "auto"`; `planner = "ai"` примусово вмикає AI навіть для них; кастомна тема ніколи тихо не підміняється curated. Категорії арту (Cat.1–4, Auto/Custom, Gold) і Grand Set без змін.
+3. **Валідація плану до генерації зображень.** Окрім існуючих правил: (а) near-duplicate суб'єкти (однакові слова після нормалізації / майже однаковий запис; «Bicycle» ≠ «Bicycle Helmet») → `ai_plan_invalid`; (б) виключення з Free Wishes («no buildings», «without weapons») → картка з відповідним словом (і однозначними синонімами: house/cabin/hut/…) відхиляє план; (в) golden: `characters` = 1 або 2 (v1.10). Free Wishes не можуть переважити обмеження Set / категорій / безпеки / Grand Set.
+4. **Історія між батчами.** Перед плануванням збирається компактний список («назва — підказка ≤ 48 символів», дедуплікований, найновіші першими, **≤ 48 суб'єктів**) із попередніх job-ів **тієї самої Collection + Set + Set type** (інші теми не змішуються). Він іде в промпт: «віддавай перевагу новим суб'єктам». Це **сильна перевага, не заборона** (деякі Set мають мало різноманіття). Кеш плану враховує історію.
+5. **Спрощений workflow.** Generate сам викликає AI-планування (≈ $0.002 текст) і далі існуючий prompt builder; обов'язкових Approve plan / Replace / редагування промптів немає. Ціна планування показується на кнопці й **входить у підтвердження «Confirm & spend»** (також коли зображення безкоштовні, напр. Mock): планування не обходить підтвердження вартості. Безкоштовний preview AI-план **не** викликає; є необов'язкова кнопка «Preview plan (optional)».
+6. **Plan Only / Test planner.** `POST /api/plan/test` + кнопка «🧪 Test planner (no images)»: ті самі Collection / Set / Free Wishes / кількість карток / Set type, реальний planner, **без image provider і без job**. Відповідь: картки (назва, опис, категорія, `characters`), `text_model`, `cached`, `text_cost_estimate_usd`, кількість суб'єктів історії, `image_provider_called: false`; реальний текстовий виклик записується в звичайний ledger/бюджет. Planner provider-agnostic: `TextPlanner(backend=…)` — єдине provider-специфічне місце (за замовчуванням Gemini text); Cloudflare text LLM **не інтегровано**, порівняння моделей — наступний крок.
+7. **My Selection (session favorites).** ☆/★ на кожному згенерованому зображенні сету (сітка варіантів і деталь картки; у деталі — саме показана версія). Запис = конкретне зображення (`artifact_id`) + `job_id`, `card_id`, `variant_id`, версія, категорія, provider/model, номер батча. Зберігається в `sessionStorage` вкладки (`ics.favorites.v1`), переживає refresh і нові батчі, у новій сесії порожньо; ключ = Collection + Set + Set type (вибір відновлюється при поверненні до Set). Файли й історія jobs не копіюються й не видаляються; ліміту на кількість немає. Нове покоління ніколи не замінює позначене зображення.
+8. **Export Selected.** `POST /api/exports/selection` → ZIP: `artwork/` (доставлені PNG точного розміру), `originals/` (оригінали провайдера, де збережені), `manifest.json` (job / batch / variant / card / модель / prompt на кожне зображення), `selection-report.json`, `contact-sheet.png`, `README.txt`. Кілька jobs — ок. **Попередження, не блокування:** не 10 карток, відсутні Cat.1–4, golden у Standard, Mock, не-golden у Grand; для 10 карток Cat.1–4 перевіряються окремо від загальної кількості (`standard_ten_card_set`, збіг із 2/2/3/3). Не входить у Movie Collection bundle.
+9. **Batch #N.** Номер батча = порядок job-а серед усіх jobs тієї самої Collection + Set + Set type; показується чипом «Batch #N — M images» і в My Selection.
+10. **Не верифіковано / обмеження:** якість реальних LLM-планів (лише mocked-тести; платні виклики не запускались); зірка є лише в режимі набору (single-card зображення без неї); near-duplicate перевірка лексична (не ловить синоніми різними словами); модель зображень скидається на Gemini після refresh сторінки (існуюча поведінка); історія береться з усіх збережених jobs теми, а не лише з поточної сесії (обмежена 48 суб'єктами).
+
+---
+
+## ОНОВЛЕННЯ v1.10 — Стабілізація UI та функціоналу (09.11.2026)
+
+Уточнення, які **доповнюють** (не скасовують) §3.4, §6.3–6.7, §6.15 і §19.1.1; усе, що тут не згадано, чинне як раніше. Де §3.4 / §6.4 / §8.4 кажуть «Cat.5 = 0, locked» або «завжди 10 карток», для **загального застосунку** діє цей блок; для **фінальних deliverables Movie Collection** обмеження лишаються (див. нижче).
+
+1. **Collection і Set — вільний текст [U].** Обидва поля інтерпретує AI Planner (Collection = широка тема, Set = вужче уточнення; поле API `genre` = Set). Підказки (Sci-Fi, Detective, Fantasy, Comedy…) — лише клікабельні чипи; вони **ніколи не обмежують** ввід. Курований rules planner застосовується **лише** коли Collection схожа на кіно (movie/film/cinema/кіно/фільм) **і** Set відповідає Sci-Fi/Detective/Fantasy. Усе інше — **кастомна тема**: потрібен явний «Plan with AI» (один текстовий виклик Gemini, ≈ $0.002, одноразово, кеш за точними вхідними даними). Тихої підміни на непов'язаний жанр немає. План (об'єкти по картках) показується **до** генерації зображень; вартість планування й зображень показується окремо.
+2. **Number of cards 1–10 (default 10 = «золотий стандарт»).** `Number of cards = 1` вмикає режим одиничної картки. Блок «How much to generate» (pilot/full) прибрано з UI (scope завжди `full`; для старих jobs лишається в БД). Advanced settings прибрано.
+3. **Golden cards (Cat.5), слайдер 0–N [U].** Правило Playrix: ключові персонажі колекції в іронічній емоційній ситуації, **не більше 2 персонажів на картку**; зображення без тексту. Σ(Cat.1–4) + золоті = Number of cards **завжди**. Значення користувача **ніколи не змінюються мовчки** (невідповідність Σ блокує Generate; є кнопка «Auto-fit»). Golden **виключені з фінальних deliverables Movie Collection**: final bundle / collection progress враховують лише jobs із 10 картками й 0 golden (`final_eligible`); інші jobs експортуються як звичайні variant ZIP.
+4. **Compliance-прапорець.** «Playrix-compliant» = ≥4 стандартних картки і кожна Cat.1–4 ≥1. Інші конфігурації **дозволені** (без нових обмежень для загальних колекцій), але позначаються «Custom / non-compliant» з причиною.
+5. **Output Resolution — єдине налаштування (24…1024 px, default 1024).** Вибір моделі/внутрішнього розміру генерації користувачу не показується. **Фінальний PNG (UI, download, export) має точно запитані розміри** (LANCZOS у backend; центрований кроп до квадрата за потреби); оригінал провайдера зберігається поруч (`<id>.original.png`); Technical QA `TQ-10` перевіряє відповідність розміру; manifest містить `output_pixel_size`. Окремий вибір Aspect прибрано з основного UI (завжди 1:1).
+6. **API Connections — виправлення [U].** Редагування **по полях**: поле без значення завжди редаговане; збережене показується як Saved з тегом джерела (Windows Credential Manager / .env) і кнопкою Edit/Replace. Можна ввести лише Cloudflare Account ID, не замінюючи токен із `.env`. **Пріоритет: значення у Credential Manager > `.env` > нічого.** «Remove from this PC» — **локальне** видалення, **не відкликання ключа в провайдера**; якщо те саме значення лишається в `.env`, UI прямо каже, що провайдер лишається підключеним. Справжнє відкликання — у dashboard провайдера.
+7. **UI.** Variant labels = 1…5 (бекенд-ID A…E лишаються внутрішніми). Коли форма відрізняється від показаного job, права панель позначена «Previous result / Previous run». Model Selector: fixed-позиційний список без перекриття CTA; статуси Active / Connected · awaiting live verification / Not connected / Planned · local; порядок пріоритетів не змінено (Gemini Nano Banana 2.1 → Cloudflare FLUX.2 Klein 4B → Z-Image-Turbo planned; FLUX.1 Schnell — опційна). Tooltips пояснюють Cat.1–4 та Gold.
+8. **Не змінено:** бюджетні ліміти ($0.75 на запуск / $5.00 загалом; загальний ліміт піднято з $4.00 на $5.00 за рішенням Продюсера), відсутність auto-retry, відсутність платних викликів без підтвердження, OpenAI disabled, Cloudflare не live до реального запиту.
+9. **Grand Set (All Golden) — `Implemented (локально, mocked-tested; live AI-планування не перевірено)`.** Вимога описана в **§3.5**, ADR-018 і backlog §17. Standard Set не змінено. Grand Set **ніколи** не входить у Movie Collection bundle (навіть при явному виборі режиму) і має власні звичайні generation / review / standalone export.
+10. **Узгоджений порядок виконання після документації [U]:** (1) тест і доопрацювання реальних виходів Gemini Nano Banana 2.1; (2) підключення й live-верифікація Cloudflare FLUX.2 Klein 4B; (3) покращення якості генерації цими двома моделями; (4) лише потім рішення про додаткові моделі. Платна генерація й нові інтеграції моделей — лише за окремим схваленням.
+
+---
+
+## ОНОВЛЕННЯ v1.9 — API Connections, Cloudflare free-tier моделі, UI-вирівнювання (09.11.2026)
+
+Додано **Settings → API Connections** (§6.2, §19.1.1): користувач сам вводить, замінює й видаляє credentials Google Gemini (API key) і Cloudflare Workers AI (Account ID + API token); вони зберігаються **лише на боці Python backend у Windows Credential Manager (DPAPI)**, `.env` лишається fallback для розробки; секрети **ніколи** не повертаються API, не пишуться в browser storage, SQLite, логи чи Git; перевірка з'єднання **не генерує зображень**; endpoints захищені (loopback Host/Origin + per-session token). Додано **першозапускний setup guide**. У registry з'явилися **дві безкоштовні (free-tier) Cloudflare-моделі**: **FLUX.2 Klein 4B** (text-to-image + до 4 reference) і **FLUX.1 Schnell** (лише text-to-image, references недоступні) (§12.7.1). Безкоштовна квота ≠ необмежене безкоштовне використання: **ніякого автоматичного переходу на платний план і ніякого тихого fallback на інший провайдер**. UI підтягнуто до затвердженого мокапа (§6.15). Фази, наявна функціональність і Gemini-інтеграція **без змін**; Cloudflare-моделі **не вважаються live, доки реальний запит не пройшов** (потрібне окреме схвалення smoke test).
+
+## ОНОВЛЕННЯ v1.8 — Model roadmap та Model Selector (08.11.2026)
+
+Додано **future integration backlog** для альтернативних image-моделей (деталі — **§12.7**): Model Selector групується за runtime — **Cloud API** (Gemini Nano Banana 2.1 = Active; Cloudflare FLUX.2 Klein 4B; ByteDance Seedream 4.5 = Planned; OpenAI GPT Image = Not configured, disabled) і **Local (planned)** (FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo, ERNIE-Image Base, Qwen-Image-Edit-2511, Qwen-Image-2512); **Mock** лишається для development/testing. Усі моделі працюють через **існуючу provider abstraction**; planned-моделі **видимі, але disabled**, доки не готові adapter і runtime-конфігурація; недоступну модель **ніколи не показувати як робочу**. Ваги моделей і локальні runtimes **зараз не завантажуються й не встановлюються**. Це **backlog, а не scope MVP**: фази 0–7, функціональність і Gemini-інтеграція **без змін**; оцінка локальних моделей і порівняння якості — після того, як MVP запрацює.
+
+## ОНОВЛЕННЯ v1.7 — Card Category Distribution (07.11.2026)
+
+Додано вимогу **Card Category Distribution** (деталі — **§3.4**): кожен стандартний набір = **10 карток** з усіма категоріями **1–4**; режими `Auto (Balanced)` (default **[2,2,3,3]** — *наше проєктне припущення [D], а не фіксоване співвідношення Playrix*) та `Custom`; валідація Σ=10 і кожна категорія ≥1; **Cat.5 = 0 (locked)** у Movie demo; розподіл застосовується на Set Planning до генерації й однаковий для всіх 3–5 альтернатив. Усе інше з v1.6 (провайдери, бюджет, UI, scope) **без змін**. Де ранні розділи кажуть «не вигадувати квоти» або «quotas, якщо затверджені», діє §3.4: Playrix точну кількість не фіксує, тому розподіл — конфігурований [D].
+
+---
+
+## Головне оновлення v1.5 — вибір image provider після порівняння API (07.11.2026)
+
+**Історичний висновок v1.5, підтверджений доступом v1.6:** оскільки ми **вже активували невеликий paid Gemini API-бюджет**, то для цього тестового і для **не дуже складних casual-style іконок / card art objects** я рекомендую **починати з Gemini як першого premium image adapter**, а саме:
+
+- **`gemini-nano-banana-2.1`** — якщо хочемо кращий баланс якості, редагування, reference-following і шансів на style match;
+- **`gemini-3.1-flash-lite-image` (Nano Banana 2 Lite)** — якщо головний пріоритет це **мінімальна ціна** і висока пропускна здатність;
+- **OpenAI GPT Image** варто тримати як **другий optional adapter / backup**, а не як першу інтеграцію;
+- **Cloudflare FLUX.2 Klein 4B** залишається **першим реально перевіреним live adapter**, але зараз це радше **zero-cost baseline / fallback**, а не найкращий кандидат на фінальний art quality.
+
+**Чому так:** офіційні docs Gemini прямо позиціонують `Gemini 3.1 Flash Image (Nano Banana 2)` як **go-to image generation model** з найкращим балансом якості/ціни/латентності, підтримкою **multi-turn image editing**, **up to 14 reference images** у сімействі Gemini 3 image models та high-fidelity object/character reference workflows. Для Playrix-style workflow це дуже корисно: в нас є референси, ітерації і потреба тримати сет узгодженим.
+
+**Історична рекомендація для планування v1.5 (успішний Gemini REST test у v1.6 змінює її статус):**
+
+1. **Не інтегрувати одразу два платних image providers.**
+2. Спочатку зробити **provider-agnostic core** + **один premium adapter**.
+3. Якщо дозволяємо невеликий spend — **першим підключати Gemini**.
+4. OpenAI додати **лише другим кроком**, якщо після pilot виникне реальна потреба у ще кращому editing/repair workflow або окремих output modes (наприклад, transparent PNG / SVG / GIF).
+5. Cloudflare зберегти як **дешевий baseline / fallback / smoke-test provider**.
+
+**Бюджетний висновок [D]:** для швидкого prototyping найраціональніше виглядає **один provider first**. Якщо потрібен paid route, він має бути **Gemini first**; якщо залишаємось у жорсткому `0 extra spend`, то працюємо далі через Cloudflare Free, але чесно приймаємо ризик нижчої візуальної якості.
+
+## Історичне архітектурне рішення v1.4 — статус оновлено в v1.6 (07.11.2026)
+
+**Підтверджене користувачем:** Cloudflare REST API з моделлю `@cf/black-forest-labs/flux-2-klein-4b` повернув PNG після **реального** виклику з Windows PowerShell. Окремий виклик із наданим зображенням через `input_image_0` також повернув PNG. **Якість слабка**; «reference request accepted» не дорівнює «reference style accurately matched». Playground FLUX.2 Klein 9B — лише візуальний експеримент; live REST API для 9B у цьому проєкті **не верифіковано**.
+
+**Model-agnostic runtime [U]/[D]:** інструмент не залежить від FLUX, Cloudflare, Gemini, OpenAI чи конкретного постачальника. `ImageProvider` — універсальний контракт із можливостями моделі (`capabilities`, supported reference inputs, dimensions, status) та провайдер-специфічними адаптерами. **Перший хронологічно перевірений зовнішній REST endpoint** — **Cloudflare Workers AI / FLUX.2 Klein 4B**. **Перший paid API зі справжнім успішним text/reference smoke test і головний adapter для реалізації** — **Google Gemini image family** (передусім `gemini-nano-banana-2.1`, альтернативно `gemini-3.1-flash-lite-image`). OpenAI GPT Image — другий optional premium adapter. У майбутньому: FLUX.2 інші версії, локальний ComfyUI/SDXL, Gemini Image API, GPT Image тощо за наявності реального дозволеного доступу.
+
+**Claude Code — інструмент РОЗРОБКИ, не runtime planner.** Claude пише код, prompt templates, правила, скрипти, тести і UI. Підписка Claude Pro **не надає runtime Claude API** застосунку. **Qwen/Ollama не є обов'язковими**. Для обмеженої Movie demo перший `set-planner` може використовувати попередньо складені жанрові object pools + детерміновані правила + варіативність; це **не еквівалент повноцінного розуміння довільного творчого брифу**. Якщо потрібне справді динамічне планування будь-якої теми/побажань, передбачити **опціональний TextPlanner provider** (дозволений Cloudflare text API / інший сумісний LLM API) і чесно позначати `template_mode` vs `ai_planning_live`.
+
+**Cloudflare + бюджет (історичне формулювання v1.5; пріоритет має v1.6) [U]/[D]:** власний Cloudflare API — не «локальна модель». На ноутбуці запускається Web UI + FastAPI, а inference виконується у хмарі Cloudflare. У v1.5 фіксуємо **два допустимі режими бюджету**: (a) `Zero-cost mode` — тільки Cloudflare Free / інший безкоштовний реально доступний provider, без доплат; (b) `Minimal paid mode` — **один** платний image provider для pilot, рекомендовано Gemini. У будь-якому режимі перед batch потрібен preflight usage/quota, rate limits і hard-stop при перевищенні лімітів. Не робити тверджень, що free-tier вистачить на 90 зображень, доки цього не перевірено.
+
+**QA:** deterministic technical QA + human art review, без фейкових style scores та без обов'язкового Vision QA. Фінальні 3 Movie-набори мають бути створені **через реальний pipeline**, а не підставлені з ручної генерації в Gemini/GPT, яку можна використовувати лише як окреме дослідження.
+
+**Дизайн:** зберегти **перший деталізований світлий UI-мокап із темним header, багатою галереєю і щільною лівою панеллю**. Пізніший спрощений мокап не є новим дизайн-джерелом.
+
+---
+
+## Історичне уточнення v1.3 — Quality Assurance (07.11.2026; чинне у v1.4)
+
+**Це актуальне рішення має пріоритет перед усіма попередніми описами QA нижче.**
+
+- **Automated Technical QA — MVP / обов'язково:** детерміновані перевірки Python: кількість PNG, можливість відкрити файли, формат, роздільність, унікальні ID/імена, валідні категорії, відсутність golden cards для Movie demo, повнота метаданих. Автоматизувати їх можна надійно.
+- **Visual / Artistic QA — Human-in-the-loop / обов'язково:** продюсер або художник дивиться artwork і референси через Split Slider, Side by Side та Grid View; самостійно обирає Approve / Reject / Regenerate. Художня відповідність не зводиться до автоматичного числового показника.
+- **Vision LLM QA — опціональне експериментальне розширення, НЕ must-have MVP:** модель може повідомляти про підозрілі проблеми, але не затверджує фінальну якість, не запускає необмежені перегенерації та не надає необґрунтованих `style scores`.
+- **Оновлення UI:** попередні `Style Score 0.92 / 0.87 / 0.85`, `Best Match` або `QA passed` у референсному скетчі є демо-маркерами, не вимірюваннями. Показувати фактичні статуси `Generated 10/10`, `Technical QA: passed`, `Art Review: pending/approved/rejected`.
+- **Статуси провайдерів (v1.6 override):** Gemini `gemini-nano-banana-2.1` = `api_smoke_tested_text_and_reference` (майбутній primary in app); інші Gemini image model IDs = `documented_unverified`; OpenAI GPT Image = `planned_not_configured` та `Generate disabled`; Cloudflare FLUX.2 Klein 4B = `api_smoke_tested_text_and_reference` (fallback). Імпортовані вручну картинки залишаються `manual_import`.
+- **Runtime budget (v1.6 override):** один дозволений платний Gemini account із prepaid €5; Cloudflare Free fallback; OpenAI paid API НЕ активувати. Hard-stop за локальною оцінкою budget, без auto top-up і без безкінечних retries. Художню якість перевіряти окремо.
+
+---
+
+# 0. Executive summary / рішення в одному абзаці
+
+**Collection Studio** — локальний Web UI для продюсера/геймдизайнера. Користувач задає **тему колекції**, **один жанр набору** (або три жанри для пакетного Movie demo), **необов'язкові "вільні побажання"**, додає референси й обирає наявну модель. **System Prompt / Style Bible** з обов'язковими правилами композиції та категорій визначений заздалегідь; UI-параметри і побажання не замінюють ці правила. Planner формує **3–5 альтернативних планів на кожен замовлений жанр**, а підключений image provider намагається створити **по 10 окремих artwork PNG** для кожного варіанта. Зберігаються промпти, provenance, ітерації та результати. Frontend показує gallery, імпортовані дослідницькі приклади, Reference Compare (Slider / Side by Side / Grid) і Export. **Саме artwork, не ігрові рамки/вікна, є deliverable.**
+
+**Бюджетний принцип v1.6 [U]/[D]:** базово тримаємо **мінімальні витрати**, але більше **не вимагаємо** штучно, щоб єдиний сценарій був лише `0 USD` за будь-яку ціну для якості. Дозволені два режими: **Zero-cost baseline** (Cloudflare Free) і **Minimal paid quality-first pilot** (один premium provider, рекомендовано Gemini). **Перший історично перевірений зовнішній REST provider:** Cloudflare Workers AI → FLUX.2 Klein 4B; **перший підтверджений paid image API:** Gemini Nano Banana 2.1 через PowerShell (текст + reference). OpenAI GPT Image — **planned in UI and architecture but disabled until separate API/billing activation**. Qwen/Ollama/ComfyUI **не є обов’язковими**. Планування в PoC: реалізований Python planner із перевірними правилами; опціонально runtime TextPlanner API для довільних тем і побажань. Застосунок працює локально на ноутбуці, а inference виконується через зовнішній API provider. Статичний HTML без backend картинки не генерує. Живе тестування Playrix на публічному URL не є прямою вимогою ТЗ.
+
+## 0.1 Пріоритети
+
+1. **P0 — product/art match:** відповідність референсному стилю, принципам композиції та логіці сетів.
+2. **P0 — автономність:** інша людина може пройти від input до output без участі автора.
+3. **P0 — output:** 3–5 повних варіантів набору на один запит; три нові тематичні набори для демонстрації.
+4. **P0 — прозорість:** фіксація планів, промптів, моделей, спроб, критеріїв оцінки й рішень.
+5. **P1 — зручний Web UI:** окремі `Collection`, `Genre(s)`, `Variants`, `Free Wishes`, `System Rules`, `Prompt Library`, `Planning Model`, `Image Model` із видимим статусом підключення, references, gallery, **Reference Compare (Split / Side by Side / Grid)**, import samples та export.
+6. **P2 — універсальний генератор усіх типів ігрового арту:** не входить у перший MVP.
+
+## 0.2 MVP у числах
+
+- [P] Один набір (`set`) містить **10 карток**.
+- [P] Одна колекція загалом містить **16 наборів**; **16-й — спеціальний золотий**.
+- [P] Генератор повертає **3–5 варіантів одного замовленого набору**.
+- [P] Демонстраційна тема — **«Кіно-колекція»**.
+- [P] Треба створити **3 різні набори** на тему різних кіножанрів, **без золотих карток**.
+- [D] Для повного live pilot: 3 жанри × 3 альтернативи на кожен жанр × 10 карток = **90 первинних зображень** (плюс retries). Якщо ресурси обмежені — **поступові jobs**, а не нечесне твердження про виконані 90 зображень; для фіналу відбираємо 3 × 10 = **30** карток. Все що імпортовано вручну, позначати окремо.
+- [P]/[A] Кожен стандартний набір містить усі категорії 1–4, але **точна кількість карток на категорію у вихідних матеріалах не зафіксована**. [D] Розподіл задає `Card Category Distribution` (§3.4): `Auto (Balanced)` default [2,2,3,3] — **наше припущення, не вимога Playrix** — або `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0.
+
+---
+
+## 0.3 Погоджені продуктово-технічні рішення v1.6 [U]/[D]
+
+| Питання | Актуальне рішення | Обмеження / пояснення |
+|---|---|---|
+| Потрібен публічний SaaS? | **Ні.** Web UI + Python FastAPI запускаються локально | Доступ до Cloudflare AI API через інтернет; немає вимоги публікувати наш backend |
+| Вимога реального інструменту | **Так.** Зробити три фінальні Movie-набори через власний pipeline | Mock UI + ручні картинки НЕ закривають автоматичне виробництво |
+| Live генерація | **Gemini Nano Banana 2.1 primary; Cloudflare FLUX.2 Klein 4B fallback** | Обидва пройшли окремі external REST text/ref smoke tests; **жоден ще не інтегрований у власний застосунок**; art review pending |
+| Інші image-моделі | **Плагінні адаптери, ядро незалежне від моделі** | Gemini multi-model dropdown після model-by-model live check; **OpenAI GPT Image visible/planned but disabled**; (v1.8) future cloud/local backlog — Seedream 4.5, FLUX.2 Klein 4B / Z-Image / ERNIE-Image / Qwen-Image (local) — visible but disabled, **не scope MVP** (§12.7) |
+| Планування (без Qwen) | **Python rules + object pools / templated planning для Movie demo** | Це bounded planning; не заявляти про повну семантичну адаптацію до будь-якого довільного `Free Wishes` |
+| Довільний semantic planning | Опціональний **TextPlanner provider через API** | Claude Code Pro — не runtime API; Cloudflare text model можна додати після перевірки конкретного endpoint та quota |
+| Backend | **FastAPI + job manager + Prompt Compiler + ImageProvider registry** | Логіка категорій, трейсинг, зберігання, технічний QA, export |
+| Machine split | **Ноутбук: UI + FastAPI; Cloudflare: inference** | Десктоп/Ollama/ComfyUI потрібні тільки якщо додамо optional local provider |
+| Budget | **€5 prepaid Gemini; Cloudflare Free fallback; OpenAI paid DISABLED** | Консервативний per-job budget guard, квоти й retries; не включати OpenAI billing |
+| QA | Детерміновані technical checks + ручне artistic approval | Vision LLM не є must-have, ніяких вигаданих style-score |
+| Final image | **Тільки artwork**, без рамок гри; Miro insertion вручну | Пряма вимога Playrix |
+| Gold cards | В generic architecture optional; Movie demo **OFF** | No Category 5 у фінальних трьох наборах; Cat.5 = 0 locked (§3.4) |
+| Card Category Distribution (v1.7) | `Auto (Balanced)` default [2,2,3,3] або `Custom`; Σ=10, кожна Cat.1–4 ≥1 | [2,2,3,3] — наше припущення [D], не вимога Playrix; застосовується на Set Planning; однаковий для всіх 3–5 альтернатив (§3.4) |
+| Дизайн | **ПЕРШИЙ детальний UI-мокап** + нові поля `Free Wishes`, provider status та compare | Пізній спрощений UI не замінює перший reference |
+| API credentials (v1.9) | Вводяться в **Settings → API Connections**; зберігаються у **Windows Credential Manager** через Python backend; `.env` — dev-fallback | Ніколи в localStorage / SQLite / логах / Git / API-відповідях; перевірка з'єднання без платної генерації; endpoints лише для локального застосунку (§19.1.1) |
+| Безкоштовні моделі (v1.9) | Cloudflare **FLUX.2 Klein 4B** (перший пріоритет) і **FLUX.1 Schnell** | Free-tier квота (10 000 Neurons/день) обмежена; без auto-upgrade, без тихого fallback; не live до реального успішного запиту (§12.7.1) |
+| Scope | Працездатний PoC з 1 live image adapter, а не SaaS | Позначати `implemented / mock / future` |
+
+### 0.3.1 Два рівні випробувань, які не можна підміняти один одним
+
+- **Research showcase:** картинки, створені вручну в доступних ChatGPT/Gemini та/або локальних image engines. Видно модель, промпт, версію й спосіб отримання (`manual_import` / `live_generation`). Це дослідження інструментів, а **не доказ live API**.
+- **End-to-end automation showcase:** один реально підключений planner + image provider, які від `theme + wishes` до `3–5 × 10` проходять без ручного запуску кожної іконки. Якість чесно перевіряється на референсах; недосягнуті критерії записуються як limitations.
+- **Reviewer handoff:** інструкція, як запустити локально при наявності моделей/обладнання; відео/скринкаст + Miro + GitHub. Ніяких вимог «рекрутер повинен мати запущену генерацію на публічному URL» у наданому ТЗ немає.
+
+## 0.4 Три рівні інструкцій: чому `Free Wishes` НЕ дублює промпти
+
+| Рівень | Джерело | Хто керує | Що містить |
+|---|---|---|---|
+| **A — System Prompt / Style Bible** | Затверджений style profile + category composition rules | AI Producer / адміністратор | Сталі правила стилю, категорій 1–4, фокус ілюстрації, негативні умови, фіксований формат JSON/PNG; у demo Cat.5 заборонена |
+| **B — Generation Settings** | Структурні поля UI | Game Designer / Producer | Collection, genre(s), 10 cards, 3–5 variants per genre, golden toggle (disabled у demo), resolution, provider |
+| **C — Producer's Free Wishes** | **Необов'язкове довільне поле** | Game Designer / Producer | Настрій, види об'єктів, епоха, пріоритети, обмеження (`no weapons`, `cozy feel`) |
+
+**Правило пріоритетів:** A (обов'язкові правила) > B (валідаційні налаштування) > C (творчі побажання). C не може змусити модель порушити категорії, кількість ілюстрацій або ввести golden cards у Movie demo. UI показує зрозуміле повідомлення про конфлікт.
+
+**Четвертий технічний етап, але не нове поле для продюсера:** `Prompt Compiler` з'єднує A+B+C+конкретний `CardSpec` у **effective image prompt** для обраного image provider. **Prompt Library** зберігає версіоновані system/style та category templates, дозволяє їх переглядати, порівнювати та змінювати у Advanced/Producer режимі; в Basic Mode вони read-only.
+
+**Приклад замовлення:** `Collection=Movie Collection; Genres=[Science Fiction, Detective, Fantasy]; Cards=10; Variants=3; Gold=Off; Wishes='Retro-futuristic, lighthearted; avoid weapons and horror'`. Для кожного жанру окремий generation job з **3 варіантами по 10**. У фінальній Miro-презентації показати **по одному** обраному набору кожного жанру; зберегти всі варіанти/ітерації як research evidence.
+
+
+# 1. Джерела, походження вимог, статус
+
+| Джерело | Що містить | Статус |
+|---|---|---|
+| Офіційна вакансія: https://playrix.com/job/open/game-design/ai-producer | Роль AI Producer | URL наданий користувачем; прямий текст сторінки не відобразився у вебперегляді |
+| Дзеркало вакансії: https://www.gamejobsuk.com/playrix/ai-producer-5409 | Задачі та вимоги ролі | Перевірено вебпошуком 04.11.2026; незалежне від офіційного сайту дзеркало |
+| Дзеркало: https://gamejobs.co/AI-Producer-at-Playrix | Задачі та вимоги ролі | Додаткове підтвердження |
+| 6 скриншотів Miro/документів, наданих користувачем у цьому чаті | Власне тестове ТЗ, опис колекції, правила категорій, референси, шаблон для демонстрації | Первинне джерело вимог тесту |
+| Побажання користувача в цьому чаті | HTML/Web UI, upload refs, dropdown моделей, роздільність, Generate, gallery, output; **Compare: Split slider, Side by Side, Grid** (06.11); **три рівні промптів, Producer Free Wishes, Prompt Library, три жанри, zero-cost/local, import samples** (07.11) | Первинне джерело концепції продукту |
+| Згенерований раніше UI-скетч | Дизайн лівої панелі налаштувань, правої галереї та status bar | Ілюстрація, не технічний контракт |
+| Gemini Docs: https://ai.google.dev/gemini-api/docs/image-generation та https://ai.google.dev/gemini-api/docs/pricing | Доступні image API та тарифікація | Перевірено 04.11.2026; перевіряти повторно перед реалізацією |
+| OpenAI: https://developers.openai.com/api/docs/guides/image-generation | Image API, модельні режими, editing і output settings | Перевірено 04.11.2026; перевіряти перед реалізацією |
+
+**Порядок пріоритету при конфлікті:** оригінальне тестове Playrix → зауваження замовника → факт із референсів → цей документ → код/макет. Якщо код не відповідає ТЗ, виправляємо код або обґрунтовано коригуємо вимогу; не переписуємо заднім числом оригінальне завдання.
+
+## 1.1 Вакансія — AI Producer (стислий зміст, не дослівна копія)
+
+**Компанія:** Playrix. **Роль:** AI Producer. **Формат:** remote або офіс, згідно з описом вакансії.
+
+**Завдання ролі:**
+
+- Шукати можливості впровадження AI на різних етапах виробництва й розвитку ігор.
+- Запускати AI-ініціативи: постановка проблеми → гіпотеза → архітектура → експеримент → інтеграція у робочі процеси.
+- Вибирати моделі та інструменти під конкретні задачі, будувати/покращувати AI pipelines.
+- Оцінювати якість результату відповідно до стилю й продуктових вимог.
+- Працювати з продюсерами, художниками, інженерами та доменними спеціалістами.
+- Вимірювати вплив на швидкість, якість, витрати, продуктові метрики.
+- Досліджувати нові AI-можливості та доводити корисні до практичного використання.
+
+**Вимоги до кандидата:** досвід game development та повного циклу виробництва контенту; практичне самостійне впровадження AI; побудова pipeline і вибір моделей; вміння оцінювати game art. **Nice-to-have:** casual mobile games, зокрема Match-3. Це **бажано**, а не формально обов'язково.
+
+**Висновок для тестового:** оцінюється не тільки програмування чи «красиві картинки», а **production-minded автоматизація**, вимірювана якість та придатність рішення для іншого користувача.
+
+---
+
+# 2. Оригінальне тестове завдання — зміст, зафіксований зі скриншотів
+
+> Це структурований конспект російськомовного ТЗ з наданих зображень, а не побуквена транскрипція. Де важлива точність, вказано формулювання з оригіналу.
+
+## 2.1 Мета тесту [P]
+
+1. Перевірити вміння швидко та якісно виконати «продуктовий заказ» за допомогою AI.
+2. Перевірити усвідомлену побудову AI pipeline під конкретну задачу й доведення результату до рівня, близького до production.
+
+## 2.2 Deliverables від Playrix [P]
+
+- Проаналізувати **ідейні й художні принципи** формування наборів: добір об'єктів, внутрішня логіка, композиція, стиль, повторюваність.
+- На основі описів та графічних референсів зробити інструмент/пайплайн **автоматичного виробництва зображень для колекційних карток**.
+- Інструмент має приймати **тему набору** і **«вільні побажання» продюсера**.
+- На виході — **3–5 варіантів замовленого набору**, тобто груп зображень/карток, а не лише 3–5 варіантів однієї картинки.
+- Створити за допомогою інструмента **три різні набори** на тему **«Кіно-колекція»**, що відображають різні жанри фільмів, **без золотих карток**.
+- Зробити порівняння власних результатів із референсними наборами — **продуктове** та **візуальне**, із посиланням на принципи власного аналізу.
+- Розмістити **весь процес і результати на наданій Miro-дошці**.
+- Надати **GitHub-посилання на код / створені skills / pipeline**.
+
+### Важливе обмеження, яке впливає на scope
+
+Оригінальний текст: **«именно картинки объектов как во фрейме “Примеры карточек”, верстать окна не требуется, просим “подставить” карточки в готовые наборы вручную»**.
+
+**Інтерпретація:**
+
+- **In scope:** генерувати самі ілюстрації для карток, придатні до вставлення в існуючі шаблони.
+- **Out of mandatory scope:** будувати нові великі collection windows, перемальовувати UI гри, автоматично верстати цілі ігрові екрани.
+- **Optional:** зробити технічний preview «як виглядатиме арт у рамці» або contact sheet, але не витрачати на це основну частину роботи.
+- **Для фінальної Miro-подачі:** вставити вибрані PNG у готові рамки/вікна руками, як просить завдання.
+
+## 2.3 Критерії оцінювання Playrix [P]
+
+1. Технічна якість + продуктово-артова якість.
+2. Уміння витягнути з референсів **смислотворчі принципи** й перенести їх до AI-системи.
+3. Наскільки результат вписується в наданий художній стиль.
+4. Наскільки добре кандидат бачить і пояснює ідейні та візуальні нюанси референсів.
+5. Архітектура й **автономність**: чи зможе геймдизайнер користуватися інструментом без автора.
+
+**Контрольне питання для артчастини:** чи можна показати новий набір поруч із референсними так, щоб гравець не відчув різниці в художній та ідейній системі? Це якісна ціль, **не гарантія** і не автоматично обчислюваний факт.
+
+## 2.4 Принципи виконання тесту [P]
+
+- Максимальна автономність пайплайна; мінімальне ручне втручання.
+- Дослідити доступні публічні моделі/інструменти; перша спроба не обов'язково найкраща.
+- Показати шлях: інструменти, промпти, ітерації, причини вибору рішення.
+- Самостійно шукати підходи; роботодавець не надає власних моделей або LoRA.
+
+---
+
+# 3. Як влаштовані колекції та набір карток [P]
+
+## 3.1 Ієрархія контенту
+
+```text
+Collection («Кіно», «Літо», «Подорожі»...)
+└── 16 thematic sets / наборів
+    ├── Set 1: theme A — 10 cards
+    ├── Set 2: theme B — 10 cards
+    ├── ...
+    ├── Set 15: theme O — 10 cards
+    └── Set 16: special golden culmination — 10 golden cards
+```
+
+Кожен набір має виразну вузьку тему і не дублює інші набори тієї самої колекції. У межах набору кожна картка представляє **інший об'єкт**, пов'язаний із темою.
+
+Приклади тем у наданих референсах: `Gardens`, `Sports`, `Finals`, `Amusement`, `Coolness`, `Countrystead`, `Seafaring`, `Boyscoute`, `Vacation`, `Beach`, `Music Fest`, `Diving`, `Road Trip`, `Poolside`, `Tour`, `Summer Party`. Вони ілюструють **принцип широка тема → різні підтематики → унікальні предмети**, а не список, який слід відтворити для кіно.
+
+**Увага:** одна і та сама побутова річ іноді може бути тематично придатна для кількох сетів. Це не означає, що її слід повторювати в одній колекції. Планувальник повинен перевіряти **семантичне перетинання** між запропонованими сетами.
+
+## 3.2 Категорії арту — точна логіка з референсів
+
+| Категорія | Роль об'єкта | Тло / поверхня | Типова композиція | Важливе обмеження |
+|---|---|---|---|---|
+| **1** | Простий об'єкт без дрібної деталізації | Об'єкт **висить у повітрі**; однотонний / градієнтний / простий візерунковий фон | Один головний предмет, дуже читабельний силует | Не додавати кімнату чи реалістичну землю |
+| **2** | Простий об'єкт без дрібної деталізації | Об'єкт стоїть на поверхні; задня вертикальна площина або простий фон | Предмет + опора; стриманий контекст | Не переходити у складну сцену |
+| **3** | Об'єкт на реалістичній поверхні | Об'ємний/просторовий фон, виразний передній план | Предмет вписаний у більш предметне середовище | Об'єкт усе ще головний |
+| **4** | Центральний об'єкт у повноцінному середовищі | Впізнавана оточуюча обстановка | Сценка зі зрозумілою локальною історією | Об'єкт не губиться в декораціях |
+| **5** | Золота картка з одним/двома персонажами у гумористичній емоційній ситуації | Простір рівня кат. 4 | Персонажі — композиційний центр | **Не генерувати в трьох тестових Movie-сетах** |
+
+**Нюанс:** «реалістична поверхня/оточення» означає об'ємний і правдоподібний контекст **усередині стилізованого casual game art**, а не перехід до фотографічного реалізму.
+
+### Чого не можна припускати без аналізу скриншотів
+
+- Не подавати розподіл категорій (наприклад, «2,2,3,3») як вимогу Playrix: у вихідних матеріалах точна кількість не зафіксована. Використовувати його лише як конфігурований [D] default `Auto (Balanced)` (§3.4); фактичну картину за потреби звірити з оригінальними фреймами.
+- Кількість зірок, оформлення рамок і рідкість картки не тотожні автоматично категорії артової композиції. У ТЗ прямо сказано, що **рідкість сама по собі не впливає на зображення предмета**.
+- Golden Cards мають окрему логіку; в демонстрації вони заборонені, навіть якщо загальна система згодом їх підтримуватиме.
+
+## 3.3 Семантичні принципи, які треба показати в аналізі
+
+1. **Thematic coherence:** усі 10 елементів утворюють одну зрозумілу підтему.
+2. **Visual progression:** від простого об'єкта до складнішої предметної ситуації залежно від категорії.
+3. **Unique silhouettes:** об'єкти не повторюються й не виглядають як незначні варіації одного предмета.
+4. **Instant recognition:** назву картки можна вгадати за маленьким прев'ю.
+5. **Casual readability:** виразна форма, чистий колір, невеликий візуальний шум.
+6. **Cohesive art direction:** узгоджені рендер, об'ємність, світло, контраст, матеріали, рівень стилізації.
+7. **Emotional appeal:** добір об'єктів створює цікавість/асоціації, а не механічний перелік речей.
+8. **Collection-wide non-overlap:** новий сет додає нову грань великої теми, а не дублює інші сети.
+
+Ці принципи мають бути оформлені як **Art & Product Rubric**, а не залишатися лише текстовими висновками в Miro.
+
+## 3.4 Card Category Distribution (v1.7) [P]/[A]/[D]
+
+**Що підтверджено [P]:** за референсом кожен стандартний набір (10 карток) містить **усі чотири стандартні арт-категорії 1–4**. **Точна кількість карток на категорію у вихідних матеріалах НЕ зафіксована** [A].
+
+**Продуктове рішення [D]:** розподіл — конфігурований параметр запиту, а не жорстка вимога Playrix. У UI це контрол **`Card Category Distribution`** у Generation Settings (§6.6).
+
+| Режим | Поведінка |
+|---|---|
+| `Auto (Balanced)` (default) | Конфігурований default; початково **Cat.1 = 2, Cat.2 = 2, Cat.3 = 3, Cat.4 = 3** (Σ = 10). **Співвідношення [2,2,3,3] — наше проєктне припущення [D], а не фіксоване співвідношення Playrix.** Зберігається в конфігурації (`category_distribution_default` у StyleProfile) і змінюється без правок коду |
+| `Custom` | Продюсер вручну задає кількість карток для Cat.1–4 |
+
+**Правила валідації (однакові в UI, API і Planner):**
+
+1. Σ(Cat.1–4) = **10**: стандартний набір містить рівно 10 карток.
+2. Кожна з Cat.1–4 має **щонайменше 1** картку.
+3. Кількості — цілі невід'ємні числа.
+4. **Cat.5 (Golden Cards) = 0** і заблокована (read-only, disabled) для Movie Collection demo / поточного пілоту; значення > 0 відхиляється помилкою валідації, а не виправляється мовчки.
+5. Розподіл по категоріях **окремий від rarity / кількості зірок** (див. §3.2): зірки та рідкість не визначають категорію, і навпаки.
+6. Невалідний `Custom` блокує `Generate` з поясненням; `Auto` ніколи не формує невалідний розподіл.
+
+**Застосування в pipeline:**
+
+- Розподіл застосовується під час **Set Planning (Stage 2), до image generation**: планувальник призначає кожен із 10 об'єктів у category slot згідно з розподілом (наприклад, [2,2,3,3] → 2 слоти Cat.1, 2 слоти Cat.2, 3 слоти Cat.3, 3 слоти Cat.4) і добирає об'єкти, придатні до композиції цієї категорії (складний об'єкт не призначається в Cat.1).
+- **Prompt Compiler** для кожної картки застосовує category-specific візуальні правила з таблиці нижче; розподіл не змінює самі правила категорій.
+- При генерації **3–5 альтернативних наборів** у всіх альтернатив зберігається **той самий запитаний розподіл**: відрізняються об'єкти та мікротеми, не кількість карток по категоріях.
+- Розподіл фіксується в request, plan, manifest і QA-report (provenance) та перевіряється `rules-validator` (HR-08).
+
+**Category prompt logic — обмеження, які мають відображатися в промптах:**
+
+| Cat | Обов'язкові обмеження в промпті |
+|---|---|
+| **1** | простий об'єкт; **без дрібних деталей**; об'єкт **висить у повітрі**; простий фон: flat / gradient / простий repeating pattern / rays (промені) |
+| **2** | простий об'єкт; об'єкт **стоїть на простій поверхні**; простий **вертикальний фон** позаду; залишається чистим і мінімальним |
+| **3** | об'єкт на **більш реалістичній поверхні**; більш **об'ємна сцена**; об'єкт усе ще по центру й читабельний |
+| **4** | об'єкт **вбудований у реалістичне середовище**; об'єкт залишається **центральним фокусом** |
+| **5** | **наративна golden-card сцена з одним-двома персонажами**; у специфікації лише як концепт майбутньої підтримки; **locked = 0 і disabled** у поточному Movie Collection pilot |
+
+«Реалістичність» у Cat.3–4 — це об'ємний, правдоподібний контекст усередині стилізованого casual game art, а не фотореалізм (див. нюанс у §3.2).
+
+---
+
+### 3.5 Grand Set (All Golden) [P]/[D] — **Implemented (v1.10, локально)**
+
+**Походження [P]:** у завданні Playrix 16-й сет — особливий **Grand Set**, що складається лише з golden cards; його тема — кульмінація колекції (наприклад, «Summer Party»). «16-й» означає **позицію фінального сету в колекції, а не кількість карток**.
+
+**Вимоги [D] (затверджено, ще не реалізовано):**
+- Новий контрол **`Set Type`**: `Standard Set` / `Grand Set (All Golden)`. Standard Set поводиться **без змін**.
+- У режимі Grand Set `Golden cards` автоматично = `Number of Cards`; Cat.1–4 = 0, їхні контроли розподілу вимкнені. Це **явний виняток** із вимоги покриття всіх чотирьох стандартних категорій (§3.4); compliance-прапорець для такого сету показує «Grand Set», а не «non-compliant».
+- AI Planner генерує **сюжетні сцени з персонажами**, що виражають кульмінацію теми колекції; кожна golden-картка — іронічна емоційна ситуація **не більше ніж з двома персонажами**; сцени різні між собою, але зі спільною художньою лінією (Style Bible) у всьому сеті.
+- Golden cards **лишаються виключеними з поточних deliverables Movie Collection** (`final_eligible`, §ОНОВЛЕННЯ v1.10, п. 3). Grand Set — загальна функція для фінального сету колекції і **не входить** у поточні три-жанрові Movie Collection deliverables **навіть при явному виборі Grand Set**; він має власні звичайні generation, review і standalone export (variant ZIP).
+- **Кількість персонажів [P]:** максимум 2 на golden-картку. AI Planner повертає для кожної golden-картки поле `characters` (1 або 2); план без нього або з іншим значенням відхиляється (`ai_plan_invalid`) **до** генерації зображень. Фактична відповідність зображення перевіряється лише візуально (Art QA).
+
+**Статус реалізації:** реалізовано. `set_type` (`standard`|`grand`, default `standard`) у `JobCreateRequest`; сервер примусово ставить gold = Number of Cards і Cat.1–4 = 0; Grand Set завжди планується AI-планером (потрібен явний «Plan with AI»); compliance показує «Grand Set»; UI: селектор «Set type», слайдер Gold і Cat.1–4 заблоковані. Тести: `backend/tests/test_grand_set.py` (mocked, без платних викликів).
+
+---
+
+# 4. Початковий запит автора концепції [U]
+
+Автор тестового запропонував:
+
+- Зробити **HTML/Web-сторінку** з дружнім користувацьким інтерфейсом.
+- Дозволити користувачу **завантажувати іконки/картинки як референси**.
+- Мати **prompt / free wishes** і налаштування в UI.
+- Мати **dropdown із типом asset**: іконки предметів, артефакти, об'єкти, інші іконки, заставки тощо.
+- Мати **dropdown AI-моделі** (Gemini або OpenAI).
+- Мати **dropdown resolution**, кількість варіантів, інші параметри.
+- Мати зрозумілу кнопку **Generate**.
+- Викликати **під капотом API або workflow**, які автоматично створюють зображення.
+- Показувати **output у вікні галереї** й давати можливість експортувати результати.
+- Спроєктувати рішення так, щоб згодом його можна було **масштабувати**.
+
+**Уточнений product statement:** користувач не повинен розуміти промпт-інжиніринг або Python. Він має замовляти **набір ігрових карток як продуктову одиницю**, а не запускати непов'язані генерації окремих картинок.
+
+## 4.1 Рамки MVP [D]
+
+**Включити:** `Collectible Card Set` як головний/єдиний активний asset type.  
+**Не реалізовувати в першому релізі:** Splash Screen Generator, Character Sheet Generator, UI Background Generator, Animation Generator.  
+**Архітектурно закласти:** плагінний механізм `AssetType`, щоб інші продукти можна було додати пізніше без переписування всього UI.
+
+---
+
+# 5. Користувачі, ролі, jobs-to-be-done
+
+## 5.1 Primary persona: Game Designer / Content Producer
+
+**Задача:** «Я хочу отримати 3–5 цілісних ігрових наборів для теми X, з дотриманням style guide, щоб вибрати найкращий і вставити арт у гру».
+
+Не повинен:
+- писати API-запити;
+- знати JSON;
+- самостійно придумувати кожен об'єкт;
+- зберігати промпти в десяти різних сервісах;
+- запускати Python-скрипти вручну;
+- перегенеровувати всі 10 зображень через одну невдалу картку.
+
+## 5.2 Secondary persona: Art Lead / AI Producer
+
+Може переглядати повний план, коригувати композицію, перемикати модель, оцінювати style adherence, вручну відхиляти/приймати artwork, аналізувати вартість/час/якість.
+
+## 5.3 Ключові Jobs-to-be-Done
+
+- `JTBD-01`: швидко створити новий логічно цілісний набір.
+- `JTBD-02`: отримати варіанти з різними ідеями, а не випадкові дублі.
+- `JTBD-03`: зберегти стиль референсів.
+- `JTBD-04`: замінити лише невдале зображення, не втрачаючи прогрес.
+- `JTBD-05`: експортувати готові файли для Miro / графічного production.
+- `JTBD-06`: відтворити й пояснити, звідки взявся кожен результат.
+
+---
+
+# 6. UX / докладний опис UI-скетчу
+
+**Актуальна дизайн-основа v1.4:** `Playrix_Collection_Studio_UI_Original_Detailed_Reference.png` — **перший, багатий UI-дизайн**, а не пізній спрощений скетч. Потрібно додати `Producer Free Wishes`, selection/status моделей, reference compare та виправити ілюстративні `Style Score` й фіктивні витрати. `Playrix_Collection_Studio_UI_Mockup.html` — лише клікабельний UI-only прототип, не live generator.  
+**Призначення:** узгодження UX, **не production code і не доказ живої генерації**.
+
+![Collection Studio UI concept](Playrix_Collection_Studio_UI_Sketch.png)
+
+## 6.1 Загальна структура сторінки
+
+```text
+┌────────────────────────────────────────────────────────────────────────────┐
+│  Logo   AI Collection Studio   [Generate]  [History] [Templates] [Settings]│
+├────────────────────────────┬───────────────────────────────────────────────┤
+│ LEFT: REQUEST / SETTINGS   │ TOP: [Plan] → [Generate] → [QA] → [Results]    │
+│                            ├───────────────────────────────────────────────┤
+│ 1. Set & Theme             │ TABS: Results | Reference Compare | Plans    │
+│   Collection [Movie]       │        | Prompt Library | History/Logs        │
+│   Genre [Sci-Fi, ...]      │                                               │
+│   Cards [10 locked]        │ Selected genre: Science Fiction              │
+│   Variants [3–5 / genre]   │ Variant A: [10 artwork thumbnails]           │
+│   Gold [OFF locked]        │ Variant B: [10 artwork thumbnails]           │
+│                            │ Variant C: [10 artwork thumbnails]           │
+│ 2. Producer's Free Wishes  │                                               │
+│   [optional textarea]      │ [Compare refs: Split / Side / Grid]          │
+│                            │ [Import examples] [Export selected]          │
+│ 3. Rules & Prompt Library  │                                               │
+│   [Rules preset, locked]   │                                               │
+│   [View/Edit saved prompt] │                                               │
+│                            │                                               │
+│ 4. References              │                                               │
+│   [Upload] [Preview]       │                                               │
+│                            │                                               │
+│ 5. Model & Output          │                                               │
+│   Planner [Rules / API]   │                                               │
+│   Image [Cloudflare FLUX]  │                                               │
+│   Provider status          │                                               │
+│   Resolution [1024]        │                                               │
+│                            │                                               │
+│ [ GENERATE SETS ]          │                                               │
+└────────────────────────────┴───────────────────────────────────────────────┘
+```
+
+## 6.2 Header / top navigation
+
+- **AI Collection Studio** — назва продукту й перехід до стартової сторінки.
+- **Generate** — почати нове замовлення / перейти до лівої панелі; не має бути окремим способом запуску з іншою логікою.
+- **History** — історія всіх запусків (`jobs`) з датою, моделлю, темою, результатом.
+- **Templates** — пресети правил і жанрів (можна відкласти до P1).
+- **Settings** — (v1.9) **API Connections** (додати / замінити / видалити credentials Gemini і Cloudflare, статус з'єднання, Test connection, setup guide; значення ніколи не показуються після збереження), default модель, budget cap, шляхи зберігання (лише перегляд).
+- **User indicator** — у локальному MVP це може бути просто `Local User`; логін необов'язковий.
+
+## 6.3 Ліва панель: `1. Set & Theme`
+
+| Поле | Тип | Default | Валідація / поведінка |
+|---|---|---|---|
+| `Collection` | Dropdown або text with presets | `Movie Collection` | Обов'язкове; назва колекції |
+| `Genre / Set` | Dropdown + `Custom` (+ optional multi-select for batch) | `Science Fiction` | Обов'язкове. **Один genre → 3–5 варіантів**, у batch mode **3 genres → 3 окремі jobs**; може бути довільним текстом |
+| `Number of cards` | Number | **10** | Для Playrix preset **зафіксувати 10**; зміну показувати тільки у generic future mode |
+| `Variants` | Number / segmented 3,4,5 | **3** | Обов'язково 3–5 **повних наборів** |
+| `Producer wishes` | **Окремий Textarea, optional** | Порожньо | Змістовний бриф людини, НЕ системний prompt. `No weapons`, `retro-futuristic`; система валідує конфлікти з обов'язковими правилами |
+
+**Рекомендація:** «Collection» задає широку тему, «Genre / Set» — підтему. Заміна genre не повинна затирати refs без підтвердження. Кількість варіантів означає **alternatives PER genre**, а не кількість жанрів. **Movie demo:** Science Fiction, Detective, Fantasy — три незалежні тематики, кожна по 10 artworks. Усі Cat.1–4 активні; Cat.5 OFF + disabled.
+
+### 6.3.1 `Producer's Free Wishes` і `Prompt Library` — різні поля
+
+- `Producer's Free Wishes`: окреме **optional** textarea з placeholder «Desired atmosphere, objects, era, forbidden motifs…». Не треба писати інженерний промпт; приклад: `Lighthearted retro science fiction; mysterious devices; no guns or horror`.
+- `System Rules / Style Bible`: вибір готового preset, у Basic Mode **read-only**, включає категорії 1–4, art style, no golden for Movie, negative rules.
+- `Prompt Library`: список versioned templates (`Set planner`, `Image prompt base`, `Category 1–4`, `Repair prompt`), кнопки `View`, `Duplicate`, `Edit`, `Save as Version`, `Restore`; edit тільки в Advanced і з журналом змін.
+- `Effective Prompt Preview` (за бажанням): показує сформований prompt для **конкретної картки** після комбінування Style Bible + settings + wishes + CardSpec; не змінюється при кожному відкритті без логування.
+- `Conflicts`: якщо в Free Wishes є бажання, що суперечить правилам (напр. "make golden cards" при Gold OFF), API не має мовчки змінювати style profile: показати warning і безпечну інтерпретацію або повернути validation error.
+- Бібліотека має працювати в локальному режимі **без підключення жодної LLM**: save/edit/version prompts — це звичайний функціонал застосунку.
+
+
+## 6.4 Ліва панель: `2. Style & Rules`
+
+- `Category profile` — preset `Playrix Reference Rules v1`.
+- `Categories 1–4` — **всі увімкнені за замовчуванням** у Movie test mode.
+- `Golden cards (Cat. 5)` — **вимкнено й заблоковано** в Movie demo workflow, навіть якщо універсальний майбутній генератор може підтримати Cat.5.
+- `Card Category Distribution` — (v1.7) розташований у Generation Settings (§6.6), не в Advanced; правила та default [2,2,3,3] — §3.4. Раніше окрема Advanced-вкладка «Category quotas» скасована цим контролом.
+- `Art style` — збережений `Style Bible / Style Profile` (напр. `Reference Match v1`), не «довільний Playrix-like» як єдине правило.
+- `Additional constraints` — напр. `no text in artwork`, `avoid cropped subjects`, `no duplicates`.
+
+**Коригування скетчу:** на створеній ілюстрації в рядку категорій візуально активна лише Cat. 1. Для реального продукту це невірний default; **всі Cat. 1–4 мають брати участь** у створенні повного тестового набору відповідно до визначеного profile.
+
+## 6.5 Ліва панель: `3. References`
+
+- Drag-and-drop поле `Upload style references`.
+- Кнопка `Browse files`.
+- Preview кожного завантаженого PNG/JPEG/WebP з ім'ям, типом і кнопкою видалення.
+- Опційний тип референсу: `Style`, `Category 1`, `Category 2`, `Category 3`, `Category 4`, `Composition`, `Negative example`.
+- На backend: MIME validation, межа розміру, обмеження кількості (залежить від API), створення thumbnail.
+- `Use project references` — вибрати раніше додані референси без повторного upload.
+- `Reference manifest` — файл із власним ID, хешем, типом і джерелом кожного референсу.
+
+**Важливо:** заборонено автоматично завантажувати на сторонній сервіс референси, на використання яких немає дозволу. Для тестового треба перевірити правила використання виданих роботодавцем матеріалів і умови відповідного AI API.
+
+## 6.6 Ліва панель: `4. Generation Settings`
+
+| Поле | UX | Що відбувається насправді |
+|---|---|---|
+| `Planning Mode` | Dropdown | `Rules / Templates` за замовчуванням; `AI Planning` лише коли налаштовано реальний runtime TextPlanner API. Claude Code Pro не є таким API |
+| `Card Category Distribution` (v1.7) | Segmented `Auto (Balanced)` / `Custom` + компактні number-steppers Cat.1–4, Cat.5 = `0` (locked, disabled) і live-лічильник `Σ = 10` | `Auto (Balanced)`: конфігурований default [2,2,3,3] — наше припущення [D], не вимога Playrix. `Custom`: ручні значення. Валідація: Σ = 10, кожна Cat.1–4 ≥ 1, Cat.5 = 0 для Movie demo. Це один компактний рядок у Generation Settings без зміни затвердженого layout; правила й застосування — §3.4 |
+| `Image Model` | Dropdown, **згрупований за runtime** (v1.8): `Cloud API` / `Local (planned)` / `Development / testing` | **Gemini / Nano Banana 2.1** default після реалізації; Gemini Nano Banana 2, 2 Lite, Pro з availability check; **Cloudflare FLUX.2 Klein 4B** fallback; **ByteDance Seedream 4.5** `Planned`; **OpenAI GPT Image** видно як `Not configured (disabled)` із `Configure later`; **local-моделі** (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) — `Planned`, visible but disabled; **Mock** — для development/testing. Для кожної моделі UI показує status, `disabled_reason` і capabilities; недоступна модель ніколи не виглядає робочою (§12.7) |
+| `Provider Status` | Status label | `Live API`, `Live Local`, `Samples Only`, `Not Configured`, `Unavailable`, `Connecting`; `Generate` тільки для реально підключеного image adapter |
+| `Resolution` | Dropdown | Список допустимих розмірів **для обраної моделі**, а не довільні значення |
+| `Quality` | Dropdown | Показати лише якщо provider підтримує цю опцію |
+| `Creativity` | Advanced slider або `Conservative / Balanced / Exploratory` | Універсального «creativity API parameter» у image API може **не бути**; це наш preset формулювання промптів / генерації планів |
+| `Reference adherence` | Advanced preset | Не видавати за гарантований API strength; реалізовувати через промпти, ref selection, editing та QA |
+| `Max retries / card` | Number | Встановлює budget і stop condition |
+| `Max job cost` | Currency | **Paid Gemini включено свідомо** після prepaid €5. Показувати estimated spend, budget remaining, max allowed cost per job та cost guard; Cloudflare Free = 0; OpenAI = disabled. Внутрішній guard не гарантує миттєвої відповідності provider invoice |
+| `Seed` | Advanced optional | Показувати **лише якщо підтримується обраною моделлю** |
+| `Parallel jobs` | Advanced | Backend concurrency, без перевищення provider limits |
+
+**За замовчуванням Advanced згорнуто.** Геймдизайнер не повинен змінювати технічні параметри для типового запиту. `Image model` і `Planning model` — **різні dropdown**, бо text LLM не малює іконки. Моделі для research samples **не можуть удавати live**. Provider inventory / model IDs підтверджувати за документацією та фактичною конфігурацією, не hard-code неперевірену доступність.
+
+## 6.7 Кнопка `Generate Sets`
+
+**До запуску:** активна тільки якщо обов'язкові поля заповнені, **image provider має статус Live**, а planning mode — `rules_ready` або `text_api_live`; reference policy прийнято. Показати preflight: `Theme`, `Genre`, `Variants per genre`, `10 cards each`, `Initial images=number_of_genres × variants × 10`, `Gold OFF`, і лише реально відомі costs/limits. При Samples-only — `View / Import Samples`, не `Generate`.
+
+**Після натискання:**
+
+1. Кнопка блокує випадковий повторний submit (idempotency key).
+2. Створюється `generation job`.
+3. У центральній частині — status `Planning → Generating → QA → Results`.
+4. Лічильник `Generated 12/30`, `Passed QA 9/12`, `Retrying 2`, `Estimated/Actual cost` (лише якщо є точні дані).
+5. Є `Cancel` і `Resume` (принаймні після оновлення сторінки); `Cancel` не гарантує відкликання вже відправлених API calls.
+
+## 6.8 Права зона: Results / Gallery
+
+- Заголовок `Generated Sets — Movie Collection: Science Fiction`.
+- Секції `Variant A`, `Variant B`, `Variant C` (за потреби D/E) **для кожного genre**; окремий фільтр `Sci-Fi / Detective / Fantasy`.
+- Кожен варіант показує **10 thumbnail artwork** у порядку карток, не 10 випадкових файлів.
+- Кожна картка має назву об'єкта, категорію, status (Passed / Flagged / Failed), кнопку `View`.
+- `Variant summary`: coverage, кількість pass/fail, об'єктивні перевірки, **суб'єктивна AI-оцінка з поясненням**, не магічний «95% perfect».
+- `Compare Variants` — порівняння 3–5 **згенерованих варіантів набору між собою** з однаковим масштабом прев'ю. **Не плутати з `Reference Compare`**, де зіставляється generated artwork з оригінальним стилістичним референсом.
+- `Reference Compare` — відкрити окрему панель/модальне вікно для порівняння generated ↔ reference у трьох режимах: **Split Slider**, **Side by Side (1×1)**, **Grid Overview (10 pairs)**; деталі в §6.8.1.
+- `Export` — ZIP повного вибраного набору + JSON metadata; кнопка окремих PNG.
+- `Select as final` — зберігає вибір, не видаляє інші варіанти.
+
+**Важливо:** зображення рамок, зірок і UI, намальовані в попередньому скетчі, **не повинні трактуватися як output за вимогою Playrix**. Для MVP показувати artwork; overlay у рамці — необов'язковий preview. На новому мокапі теж використані **виключно ілюстративні sample images**; `Quality 0.92`, `Cost $0.34` тощо заборонено показувати як реальні метрики без вимірювання.
+
+**Gallery origin badges:** `Live API · Gemini Nano Banana 2.1` (тільки після реалізації та app call), `Live API · Cloudflare FLUX.2 Klein 4B` (після app call), `Planned · OpenAI GPT Image (disabled)`, `Live Local · ComfyUI` (лише якщо колись налаштований), `Imported · [provider/model]`, `Mock UI`. Для imported content немає фіктивного статусу `generated by pipeline`, а regenerate доступний лише для фактично підключеного image provider.
+
+## 6.8.1 Reference Compare — новий UX-модуль [U] + деталі реалізації [D]
+
+> **Звідки вимога:** користувач прямо попросив (06.11.2026) вікно, де можна порівнювати **згенеровану іконку з оригінальним референсом** рухом вертикального слайдера, а також режим **Side by Side / one-by-one**, у якому **обидва повні зображення видно одночасно**. Додаємо також **Grid Overview** як практичне розширення, щоб одразу оглянути всі 10 пар. Це **не окрема формальна вимога Playrix**, а UX-рішення для аналізу художньої відповідності.
+
+### Три режими порівняння
+
+| Режим | Елементи інтерфейсу | Поведінка |
+|---|---|---|
+| **A. Split Slider** (за замовчуванням) | Дві картинки в одному порівняльному canvas; вертикальний draggable handle на 50% | Ліворуч видна **Generated**, праворуч — **Reference**; зміна положення повзунка змінює ширину видимої частини кожного зображення. Це одна накладена пара з узгодженим масштабом та позицією, не переключення файлів. |
+| **B. Side by Side (1×1)** | Два окремі однакові за розміром viewport поряд | **Generated** зліва і **Reference** справа — обидва **повністю видимі одночасно**; synced zoom/pan за замовчуванням, кнопка `Fit` і, за потреби, `100%`. Немає накладання/обрізання повзунком. |
+| **C. Grid Overview** | Таблиця/галерея з **10 парами** для вибраного набору: ліва клітинка Generated, права — відповідний Reference | Відразу видно весь набір; можна скролити, фільтрувати за Cat. 1–4, швидко знаходити проблемні картки та переходити з конкретної пари в режими A/B. Кожна пара має назву, категорію, статус QA. |
+
+### Wireframe Compare panel (доповнення до основного UI-скетчу)
+
+```text
++-------------------------------------------------------------------------+
+| Reference Compare: Variant A / Science Fiction        [X Close]         |
+| [Split Slider] [Side by Side (1x1)] [Grid Overview]    [Card 04 / 10]   |
+| Choose card [Space Helmet v]  Reference [Category 2 / ref-004 v]        |
++-------------------------------------------------------------------------+
+|                                                                         |
+| Split Slider:                                                           |
+| +----------------------------------------------------+                  |
+| |             GENERATED      |      REFERENCE         |                  |
+| |                            |                        |                  |
+| |          artwork           |       ref image        |                  |
+| |                            |                        |                  |
+| +----------------------------|------------------------+                  |
+|                              ^ draggable divider                        |
+|                                                                         |
+| Side by Side (1x1):                                                     |
+| +-------------------------+   +-------------------------+               |
+| | GENERATED               |   | REFERENCE               |               |
+| | full artwork            |   | full reference          |               |
+| +-------------------------+   +-------------------------+               |
+|                                                                         |
+| Grid Overview:                                                          |
+| Card # / Category     Generated image       Reference image    QA       |
+| 01 / Cat 1            [thumbnail]           [thumbnail]        Pass     |
+| 02 / Cat 1            [thumbnail]           [thumbnail]        Flag     |
+| ...                                                                     |
+| 10 / Cat 4            [thumbnail]           [thumbnail]        Pass     |
++-------------------------------------------------------------------------+
+| [Previous] [Next]  [Fit] [100%] [Reset]  [Regenerate] [Export Compare]    |
++-------------------------------------------------------------------------+
+```
+
+### Детальна взаємодія користувача
+
+1. У `Results` натискаю **Compare with Reference** біля будь-якої картки або на рівні набору.
+2. Панель відкривається з поточною generated-карткою та найвідповіднішим reference цього типу/категорії.
+3. У режимі **Split Slider** тягну роздільник ліворуч/праворуч та порівнюю силует, матеріали, композицію, фон і рівень деталізації.
+4. Перемикаю **Side by Side** — обидва зображення повністю видно поруч, з однаковим fit/zoom. Це основний режим для оцінювання загального художнього враження.
+5. Перемикаю **Grid Overview** — бачу відразу всі 10 пар із назвами й категоріями, можу швидко оцінити consistency набору.
+6. Натискаю на потрібну пару в Grid — відкривається її детальний Split або Side by Side view.
+7. За потреби змінюю reference у `Reference` dropdown, ставлю примітку/QA flag або натискаю `Regenerate this card`.
+8. `Previous / Next` перемикає картки, не закриваючи панель; вибраний режим і zoom зберігаються на час перегляду.
+9. `Export Compare` (P1) створює контактний аркуш із парами **Generated / Reference** та назвами; не додає службові reference-файли до публічного пакета без дозволу.
+
+### Правильна прив'язка референсів
+
+- Не припускати, що в референсі зображений **той самий предмет**, що й на generated-картці. Найчастіше це **Style / Category / Composition reference**, а не буквальне `Before` цього об'єкта.
+- Показувати справжні підписи `Generated` та `Reference (style / category)`; термін `Original` використовувати тільки для дійсно наданого оригінального арту того самого предмета.
+- Reference вибирається за approved `StyleProfile` + `category_hint` + ручне override користувача. Якщо відповідного reference немає — показати `No matching reference` + кнопку Select Reference; **не підставляти випадкове зображення**.
+- `Split Slider` коректно зіставляє **дві різні композиції за художніми характеристиками**, але **не** означає точний pixel-level diff. Не розраховувати raw pixel difference як показник якості, якщо предмети різні.
+- Розміри/aspect ratios нормалізувати у viewport через `object-fit: contain` / letterboxing без спотворення об'єктів; у Split обидва шари мусять мати **однакові viewport/crop, масштаб і позицію**.
+- Взаємодія мишею, touch і клавіатурою; handle має фокус, ARIA label і keyboard arrows. Не блокувати перегляд відсутністю автоматичної QA-оцінки.
+- Оригінальні reference-файли **не модифікуються**. Вибір референсу на конкретній картці зберігається як `comparison_reference_id`; у логах фіксується зміна зв'язку.
+
+### Scope і критерії готовності
+
+- **P1 / UI must for our solution [U]:** Split Slider + Side by Side (1×1), Generated зліва, Reference справа, перемикання зображення і dropdown референсу.
+- **P1 / useful overview [D]:** Grid Overview 10 пар і навігація з grid до окремої картки. Ми включаємо його в погоджений UX scope; якщо буде необхідне спрощення, відкласти експорт comparison sheet, **але не самі 3 режими**.
+- **Не плутати:** `Compare Variants` = альтернативні згенеровані набори між собою; `Reference Compare` = generated картинки проти заданих reference.
+- **Acceptance:** користувач може, не залишаючи Results, відкрити конкретну картку, перемкнути три режими, побачити обидва повні зображення в Side by Side, пройти всі 10 карток у Grid, змінити reference і повернутися до того самого результату без втрати даних.
+- **Test:** після `Regenerate this card` показується **нова** artwork version; посилання на reference зберігається і порівняння може показати стару та нову версії через version selector (версійне порівняння — окремий майбутній режим, не замість ref-compare).
+
+## 6.9 Tabs
+
+- **Results:** галерея artwork, статуси, результати; `Reference Compare` відкривається з картки як панель/модальне вікно.
+- **Set Plans:** список 3–5 планів, кожен по 10 іменованих карток із категоріями, описом і логікою.
+- **QA Report:** чіткі rules, автооцінки, відхилені картки й причини.
+- **Generation Log:** model ID, prompt version, input reference IDs, timestamps, retries, API errors, обчислені витрати.
+
+## 6.10 Quick Actions
+
+- `Regenerate selected` — повторити лише виділені картки, використовуючи ті самі constraints.
+- `Edit set plan` — змінити назву/об'єкт/категорію до регенерації; після цього план одержує нову версію.
+- `Replace a card` — завантажити готову власну ілюстрацію замість generated.
+- `Generate similar set` — нове замовлення, що успадковує style profile, але не самі об'єкти.
+- `Export approved set` — отримати готові artwork.
+
+## 6.11 Важливі стани інтерфейсу
+
+- `Empty` — користувач бачить приклад і підказку.
+- `Validating` — перевірка даних.
+- `Ready to generate` — показано бюджет і кількість файлів.
+- `Queued` — стоїть у черзі.
+- `Planning` — AI створює set plans.
+- `Plan validation failed` — пропонуються автоматичне перепланування або ручне редагування.
+- `Generating images` — прогрес по картках.
+- `Technical QA / retrying` — пояснити які файли технічно не пройшли; художню відповідність затверджує людина.
+- `Partial success` — зберегти все успішне, не губити роботу.
+- `Complete` — результати + експорт.
+- `Cancelled` / `Failed` — з історією та можливістю відновлення.
+
+## 6.12 Accessibility / layout behavior
+
+- Desktop-first, мінімальний підтримуваний робочий viewport: орієнтовно 1280px.
+- Ліва колонка fixed/collapsible, права fluid. На вузькому екрані — вертикальний stack.
+- Keyboard navigation, зрозумілі labels, progress/status не тільки кольором.
+- Текстові помилки: `What happened → what can be done`.
+- Для кожної іконки — відкриття на повний розмір (lightbox).
+- Не приховувати витрати чи відхилені результати в debug-only режимі.
+
+## 6.13 Що на скетчі лише демонстраційне
+
+1. `Style score 0.92`, `0.87`, `0.85` — **випадкові макетні числа**, не вимірювання.
+2. `Time: 1m 24s`, `Cost: $0.34`, `~1–2 min` — **не є прогнозом продуктивності**.
+3. Наявні в ілюстрації назви моделей, роздільності, панелі й зірки — концепт; реальний UI треба прив'язати до API capabilities і вимог тесту.
+4. Preview-картки візуально можуть мати різні рамки/зірки; основна система має працювати з artwork незалежно від рамок.
+5. Скетч **не доводить**, що такий результат можна автоматично згенерувати із потрібним рівнем art direction.
+
+---
+
+## 6.14 Додаткові UX стани, погоджені 07.11 [U]/[D]
+
+1. **Genre batch:** для Movie assessment можна вибрати 3 різні жанри (`Science Fiction`, `Detective`, `Fantasy`), але система виконує окремі plan/generation runs по кожному. Один жанр з `Variants=3` означає **30 artwork**, три жанри — **90 artwork**; це показано до запуску.
+2. **Gold toggle:** у загальному шаблоні може бути як фіча, але в Movie preset checkbox **unchecked, disabled** (і backend validation це забезпечує). Золоті картки не слід візуально ставити увімкненими в мокапі.
+3. **Free Wishes:** є окреме textarea, яке можна лишити порожнім. Написи `System Rules` і `Prompt Library` не замінюють цього textarea.
+4. **Prompt Library:** редагувати/зберігати/версіонувати templates у Advanced без автоматичного запуску generation. `Preview compiled prompt` показує результат по конкретній картці.
+5. **Planning Mode vs Image Provider:** окремі селектори, але planning mode може бути **`Rules / Template` (без LLM)** або **`AI Planning` (лише підключений runtime text provider)**; image provider — окремий dropdown. Samples-only не запускає прихований платний API.
+6. **Reference Compare:** три активні режими зі справжніми картинками — draggable Split, Side by Side та Grid. Статичний mockup позначити `UI-only demo`.
+7. **Review:** реальні результати відокремлені від sample/mock; статус artwork і provenance видно при натисканні на картку.
+8. **No card UI rendering:** у генераторі не малювати автоматично зірки, підписи й рамки — тільки artwork; в Miro вставити результат вручну.
+
+## 6.15 Вирівнювання UI з мокапом (v1.9) [U]/[D]
+
+Мокап `Specification/Mockup.png` лишається первинним дизайн-референсом. Обов'язкові області інтерфейсу (усі з реальною поведінкою, не декоративні):
+
+| Область | Вимога |
+|---|---|
+| Header | логотип, назва + підзаголовок, навігація `Generate / History / Templates / Settings`, індикатор витрат (**local estimate**), кнопка підключення провайдерів, індикатор користувача (`Local User`) |
+| Pipeline strip | `Plan → Generate → QA → Compare → Results → Export` зрозуміло для не-технічного користувача (кроки показують фактичний стан) |
+| Title row | `Generated Sets — <Collection>: <Genre>` + кнопки `Compare Variants`, `Prompt Library`, `Export` |
+| Variant rows | вибір варіанта, `N / 10 cards`, фактичні QA/review статуси, category coverage 1–4, ряд thumbnails |
+| **Set Summary** | Theme, Genre, Cards, Variants, Planning, Image model, Resolution, час (з часових міток job, коли відомий), **local estimate** вартості; прев'ю з реальних згенерованих зображень |
+| **Quick Actions** | `Regenerate selected`, `Edit set plan`, `Replace a card`, `Generate similar set` — працюють над вибраною карткою/варіантом; жодних витрат без наявного confirmation flow |
+| **Next Steps** | чеклист, що обчислюється зі стану: review & pick best set, tweak cards (optional), export final set, save to project/library |
+| Ліва панель | Set & Theme, Rules/Style/Brief (Card Category Distribution, Art style, Free Wishes), References, Generation Setup (Planning, Image model selector, resolution); технічні параметри — у згорнутому `Advanced settings` |
+
+Корекції мокапа з попередніх версій **зберігаються**: без вигаданих `Style score` / `Best match` / фіктивних cost-time, без зірок і рамок на artwork, без `Creativity/Consistency` sliders, Cat. 5 locked. UI має працювати на desktop/laptop роздільностях (≥1280×720) без горизонтального скролу сторінки; це production-інструмент для AI/Art Producer, а не workflow-редактор у стилі ComfyUI.
+
+**Реалізація v1.9 і свідомі відхилення від мокапа** (перевірено на 1672×940, 1366×768, 1280×720; без горизонтального скролу):
+
+- Pipeline strip має **6 кроків** (`Plan, Generate, QA, Compare, Results, Export`), а не 4 з мокапа, щоб `Compare` і `Export` були досяжні з стрічки; `Compare` позначено як опціональний.
+- Вкладки: `Results`, `Set Plans (JSON)`, `QA Report`, `Generation Log`; `Compare Variants` і `Prompt Library` відкриваються кнопками title row, `Reference Compare` — з Compare-режиму, картки й кроку Compare (нічого не стало недосяжним).
+- Cat. 1–4 подано як **steppers «карток на категорію» з `Auto/Custom`** (реальна функція Card Category Distribution, §3.4) замість чекбоксів мокапа; Cat. 5 — locked `0`.
+- `Collection` — текстове поле, `Art style` — один draft Style Bible (це реальні дані); `Image model` і `Planning` складені в стовпчик/дві колонки, щоб уникнути обрізання.
+- Немає `Style score`, `Best match`, `Creativity/Consistency` та вигаданих cost/time (див. вище); час запуску береться з журналу job («from job log»), вартість — **local estimate**.
+- Іконки — прості гліфи, а не індивідуальні ілюстрації мокапа; багатоваріантний вигляд (3 рядки) перевірено структурно, візуально — на одному варіанті.
+- UI-перевірка виконана в реальному браузері (Playwright + Edge) на ізольованому harness із мок-провайдерами та на реальних даних; screenshots зберігаються поза Git (можуть містити конфіденційний reference).
+
+# 7. End-to-end user journey — очима звичайного користувача
+
+## Scenario A: «Хочу три варіанти Sci-Fi-набору»
+
+1. Відкриваю `http://localhost:3000` (або deployment URL).
+2. Бачу `AI Collection Studio`; зліва — параметри, справа — порожню галерею / історію.
+3. Вибираю `Collection = Movie Collection`.
+4. Вибираю `Genre = Science Fiction`.
+5. Бачу, що `Cards = 10`, `Golden cards = Off`.
+6. Встановлюю `Variants = 3`.
+7. У `Producer wishes` пишу, наприклад: `Lighthearted retro science fiction, recognizable movie tropes, no logos, no weapons as central theme`.
+8. Завантажую 3–5 style references з наданих матеріалів; можу позначити кожному category-specific призначення.
+9. Вибираю AI-модель і допустиму resolution.
+10. Натискаю `Generate Sets`.
+11. На екрані з'являються етапи Planning, Image Generation, QA.
+12. У `Set Plans` за потреби переглядаю, які саме 10 об'єктів система обрала для кожного з трьох сетів.
+13. У `Results` бачу `Variant A/B/C`, кожен по 10 artwork, назви, категорії, позначені помилки.
+14. Відкриваю невдалу картинку → `Regenerate this card`, обираю одну з нових версій.
+15. У `Compare Variants` зіставляю три згенеровані набори. У `Reference Compare` переглядаю Split Slider / Side by Side / Grid із відповідними стилістичними референсами.
+16. Натискаю `Select as final` на найкращому.
+17. Натискаю `Export` → ZIP із 10 artwork PNG, manifest JSON, коротким QA report.
+18. Вставляю вибрані artwork **вручну** у Playrix-шаблон набору в Miro.
+
+## Scenario B: «Потрібен ще один жанр без повторення елементів»
+
+1. Обираю `New Set` → `Detective & Mystery`.
+2. Встановлюю `Avoid previously used objects = On` і вибираю вже створені sci-fi set plans як exclusion context.
+3. Залишаю той самий style profile.
+4. Натискаю `Generate Sets` і отримую нову групу варіантів, не змінюючи базові промпти вручну.
+
+## Scenario C: «Усе добре, крім 1 зображення»
+
+1. Відкриваю картку.
+2. Бачу original prompt, preview і QA issues.
+3. Уточнюю `Keep object, simplify background, use composition Cat. 2`.
+4. Натискаю `Regenerate this card only`.
+5. Система зберігає стару та нову версії; не зачіпає інші дев'ять карток.
+
+## Scenario D: «Хочу порівняти арт із оригінальним стилем, не відкриваючи картинки в різних програмах»
+
+1. В `Results` натискаю `Compare with Reference` біля потрібної іконки.
+2. Відкривається `Split Slider`: Generated ліворуч, Reference праворуч, між ними рухомий роздільник.
+3. Натискаю `Side by Side` — бачу **дві повні картинки одночасно** (1×1), можу змінити zoom.
+4. Натискаю `Grid Overview` — бачу **всі 10 пар** поточного набору та їхні категорії/QA.
+5. Обираю картку, змінюю референс через dropdown, за потреби регенерую тільки цю картку.
+6. Повертаюся в галерею й продовжую відбір найкращого набору.
+
+## Scenario E: «Згенерувати 3 різні кінонабори через один batch»
+
+1. `Collection=Movie Collection`, genres `Sci-Fi`, `Detective`, `Fantasy`, cards=10, variants=3 per genre.
+2. Gold OFF/locked, стилістичні та категорійні правила не редагуються в Basic Mode.
+3. `Producer Wishes` = optional brief; для конкретного жанру можна додати `per-genre wishes` (P1, не обов'язково).
+4. UI показує preflight `3 genres × 3 variants × 10 = 90 initial artworks` і прогноз ресурсів лише якщо він заснований на вимірах.
+5. Backend ставить три jobs у чергу та накопичує результати в окремих genre tabs.
+6. Після завершення користувач експортує найкращий варіант кожного жанру (30 artworks) і вручну вставляє їх у Playrix шаблони.
+
+## Scenario F: «OpenAI GPT Image передбачений, але оплата/API ще не підключені» (v1.6)
+
+1. У `Provider` бачу `Gemini — Available after app integration`, `Cloudflare — Available after app integration`, `OpenAI GPT Image — Not configured`.
+2. Коли обираю `OpenAI GPT Image`, доступні info/capabilities/model candidates й пояснення `API key and billing not configured`; **Generate disabled**. UI не намагається викликати OpenAI endpoint.
+3. За потреби можу вручну імпортувати PNG/JPG і додати model name, prompt, refs, дату та `manual_import`.
+4. Для `Gemini` після підключення app adapter генерація через API має бути доступною; для `OpenAI` лише після **окремого** дозволу на конфігурацію та paid calls.
+5. Файли, отримані PowerShell smoke tests, — `external_api_smoke_test` при імпорті, а не `live_app_generation`.
+
+
+## UX acceptance criteria
+
+- Новий користувач може пройти happy path без термінала/коду.
+- Можна отримати 3–5 **повних** варіантів у рамках одного запуску.
+- У кожному варіанті доступно рівно 10 іменованих карток.
+- Контрол `Card Category Distribution` (§3.4) дозволяє `Auto (Balanced)` та `Custom`; невалідні значення (Σ≠10, Cat.1–4 < 1) блокують Generate з поясненням; Cat.5 показано як `0`, locked.
+- Зрозуміло, що вже готово, що виконується, що зламалося і що було перегенеровано.
+- Можна повторити тільки один об'єкт.
+- Можна порівнювати generated artwork з відповідним reference у **Split Slider, Side by Side (обидва зображення одночасно) та Grid Overview (10 пар)** без втрати контексту.
+- Є коректний export у PNG/ZIP і можливість переглянути план/історію.
+- Після refresh браузера вже збережені результати не пропадають.
+
+---
+
+# 8. Цільова архітектура
+
+## 8.1 Architecture principles
+
+1. **Artwork-first:** генеруємо предметні зображення, а не відбудовуємо весь game UI.
+2. **Plan before paint:** спочатку об'єктний план сету, потім image generation.
+3. **Structured outputs:** план у типізованому JSON, а не в довільній прозі.
+4. **Provider-agnostic core:** Gemini, OpenAI та інші image engines мають однаковий внутрішній інтерфейс.
+5. **Deterministic validation where possible:** структурні речі перевіряє код, а не LLM.
+6. **Model-based judgment where unavoidable:** художні оцінки здійснює мультимодальна модель із поясненням та можливістю ручного перегляду.
+7. **Non-destructive iterations:** старі зображення/промпти ніколи не зникають після Regenerate.
+8. **Budget-awareness:** контроль кількості спроб та фактичної вартості.
+9. **Reproducibility by provenance:** повністю відтворити стохастичне зображення може бути неможливо; натомість ми зберігаємо всі інпути, параметри і версії.
+10. **MVP first, production-ready boundaries:** у MVP просте середовище, але чіткі модулі.
+
+## 8.2 High-level component diagram — v1.6
+
+```mermaid
+flowchart TD
+    WEB[AI Collection Studio Web UI] --> API[FastAPI Backend]
+    API --> JOBS[Job Manager / Queue]
+    JOBS --> PLAN[Set Planner: Rules + Object Pools]
+    JOBS -. optional .-> TEXT[TextPlanner Adapter: authorized runtime text API]
+    PLAN --> PROMPT[Prompt Compiler + Style Bible + Categories]
+    TEXT --> PROMPT
+    PROMPT --> REGISTRY[Universal ImageProvider Registry]
+    REGISTRY --> GOOGLE[Gemini Nano Banana 2.1 - primary REST API verified]
+    REGISTRY -. optional .-> LOCAL[ComfyUI / Local FLUX / SDXL]
+    REGISTRY --> CF[Cloudflare FLUX.2 Klein 4B - verified free fallback]
+    REGISTRY -. planned / disabled .-> OPENAI[OpenAI GPT Image - adapter planned, no API/billing]
+    CF --> ART[(Local PNG + Metadata Store)]
+    LOCAL --> ART
+    GOOGLE --> ART
+    OPENAI --> ART
+    ART --> QA[Technical QA - deterministic]
+    QA --> REVIEW[Human Art Review / Reference Compare]
+    REVIEW --> EXPORT[PNG / ZIP / Manifest / Miro]
+    EXPORT --> WEB
+```
+
+**Планувальник — окремий модуль, але його НЕ потрібно реалізовувати через Qwen.** Режим `Rules` достатній для контрольованого demo зі збереженими object pools; для довільного жанру/wishes показати чесне попередження про межі цього режиму та передбачити `TextPlanner` adapter. **Claude Code — засіб написання компонентів, НЕ runtime node на діаграмі.**
+
+## 8.3 Конкретний рекомендований MVP stack v1.6 [D]
+
+| Layer | MVP | Обґрунтування |
+|---|---|---|
+| Frontend | React + TypeScript + Vite або легкий HTML/JS | Відтворити **перший детальний мокап**; не робити зайвий SaaS |
+| Backend | Python + FastAPI + Pydantic | REST API та image/job orchestration |
+| Set planning | Python `RulesPlanner` + локальні об'єктні каталоги | Без API-рахунків; працює для трьох підготовлених жанрів |
+| Dynamic planning | Опціональний `TextPlanner` adapter | Лише при реальній інтеграції дозволеної text LLM; не плутати з Claude Code Pro |
+| Image Provider | **Gemini API / `gemini-nano-banana-2.1`** | Верифіковано text-to-image та reference-to-image через PowerShell; реалізувати як primary backend adapter |
+| Image Provider interface | **Provider registry + adapter/capabilities** | Без прив'язки UI або prompt compiler до одного endpoint |
+| Verified fallback | **Cloudflare Workers AI / `@cf/black-forest-labs/flux-2-klein-4b`** | Попередні text/ref REST smoke tests успішні; free baseline; (v1.8) adapter реалізований і mock-tested, live-перевірка очікує `CLOUDFLARE_ACCOUNT_ID` |
+| Planned UI + adapter contract | **OpenAI GPT Image** (`gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` models after availability check) | **Visible, disabled / Not configured**; no API key required for MVP; no OpenAI paid calls |
+| Other optional models | Gemini 2 / 2 Lite / Pro, FLUX.2 variants, ComfyUI, SDXL | Model-by-model verification before enabling; optional local inference |
+| Future cloud/local backlog (v1.8) | Seedream 4.5 (via Cloudflare); local FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512 через локальний runtime (потенційно ComfyUI API) | **Planned, visible but disabled**; ваги й runtimes не завантажуються/не встановлюються зараз; post-MVP evaluation (§12.7) |
+| QA | Deterministic technical checks + human review | Немає недоведених LLM style scores |
+| Storage | SQLite + filesystem | Простий provenance і resume |
+| Tests | pytest + базові frontend interaction tests | Core rules, API mocks і реальний smoke test |
+
+**Фізична топологія:**
+
+```text
+Windows laptop: Browser + Frontend + FastAPI + SQLite + local output images
+                      |
+                      | HTTPS (credentials only server-side)
+                      v
+         Gemini API: Nano Banana 2.1 (PRIMARY)
+                      |
+                      +--> Cloudflare Workers AI / FLUX.2 Klein 4B (FREE FALLBACK)
+                      |
+                      +--> OpenAI GPT Image (PLANNED, DISABLED; NO CALLS)
+
+Optional later:
+  - Gemini other image models after model availability checks
+  - desktop GPU + ComfyUI local adapter (only if needed)
+  - authorized text-model adapter for truly open-ended planning
+```
+
+**Умови доступності:** інтернет та діюча API-авторизація. Backend має перевіряти реальні `model ID`, supported inputs і залишок квоти. Наявність Free plan не доводить безлімітне або гарантоване отримання всіх 90 зображень. Desktop із Qwen/ComfyUI **не потрібен** для першого MVP.
+
+**Paid-budget gate v1.6:** Gemini paid access свідомо активовано з prepaid €5; лімітувати витрати перед кожним job, контролювати Google Billing і retries. Cloudflare Free fallback не потребує платної активації. **OpenAI GPT Image — provider adapter planned but runtime disabled, no paid API requests**. Вебпідписки ChatGPT/Gemini не дорівнюють API-ключам; жодної browser-cookie automation.
+
+## 8.4 Logical modules / responsibility matrix
+
+### `web-ui`
+
+Рендерить форми, завантажує refs, показує статус і результати; **не спілкується з модельними провайдерами напряму**, не зберігає ключі.
+
+### `api`
+
+Перевіряє запити, працює з референсами/робочими проєктами, створює jobs, повертає результати, готує downloads.
+
+### `job-manager`
+
+Черга, обмеження паралельності, статус, resume, retry, cancel, budget.
+
+### `reference-manager`
+
+Зберігає оригінальні ref файли, thumbnails, типи refs, SHA-256 hashes, правомірність/контекст використання, роздільність.
+
+### `style-analyzer`
+
+Створює **Style Bible** на основі reference set; пропонує текстові rules зі ступенем впевненості й прикладами. **Не вважати всі висновки моделі фактами:** людський перегляд на старті.
+
+### `set-planner`
+
+Створює 3–5 незалежних планів по 10 різних карток. **MVP: `RulesPlanner` з підготовленими жанровими object pools/категоріями й детермінованою перевіркою**. Опціональний `TextPlanner` адаптер потрібен лише для вільної семантичної генерації неочікуваних тем і творчих побажань. Claude Code не виконує planning автоматично при кожному натисканні `Generate`. (v1.7) Планувальник призначає об'єкти в category slots згідно з обраним `Card Category Distribution` (§3.4) і тримає той самий розподіл у всіх 3–5 альтернативах.
+
+### `rules-validator`
+
+Перевіряє 10 карток, допустимі категорії, no golden, required fields, відсутність точних дублікатів, відповідність **Card Category Distribution** (§3.4): Σ=10, кожна Cat.1–4 ≥1, Cat.5=0, кількість карток у кожній категорії дорівнює запитаному розподілу.
+
+### `semantic-reviewer`
+
+Перевіряє тематичну логіку, доречність кіножанру, приблизну семантичну неповторюваність; human review якщо неоднозначно.
+
+### `prompt-compiler`
+
+Перетворює структурований план і Style Bible на короткий, послідовний prompt для конкретної image-моделі.
+
+### `image-generator` + `providers/*`
+
+Знає як відправити refs, налаштування й промпт до конкретного API, як розібрати response, нормалізувати помилки й зберегти original response metadata.
+
+### `image-postprocessor`
+
+Перевіряє/нормалізує формат, створює preview, при потребі обрізає/зменшує зображення **без втрати важливого об'єкта**; зберігає оригінал.
+
+### `art-qa`
+
+**Technical QA — детермінований у Python; visual/art review — вручну через UI.** Vision оцінка — окрема майбутня експериментальна функція, за замовчуванням вимкнена і без фіктивних числових критеріїв.
+
+### `exporter`
+
+Створює ZIP з artwork, manifest, JSON plans, QA report, generation log, thumbnails/contact sheets.
+
+### `observability`
+
+Реєструє job stage, timestamps, retries, provider, model ID, usage, costs, failures та ручні інтервенції.
+
+## 8.5 Separation of concerns
+
+**Що має бути жорстко в коді:** 10 карток; валідні категорії; Golden Off для Movie demo; унікальні card IDs; коректний формат зображення; файл існує й читається; export structure.
+
+**Що може опціонально оцінювати Text/Vision provider (НЕ MVP):** тематична логіка та підозрілі дублікати; жодна модель сама не затверджує художню якість. У MVP Python перевіряє структуру, а людина — візуальну відповідність.
+
+**Що має залишитися за людиною (принаймні у тестовій демонстрації):** остаточне прийняття набору, тонка артова оцінка поруч із референсами, добір трьох фінальних наборів для Miro.
+
+---
+
+# 9. End-to-end generation pipeline
+
+## Stage 0 — Reference study / style onboarding
+
+**Input:** видані Miro reference frames і описи.  
+**Process:** візуально розібрати до 20–30 прикладів з категорій 1–4; порівняти силуети, material/lighting, фони, відстань до камери, прості/складні композиції, семантику.  
+**Output:** `style_profile.json`, `reference_analysis.md`, приклади positive/negative.
+
+**Обов'язково для Miro:** показати не лише назви категорій, а кілька зіставлень «правило → референс → наслідок для генерації».
+
+## Stage 1 — Request validation
+
+Перевірити: тема, жанр, variants 3–5, cards 10, refs придатні, API key існує, доступна модель/розмір, estimated max budget. Заблокувати запит із золотими картками для Movie demo. (v1.7) Валідувати `Card Category Distribution`: Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 (§3.4).
+
+## Stage 2 — Set concept planning
+
+`RulesPlanner` (MVP) використовує підготовлені жанрові object pools, category profile та обмеження з producer wishes, які реалізовано правилами. Створює **3–5 різних set variants**, по 10 карток. Не імітувати підтримку будь-яких довільних вказівок: незрозумілі побажання позначити для ручного уточнення або маршрутизувати до **фактично підключеного TextPlanner API**. Claude Code може написати цей механізм, але не є його runtime LLM.
+
+**Category slots (v1.7):** до вибору об'єктів планувальник розкладає 10 карток по category slots за `Card Category Distribution` (§3.4; `Auto (Balanced)` default [2,2,3,3] або `Custom`) і підбирає для кожного слота об'єкт, придатний до композиції цієї категорії. Усі 3–5 альтернатив мають **однаковий** розподіл.
+
+**Не можна:** створювати `Variant B` як ті самі 10 предметів із трохи зміненими кольорами. Це слабкий змістовий варіант.  
+**Можна:** різні мікротеми в межах одного жанру, напр. у Sci-Fi: `Retro Space Expedition`, `Alien City`, `Future Laboratory`, якщо всі коректно представляють жанр.
+
+## Stage 3 — Plan validation + revision
+
+- Exactly 10 cards / variant.
+- Names unique within variant.
+- Allowed categories 1–4.
+- No gold cards.
+- Кількість карток у кожній категорії дорівнює запитаному `Card Category Distribution` (Σ=10, кожна Cat.1–4 ≥1, Cat.5=0; §3.4).
+- Повний, осмислений тематичний зв'язок.
+- Категорійні описи не суперечать один одному.
+- Усі required properties є.
+- Відсутні очевидні дублікати із попередніх наборів тієї самої колекції.
+- Якщо plan invalid, зробити не більше `MAX_PLAN_RETRIES`, після чого показати проблему в UI.
+
+## Stage 4 — Prompt compilation
+
+Для кожної картки сформувати:
+
+- `style prompt` — спільний для всього набору;
+- `category prompt` — специфічна композиція 1/2/3/4; обов'язкові category-specific обмеження для Cat.1–4 (floating/no small details; on simple surface; realistic surface; realistic environment) беруться з таблиці §3.4 для кожної картки відповідно до її category slot;
+- `object prompt` — конкретний предмет, призначення, форма;
+- `background prompt` — фон/середовище категорії;
+- `constraints` — без написів, без текстових UI-рамок, один центральний об'єкт тощо;
+- `reference selection` — які референси релевантні саме цій категорії;
+- `negative guidance` — чого уникати; враховувати, що не всі API мають окреме negative-prompt поле.
+
+**Рекомендований базовий режим:** одна картка = один API image request. Генерація великої сітки 10 іконок одним зображенням ускладнює однакові пропорції, подальше редагування та управління якістю.
+
+## Stage 5 — Image generation
+
+- Розмістити requests у worker queue.
+- На кожну card spec — одна первинна image generation.
+- Зберегти binary output у незмінюваний file path.
+- Записати provider, model ID, settings, prompt hash, reference hashes, usage/latency.
+- Якщо provider відмовив — retry з exponential backoff лише для transient errors (429/5xx/network), не «сліпо» для неправильного prompt/model.
+- Застосувати concurrency limit, погоджений із provider quota.
+
+## Stage 6 — Technical QA
+
+Перевірки без AI:
+
+- файл відкривається;
+- PNG/JPEG/WebP supported, вивід PNG;
+- фактичні dimensions відповідають допустимим;
+- image не порожній / не повністю прозорий / не corrupted;
+- важливий об'єкт не обрізаний за наявності відповідного vision signal (самою Pillow цього не гарантувати);
+- uniqueness file hashes;
+- coverage потрібної кількості карток;
+- правильне зіставлення image → card ID.
+
+## Stage 7 — Visual / Product Review (людина)
+
+- Передати відображення artwork, `CardSpec`, категорії і відповідних reference images у UI.
+- Дати Split Slider / Side by Side / Grid, zoom, notes, `Approve`, `Reject`, `Regenerate`.
+- **Не** запроваджувати Vision LLM як обов'язковий QA, автоматичний style pass чи нібито точні `0.91 / 92%`.
+- Статус `Technical QA: passed` означає лише технічну валідність файлу; `Art Review: pending` — поки не затвердить людина.
+- Якщо додаткове Vision QA колись з'явиться, його висновки мають лише рекомендаційний характер.
+
+## Stage 8 — Targeted retries
+
+- **Необхідна реакція:** якщо одна з десяти карток не проходить QA, повторюємо **лише цю** картку.
+- Використовуємо failed criteria, а не переписуємо весь prompt навмання.
+- Обмеження: напр. `max 2 retries per card` — **запропонована стартова конфігурація, не вимога Playrix**.
+- Якщо всі спроби вичерпані — маркуємо `NEEDS_REVIEW`, не маскуємо проблему.
+- Результат retry має новий asset version; попередній зберігається.
+
+## Stage 9 — Set-level QA
+
+Після перевірки окремих зображень оцінюється **весь набір поруч**:
+
+- однаковий art direction;
+- відсутність візуальних дублювань;
+- послідовність композицій за категоріями;
+- широкий, але логічно пов'язаний вибір об'єктів;
+- наскільки набір вписується в наданий референсний приклад.
+
+Тут недостатньо 10 окремих `PASS`: індивідуально хороші іконки можуть погано виглядати разом.
+
+## Stage 10 — User review + export
+
+Користувач бачить 3–5 наборів, обирає, редагує/перегенеровує, затверджує фінальний; ZIP містить лише актуальні approved artwork plus full traceability.
+
+## Stage 11 — Miro placement and comparison
+
+Вставляємо фінальні 3×10 PNG у готові шаблони Playrix на Miro, показуємо порівняння з референсами й докладаємо raw images та звіт про pipeline.
+
+---
+
+# 10. Дані та формати
+
+## 10.1 Core entities
+
+```text
+Project
+  id, name, collection_theme, created_at, style_profile_id
+
+PromptTemplate
+  id, name, type(system|category|planning|repair), version, text, is_active, created_at, author
+
+ProviderConfiguration
+  provider_id, role(planning|image), status(live_local|samples_only|not_configured|unavailable), endpoint, capabilities
+
+ReferenceAsset
+  id, project_id, file_path, sha256, kind, category_hint, source_label
+
+ArtworkReferenceMatch
+  card_spec_id, artwork_version_id, comparison_reference_id, selection_mode,
+  selected_by, updated_at  # link to approved style/category reference or user override
+
+StyleProfile
+  id, version, visual_rules, forbidden_patterns, approved_refs
+
+GenerationJob
+  id, project_id, theme, subtheme, wishes, requested_variants,
+  planning_provider, image_provider, prompt_profile_version,
+  model_config, status, created_at, updated_at, total_cost
+
+SetVariant
+  id, job_id, index, variant_name, concept, status, version
+
+CardSpec
+  id, set_variant_id, position, name, category, object_description,
+  composition, background, prompt, validation_status
+
+ArtworkVersion
+  id, card_spec_id, version, provider, model, prompt_hash, origin(live_generation|manual_import|mock),
+  path_original, path_preview, generation_status, usage, latency_ms
+
+QualityCheck
+  id, artwork_version_id, evaluator, rubric_version,
+  checks, score, confidence, issues, verdict
+
+UserDecision
+  id, user_id, entity_id, action, reason, timestamp
+
+ExportBundle
+  id, project_id, selected_variant_id, zip_path, created_at
+```
+
+## 10.2 Example JSON plan (одна картка, уривок)
+
+```json
+{
+  "schema_version": "1.0",
+  "project": "Movie Collection",
+  "set_theme": "Science Fiction",
+  "variant_id": "sci-fi-A",
+  "variant_concept": "Retro Space Expedition",
+  "cards": [
+    {
+      "id": "sci-fi-A-01",
+      "position": 1,
+      "name": "Space Helmet",
+      "category": 1,
+      "object_description": "Rounded retro astronaut helmet",
+      "composition": "Single centered object floating in air",
+      "background": "Simple blue radial gradient",
+      "focal_object": "Space helmet",
+      "no_gold": true,
+      "reason_for_inclusion": "Recognizable tool of space exploration"
+    }
+  ]
+}
+```
+
+**Це уривок для пояснення структури:** production schema вимагає **рівно 10 елементів** у `cards` для повного набору. Не можна приймати наведений приклад з 1 карткою як валідний план.
+
+## 10.3 API contracts — proposed, not provider endpoints
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/models` | Доступні моделі + capabilities + **role** (planner/image) + **status** (Live Local / Samples Only / Disabled) |
+| `GET` | `/api/prompts` | Версіоновані шаблони Prompt Library |
+| `POST` | `/api/prompts` | Створити/зберегти нову версію шаблону |
+| `POST` | `/api/imports` | Імпорт вручну створених research samples з provenance |
+| `GET` | `/api/style-profiles` | Список style presets |
+| `POST` | `/api/projects` | Створення проєкту |
+| `POST` | `/api/projects/{id}/references` | Upload ref / тип референсу |
+| `GET` | `/api/projects/{id}/references` | Список refs |
+| `GET` | `/api/cards/{card_id}/comparison` | Generated/current version + matching reference, category, available versions, URLs/asset IDs |
+| `PATCH` | `/api/cards/{card_id}/comparison-reference` | Зберегти обраний reference для зіставлення (з provenance) |
+| `POST` | `/api/jobs` | Створити generation job |
+| `GET` | `/api/jobs/{job_id}` | Поточний status/progress |
+| `GET` | `/api/jobs/{job_id}/events` | Polling або SSE events |
+| `GET` | `/api/jobs/{job_id}/variants` | Варіанти наборів |
+| `GET` | `/api/variants/{variant_id}` | Plan, cards, QA summary |
+| `POST` | `/api/cards/{card_id}/regenerate` | Регенерація однієї картки |
+| `PATCH` | `/api/cards/{card_id}` | Редагування card spec з versioning |
+| `POST` | `/api/variants/{id}/approve` | Фінальний вибір варіанта |
+| `POST` | `/api/exports` | Збірка ZIP |
+| `GET` | `/api/exports/{id}/download` | Download |
+| `POST` | `/api/jobs/{id}/cancel` | Best-effort cancel |
+
+### Example `POST /api/jobs`
+
+```json
+{
+  "project_id": "movie-collection-001",
+  "set_theme": "Science Fiction",
+  "producer_wishes": "Lighthearted retro sci-fi, mysterious inventions, no weapons or horror",
+  "number_of_cards": 10,
+  "number_of_variants": 3,
+  "include_golden": false,
+  "allowed_categories": [1, 2, 3, 4],
+  "category_distribution": { "mode": "auto_balanced", "counts": { "1": 2, "2": 2, "3": 3, "4": 3, "5": 0 } },
+  "category_policy": "reference_profile_v1",
+  "style_profile_id": "reference-match-v1",
+  "prompt_template_version": "movie-v1",
+  "reference_ids": ["ref-001", "ref-002", "ref-003"],
+  "planning_mode": "rules",
+  "image_provider": "gemini",
+  "image_model": "gemini-nano-banana-2.1",
+  "resolution": "1024x1024",
+  "max_regenerations_per_card": 2,
+  "paid_api_allowed_for": ["gemini"],
+  "max_estimated_job_cost_usd": 0.50
+}
+```
+
+**Важливе:** `category_policy` не має самостійно вигадувати розподіл. (v1.7) Розподіл передається явним полем `category_distribution` (`mode`: `auto_balanced` | `custom`; `counts` для Cat.1–5): у режимі `auto_balanced` сервер підставляє конфігурований default із StyleProfile (`category_distribution_default`, початково [2,2,3,3] — наше припущення, не вимога Playrix), у `custom` — значення продюсера. Валідація на сервері: Σ(Cat.1–4)=10, кожна ≥1, Cat.5=0 для Movie demo (§3.4); невалідний запит відхиляється помилкою валідації.
+
+### Example async response
+
+```json
+{
+  "job_id": "job-20261104-001",
+  "status": "queued",
+  "status_url": "/api/jobs/job-20261104-001",
+  "expected_primary_images": 30,
+  "message": "Job accepted. Results will appear progressively."
+}
+```
+
+Це **внутрішня контрактна схема**, не реальний API Playrix, Gemini чи OpenAI.
+
+## 10.4 Job state machine
+
+```text
+CREATED -> VALIDATING -> PLANNING -> PLAN_QA -> GENERATING
+      -> IMAGE_QA -> SET_QA -> READY_FOR_REVIEW -> APPROVED -> EXPORTED
+                    \-> RETRYING -> IMAGE_QA
+All active states -> FAILED / CANCEL_REQUESTED
+READY_FOR_REVIEW -> PARTIAL_SUCCESS (якщо проблеми лишилися)
+```
+
+- Статус зберігається в БД, не тільки в пам'яті процесу.
+- `job_id` і `artwork_version_id` незмінні.
+- Перезапуск server/worker не має автоматично видаляти готові outputs.
+- Якщо після crash є `GENERATING`, worker визначає які картки вже completed і продовжує з інших, уникаючи повторних витрат наскільки можливо.
+
+## 10.5 Як організувати файли
+
+```text
+data/
+  projects/
+    movie-collection-001/
+      references/
+        ref-001-original.png
+        ref-001-thumbnail.png
+      style/
+        style-profile-v1.json
+      jobs/
+        job-001/
+          request.json
+          plans/
+            variant-A.json
+            variant-B.json
+            variant-C.json
+          artworks/
+            variant-A/
+              card-01-v1-original.png
+              card-01-v1-preview.png
+              card-01-v2-original.png
+              ...
+          qa/
+            report.json
+          logs/
+            events.jsonl
+          exports/
+            variant-A-approved.zip
+```
+
+## 10.6 Export contract
+
+```text
+Movie_SciFi_VariantA_Approved.zip
+  README.txt
+  manifest.json
+  set-plan.json
+  QA-report.json
+  contact-sheet.png
+  artwork/
+    01_space-helmet_cat1.png
+    02_retro-control-panel_cat2.png
+    ...
+    10_future-city-portal_cat4.png
+```
+
+Фінальний export має містити **actual image pixels**, не посилання на API чи промпти замість картинок. `manifest` вказує provider, model version, prompt version, input refs, category та QA verdict для кожного PNG.
+
+---
+
+# 11. Prompt engineering і style system
+
+## 11.0 Prompt strategy — producer input vs saved engineering prompts (v1.4)
+
+**Basic UI:** game designer налаштовує тільки theme/genre, варіанти, refs та `Free Wishes`; не має писати десятки низькорівневих prompt tokens.
+
+**Saved Advanced templates:** `system_style_v1`, `planner_v1`, `category_1_v1` … `category_4_v1`, `image_base_v1`, `repair_v1`. Вони збережені локально, редагуються з version history, можуть експортуватися в JSON/MD. **Не плутати** user-facing textarea із цими templates.
+
+```text
+SET_INPUT = Collection + SetGenre + (Cards=10) + (Variants=3..5) + (Golden=false)
+USER_BRIEF = Optional Free Wishes + selected style references
+PLAN_PROMPT = Planner Rules (system) + Style Profile + SET_INPUT + USER_BRIEF
+CARD_PROMPT = Image Prompt Template + Category Rules + CardSpec + relevant refs
+QA = Validation Rules + selected reference + generated artwork
+```
+
+**Пріоритет:** category/style rules та фактичні обмеження ТЗ незмінні за побажаннями. Wishlist впливає на **творчий зміст** (що саме малювати, настрій, історія), а не на заборону чи скасування structural rules.
+
+**No magic model preset:** Prompt Library зберігає модельно-специфічні версії; різні image engines можуть по-різному трактувати ті самі тексти. Збереження prompt не гарантує візуального збігу без реального art pilot.
+
+
+## 11.1 Style Bible (головний consistency artifact)
+
+Формат у `style_profile.json`:
+
+```json
+{
+  "id": "reference-match-v1",
+  "status": "draft_needs_reference_validation",
+  "style_description": "Polished, readable, colorful casual-game object illustrations",
+  "visual_rules": {
+    "silhouette": "Clear silhouette at thumbnail size",
+    "materials": "Soft polished materials, stylized volume",
+    "lighting": "Controlled soft lighting; avoid harsh photo-realism",
+    "color": "Bright, well-separated colors consistent with references",
+    "camera": "Keep perspective and object scale consistent with category examples",
+    "object_centrality": "Primary object remains visually dominant",
+    "text": "No embedded labels, watermarks or UI typography"
+  },
+  "category_rules": {
+    "1": "simple floating object, abstract background",
+    "2": "simple object on a surface, simple background",
+    "3": "object on realistic-feeling surface, spatial background",
+    "4": "central object in a recognizable environment"
+  },
+  "validation_required": [
+    "color palette from source references",
+    "category distribution per 10 cards",
+    "camera and material conventions"
+  ]
+}
+```
+
+(v1.7) `category_rules` у StyleProfile має відповідати таблиці **Category prompt logic** у §3.4 (Cat.1: без дрібних деталей, висить у повітрі, простий фон flat/gradient/pattern/rays; Cat.2: проста поверхня + простий вертикальний фон; Cat.3: реалістичніша поверхня, об'ємна сцена; Cat.4: реалістичне середовище, об'єкт — центральний фокус; Cat.5: лише концепт, locked 0). StyleProfile також містить `category_distribution_default` ({1:2, 2:2, 3:3, 4:3, 5:0}).
+
+Це **starting scaffold**, не твердження, що система вже на 100% відтворює фактичний арт Playrix. Art Bible треба уточнювати на основі наданих прикладів, з візуальною аргументацією.
+
+## 11.2 Set planning prompt — логіка, не готова магічна формула
+
+```text
+SYSTEM: You are a game-content set planner.
+Create 3 to 5 DISTINCT coherent collectible card sets for the given genre.
+Each variant must include EXACTLY 10 UNIQUE object concepts.
+Follow the supplied collection logic and category definitions.
+Never create golden cards for this task.
+Avoid exact or semantic duplicates within a variant and against excluded sets.
+Return strictly schema-valid JSON; no markdown or prose outside JSON.
+For each card provide category, object, composition, background and inclusion rationale.
+Do not invent famous franchise logos or copyrighted characters.
+```
+
+Вхід у planner: collection theme, set theme, wishes, normalized rules, approved used-object list, `Card Category Distribution` (Auto/Custom, §3.4).
+
+## 11.3 Image prompt skeleton
+
+```text
+Task: Generate ONE standalone square collectible-card ARTWORK (not a card frame).
+Object: {{object_description}}.
+Set theme: {{set_theme}}.
+Category: {{category}}.
+Composition rule: {{category_composition_rule}}.
+Background rule: {{category_background_rule}}.
+Style: {{approved_style_bible}}.
+Visual target: the uploaded style references, without copying exact existing art.
+Object must be readable at small size. Keep it central and unobstructed.
+No text, no labels, no stars, no border, no collection window, no watermark.
+One coherent illustration, visually compatible with the other cards in the set.
+```
+
+**Потрібно тестувати:** генерація з 1–3 релевантними category-specific refs проти генерації з усім пулом references, а також text-only prompt проти reference-edit workflows.
+
+## 11.4 Quality-repair prompt
+
+```text
+Regenerate the SAME concept with these corrections:
+- Failed criterion: {{criterion}}
+- Observed problem: {{description}}
+- Required change: {{fix}}
+Keep: {{object_name}}, {{set_art_direction}}, {{approved_style_reference}}
+Do not add: frame, labels, stars, extra foreground items.
+```
+
+**Не слід** надсилати в image API унікальні API-поля, які даний provider не підтримує. `PromptCompiler` робить provider-specific mapping.
+
+## 11.5 Семантична різноманітність
+
+Запропоновані перевірки:
+
+1. Нормалізація назв (`Space Helmet` ≠ `Astronaut Helmet` може бути майже дублікатом).
+2. Semantic review через LLM/embeddings для близьких об'єктів.
+3. Перевірка різних **function types**: інструменти, транспорт, локації, props, предмети сцени тощо.
+4. Зіставлення з об'єктами інших наборів тієї самої колекції.
+5. Human override з поясненням, якщо збереження схожих об'єктів обґрунтоване.
+
+Не можна механічно вимагати по одному об'єкту з кожної довільної групи — логіка жанру важливіша за штучну таксономію.
+
+---
+
+## 11.6 Приклад тришарового замовлення — для smoke test
+
+```yaml
+system_profile: playrix_reference_rules_v1  # preconfigured, read-only in Basic
+collection: Movie Collection
+set_genre: Science Fiction
+cards_per_set: 10
+variants_per_genre: 3
+categories: [1,2,3,4]
+golden_cards: false  # locked in Movie demo
+free_wishes: >-
+  Lighthearted retro-futuristic atmosphere; unusual devices and cosmic exploration;
+  avoid weapons, horror and recognizable franchise logos.
+planning_mode: rules  # Claude Code authors scripts; no runtime Claude API
+image_provider: cloudflare
+image_model: "@cf/black-forest-labs/flux-2-klein-4b"  # first tested REST endpoint
+reference_ids: [style-ref-01, category-1-ref-01, category-3-ref-01]
+```
+
+Для batch із трьох жанрів backend розбиває запит на 3 jobs (Sci-Fi, Detective, Fantasy), зберігаючи окремий provenance кожного жанру. **Три жанри** не слід трактувати як **три варіанти** одного жанру.
+
+
+# 12. Image model selection / provider strategy
+
+**Рішення v1.6:** provider list поділяється на `Live API`, `Live Local`, `Samples Only` та `Not Configured`, але тепер окремо фіксуємо **verified baseline provider** і **recommended first premium provider**. Не заявляти, що вебпідписки на ChatGPT/Gemini є API-доступом. Model names/version IDs — довідкові й мають перевірятися перед фактичним інтегруванням.
+
+
+## 12.1 Практичний висновок
+
+Для цього тестового потрібні **стилізовані object-centric card artworks**, а не надскладні ілюстрації на рівні cinematic key art. Через це **немає сенсу одразу ускладнювати стек двома платними image APIs**. Раціональний шлях такий:
+
+- **Cloudflare FLUX.2 Klein 4B** — зберігаємо як **verified zero-cost baseline / fallback**.
+- **Gemini** — рекомендований **перший premium provider**.
+- **OpenAI GPT Image** — рекомендований **другий premium provider / backup**, а не перша інтеграція.
+
+**Тобто:** якщо питання звучить як *«чи варто брати Nano Banana 2.1, бо у нас не дуже складні іконки?»* — **так, варто**, якщо ми допускаємо невеликий платний API-бюджет.
+
+## 12.2 Candidate image models — verified / documented / planned (v1.6)
+
+| Provider | Модель | Фактичний статус | Роль у проєкті v1.6 |
+|---|---|---|---|
+| **Cloudflare Workers AI** | **`@cf/black-forest-labs/flux-2-klein-4b`** | **REST API smoke test successful:** user generated PNG із Windows PowerShell; reference input `input_image_0` прийнявся, output PNG повернувся. Артова відповідність стилю поки слабка. **(v1.8)** App-adapter реалізований у збірці v1.7 за задокументованим REST-контрактом і протестований на mock; **live-перевірка в застосунку ще очікує** `CLOUDFLARE_ACCOUNT_ID`. | **Verified baseline / fallback / zero-cost path** |
+| Cloudflare Workers AI / Playground | FLUX.2 Klein 9B та інші | Playground-only експерименти; REST API, reference contract, доступ у власному акаунті **не перевірені** | Optional future experiments |
+| **Google Gemini** | **`gemini-nano-banana-2.1`** | **Real external PowerShell REST text-to-image + reference-to-image PNG tests passed; €5 prepaid.** Художня якість ще не оцінена; Web UI/backend adapter ще не написаний. | **Primary provider to implement next** |
+| Google Gemini | `gemini-3.1-flash-lite-image` | Офіційний image API задокументований; ultra-low latency / low-cost option. | **Budget-first premium adapter** |
+| OpenAI | `gpt-image-2.5-flare` | Документація підтверджена; **no API key, no billing, no calls** | **Planned in UI + architecture, disabled** |
+| OpenAI | `gpt-image-2.5-sunburst` | Документація підтверджена; **no API key, no billing, no calls** | **Planned in UI + architecture, disabled** |
+| Local optional | ComfyUI / FLUX / SDXL / інші | **Not configured** | Резерв на випадок слабкої якості або вичерпання хмарної квоти |
+| **ByteDance Seedream 4.5** (v1.8, через Cloudflare) | `bytedance/seedream-4.5` | **Planned**: лише в backlog; опублікована ціна ≈ $0.04 за зображення; не перевірялась у власному акаунті | **Future cloud candidate; не вмикати й не робити платних викликів без окремого схвалення** (§12.7) |
+| Local models (v1.8) | FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo, ERNIE-Image Base, Qwen-Image-Edit-2511, Qwen-Image-2512 | **Planned**: ваги не завантажені, runtime не встановлений, adapters немає | **Visible but disabled; post-MVP evaluation** (§12.7) |
+
+**Не фіксувати FLUX як єдиного провайдера:** однаковий request contract + різні model adapters. Не змішувати `provider` із `model ID`; за потреби в межах Cloudflare можна додати інші моделі адаптерами.
+
+## 12.3 Чому Gemini primary, а OpenAI planned/disabled
+
+### Gemini — сильні сторони для цього кейсу
+
+- Google прямо пише, що **Gemini 3.1 Flash Image (Nano Banana 2)** має бути **go-to image generation model** і дає найкращий баланс performance/intelligence/cost/latency.
+- Gemini image docs підтримують **image editing**, **multi-turn image editing**, **conversational iteration** та **reference images**; у Gemini 3 image models можна змішувати **до 14 reference images** з різними high-fidelity обмеженнями залежно від моделі.
+- Для `gemini-3.1-flash-image` pricing page дає просту оцінку приблизно **$0.067 за 1K image** у standard mode, а `gemini-3.1-flash-lite-image` — приблизно **$0.0336 за 1K image**; у batch ще дешевше.
+- Для нашого workflow це означає: **досить сильний reference/edit pipeline** без надлишкової складності й з передбачуванішим бюджетом на 30–90 card artworks.
+
+### OpenAI — сильні сторони
+
+- OpenAI image stack чітко розділяє **Image API** (generations + edits) та **Responses API** для conversational / multi-step flows.
+- GPT Image також підтримує **кілька reference images** у reference workflow.
+- Корисні додаткові можливості: **transparent backgrounds**, **SVG output** і **animated GIF output**.
+- Моделі `gpt-image-2.5-flare` і `gpt-image-2.5-sunburst` описані як fast everyday generation та most capable editing-oriented variant відповідно.
+
+### Чому OpenAI не перший вибір саме зараз
+
+- Для нашого конкретного Playrix test case головне — **швидко запустити один якісний image adapter**, а не роздувати інтеграцію.
+- Gemini дає простішу для planning/product thinking картину: **go-to image model + cheaper lite variant + зрозумілий per-image equivalent**.
+- OpenAI я би тримав як **adapter №2**, якщо pilot покаже, що потрібні або кращі repair edits, або спеціальні output modes (SVG/transparent/GIF), або просто альтернативний art benchmark.
+
+## 12.3.1 Model selector and availability in the intended Web UI (v1.6)
+
+The **single Gemini API key** is used for multiple Gemini image model IDs. UI shows:
+
+- `Gemini · Nano Banana 2.1` / `gemini-nano-banana-2.1`: **Verified external REST text+reference**; default after backend integration.
+- `Gemini · Nano Banana 2` / `gemini-3.1-flash-image`: **Documented; account/model availability not yet checked**.
+- `Gemini · Nano Banana 2 Lite` / `gemini-3.1-flash-lite-image`: **Documented; account/model availability not yet checked**.
+- `Gemini · Nano Banana Pro` / `gemini-3-pro-image`: **Documented; account/model availability not yet checked**.
+- `OpenAI · GPT Image Flare` / `gpt-image-2.5-flare`: **Planned, disabled / Not configured**.
+- `OpenAI · GPT Image Sunburst` / `gpt-image-2.5-sunburst`: **Planned, disabled / Not configured**.
+- `Cloudflare · FLUX.2 Klein 4B`: **Verified external REST / fallback**; (v1.8) adapter implemented and mock-tested, **live app verification pending `CLOUDFLARE_ACCOUNT_ID`**; shown disabled (`Not configured`) until configured.
+- `ByteDance · Seedream 4.5` / `bytedance/seedream-4.5` (via Cloudflare): **Planned, disabled** (v1.8).
+- **Local models (v1.8, all Planned, visible but disabled):** FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo, ERNIE-Image Base, Qwen-Image-Edit-2511, Qwen-Image-2512.
+- `Mock` — для development/testing.
+
+**(v1.8) Групування селектора за runtime:** `Cloud API` → `Local (planned)` → `Development / testing`; повний реєстр, правила й metadata-контракт — §12.7.
+
+**Do not conflate**: API account key exists ≠ each image model is available ≠ adapter implemented in Web UI. Never call a model just because its name is visible. UI `status` should represent `documented` / `external_rest_verified` / `configured_app` / `app_live` / `disabled_no_key` separately.
+
+**Required OpenAI planned adapter scaffold:** `OpenAIImageProvider` implementing the common interface (reference upload or edits, generation, output PNG normalization, exceptions, usage estimation and provenance); capability metadata and contract tests using mocks; backend runtime feature flag `OPENAI_IMAGE_ENABLED=false`; **no real API network requests in build/test pipelines**, unless the user later chooses to enable and fund it. UI must show disabled state with reason and future configuration instructions.
+
+## 12.4 Provider capabilities — не приписувати те, чого немає
+
+`ImageProviderAdapter` повертає capabilities + availability **під час runtime**. Для різних провайдерів вони можуть відрізнятись, тому UI не повинен удавати однакову поведінку всюди. Приклад внутрішнього capability contract:
+
+```json
+{
+  "provider": "google-gemini",
+  "model": "gemini-nano-banana-2.1",
+  "supports_reference_images": true,
+  "supports_multi_turn_editing": true,
+  "supports_image_editing": true,
+  "supports_transparent_background": false,
+  "supports_svg_output": false,
+  "supports_batch_mode": true,
+  "cost_type": "token_billing_with_per-image-equivalent",
+  "status": "api_doc_verified"
+}
+```
+
+Окремо для OpenAI capability map має вміти показувати `transparent_background`, `svg_output`, `gif_output`, а для Cloudflare — значно скромніший набір можливостей.
+
+## 12.5 Model evaluation plan
+
+**Pilot:**
+
+1. Вибрати 4 референсні category cases (по одному на категорію 1–4).
+2. Для кожного case обрати один і той самий object spec та style refs.
+3. Спочатку порівняти **Cloudflare baseline vs Gemini first premium**.
+4. Лише якщо потрібно — додати **OpenAI** як третій benchmark.
+5. Оцінити blind або хоча б за однаковим rubric.
+6. Зафіксувати: effective pass rate, реальні витрати, processing time, кількість retries, найтиповіші помилки.
+7. Вибрати default, fallback та strategy для категорій.
+
+**Висновок pilot має бути даними, але поточний implementation priority у v1.6 такий:**
+
+- `primary provider = Gemini Nano Banana 2.1` (external REST text+reference verified; app integration pending)
+- `default zero-cost baseline = Cloudflare FLUX.2 Klein 4B`
+- `planned optional second provider = OpenAI GPT Image` (**runtime disabled**, no billing)
+
+## 12.6 Вартість і бюджет: формула замість фальшивої точності
+
+```text
+planned_initial_images = number_of_sets * variants_per_set * 10
+actual_image_calls = planned_initial_images + retries
+image_cost = sum(provider_reported_usage_or_billing_for_each_call)
+planning_cost = sum(planner_tokens * planner_rates)
+qa_cost = sum(vision_eval_tokens * qa_rates)
+total_cost = image_cost + planning_cost + qa_cost + optional_storage/infra
+cost_per_accepted_card = total_cost / accepted_cards
+cost_per_accepted_set = total_cost / accepted_sets
+```
+
+**v1.6 cost model:** **Gemini Nano Banana 2.1 підключено у власному платному API-акаунті з prepaid €5**; Cloudflare Workers AI Free може бути fallback з лімітованою квотою, OpenAI GPT Image витрати заборонені. Не плутати `API використовується` з `API платний`: вже є перевірений REST image call. Витрати/usage і квоту перевіряти для кожного batch; при ліміті зупиняти запуск без оплат. Локальний GPU — лише optional fallback. Числові тарифи попередніх концептів **не є бюджетом поточного MVP**.
+
+**Для MVP default v1.6:** `image_provider=gemini`, `image_model=gemini-nano-banana-2.1`, `paid_api_allowed_for=[gemini]`, `max_estimated_job_cost_usd` із консервативним невеликим лімітом, `max_retries_per_card`, `max_parallel_generations`. **OpenAI paid = false**; Cloudflare fallback може працювати за безкоштовною квотою. Локальні cost guards — best-effort, а не гарантія точного списання Google. Для локального GPU показувати `execution time / output count / retries`, а не вигадані доларові витрати.
+
+## 12.7 Model roadmap and capability metadata (v1.8) [U]/[D]
+
+**Статус:** це **future integration backlog**, а не scope MVP. Фази 0–7, наявна Gemini-функціональність і provider abstraction **не змінюються**. Жодна з нових моделей не встановлюється, не завантажується й не інтегрується зараз; після того, як MVP запрацює, оцінюємо локальні моделі, порівнюємо якість і вирішуємо, які активувати. **Базова лінія для порівняння:** локальний Phase 3 Gemini benchmark (`benchmarks/phase3_gemini_baseline`, поза Git).
+
+### Реєстр моделей (групування Model Selector за runtime)
+
+| Runtime | UI label | `provider_id` / `model_id` | Статус у v1.8 | Примітки щодо capabilities |
+|---|---|---|---|---|
+| Cloud API | Google Gemini · Nano Banana 2.1 | `gemini` / `gemini-nano-banana-2.1` | **Active** (наявна інтеграція, без змін) | text-to-image ✓ (перевірено live); editing і references за документацією (до 14 refs у Gemini 3 family) |
+| Cloud API | Cloudflare · FLUX.2 Klein 4B | `cloudflare` / `@cf/black-forest-labs/flux-2-klein-4b` | (v1.9) **Configured** після підключення credentials; **не live до реального успішного запиту** (adapter реалізований за документацією, mock-tested; live smoke test — після схвалення) | text-to-image ✓; reference-images до 4 (multipart `input_image_0..3`) — очікування з документації, `verified: false` |
+| Cloud API | Cloudflare · FLUX.1 Schnell | `cloudflare` / `@cf/black-forest-labs/flux-1-schnell` | (v1.9) **Configured** після підключення credentials; не live до реального запиту | **лише text-to-image**; references **недоступні** (`max_reference_images: 0`) |
+| Cloud API | ByteDance Seedream 4.5 (через Cloudflare) | `cloudflare` / `bytedance/seedream-4.5` | **Planned** (visible, disabled) | capabilities — лише очікування (`verified: false`; editing `null`, references не припускаються); опублікована ціна ≈ $0.04 / image |
+| Cloud API | OpenAI GPT Image | `openai` / `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` | **Not configured, disabled** (без key/billing/викликів) | за документацією: generation, edits, кілька refs |
+| Local (planned) | FLUX.2 Klein 4B | `local` / `flux-2-klein-4b` | **Planned** | очікується text-to-image і reference-editing (hosted-версія приймає reference); локально не перевірено (`verified: false`) |
+| Local (planned) | Z-Image-Turbo | `local` / `z-image-turbo` | **Planned** | очікується text-to-image; editing і references не припускаються |
+| Local (planned) | Z-Image Base | `local` / `z-image-base` | **Planned** | очікується text-to-image; editing і references не припускаються |
+| Local (planned) | ERNIE-Image-Turbo | `local` / `ernie-image-turbo` | **Planned** | очікується text-to-image; опція `prompt_enhancement` (нижче) |
+| Local (planned) | ERNIE-Image Base | `local` / `ernie-image-base` | **Planned** | очікується text-to-image; опція `prompt_enhancement` |
+| Local (planned) | Qwen-Image-Edit-2511 | `local` / `qwen-image-edit-2511` | **Planned** | **editing-capable model**: `image_editing` очікується ✓, `text_to_image` = `null` (**не** вважати стандартним text-to-image генератором) |
+| Local (planned) | Qwen-Image-2512 | `local` / `qwen-image-2512` | **Planned** | очікується text-to-image; editing не припускати (`null`) |
+| Development / testing | Mock (offline) | `mock` / `mock-placeholder-v1` | Available (завжди позначений Mock) | без AI-моделі, без вартості |
+
+`model_id` для `local` — робочі ідентифікатори реєстру (не твердження про офіційні upstream-назви); їх можна уточнити під час інтеграції адаптера. Для Seedream свідомо обрано версію **4.5**.
+
+### Вимоги до інтеграції
+
+1. **Усі моделі працюють через наявну provider abstraction** (`ImageProvider`, registry, capabilities); ядро, Prompt Compiler і UI не прив'язуються до конкретної моделі.
+2. **Local-моделі підключаються пізніше через локальний inference runtime**, потенційно **ComfyUI API** (один runtime-adapter, workflow на модель). **Ваги моделей і runtimes зараз не завантажуються й не встановлюються.**
+3. **Planned-моделі видимі, але `selectable=false`**, доки не готові adapter і runtime-конфігурація; статус змінюється лише за наявною таксономією (`planned` → `configured_app` → `app_live`) після реальної перевірки. **Недоступну модель ніколи не показувати як робочу**; у селекторі завжди є `disabled_reason`.
+4. **Qwen-Image-Edit-2511 — editing-capable модель**, а не автоматично стандартний text-to-image генератор: у UI позначка `Editing model`, а для режиму «нова картка з тексту» вона недоступна, доки text-to-image не підтверджено.
+5. **ERNIE:** `Prompt Enhancement` планується як **опційна конфігурація** (`options`, за замовчуванням вимкнена, статус `planned`), **а не дубль моделей** у селекторі. Якщо її ввімкнено, provenance має зберігати і вихідний, і покращений prompt.
+6. **Capability metadata ведеться для кожної моделі** (контракт нижче); для planned-моделей значення — **очікування**, позначені `verified: false` (UI показує «expected, not verified»); невідоме позначається `null` (unverified), а `max_reference_images` = `null`, якщо невідомо; **не вигадувати** обсяги VRAM/розміри.
+7. **Ідентифікатори (`provider_id`, `model_id`) відокремлені від людиночитних `label`** у UI; логіка, provenance і manifest використовують лише ідентифікатори.
+
+### Metadata-контракт запису моделі (API `/api/models`)
+
+| Поле | Значення |
+|---|---|
+| `provider_id`, `provider_label` | технічний id провайдера / назва для UI |
+| `model_id` · `label` | фактичний ідентифікатор · людиночитний UI-текст (окремі поля) |
+| `runtime` | `cloud_api` \| `local` \| `test` |
+| `status` | наявна таксономія + `planned` |
+| `selectable`, `disabled_reason` | чи можна обрати · чому ні |
+| `capabilities` | `text_to_image` (`true`/`false`/`null` = unverified), `image_editing` (`true`/`false`/`null`), `supports_reference_images`, `max_reference_images` (`null`, якщо невідомо), `aspect_ratios`, `notes`, `verified` (`false` = очікування для planned-моделі, ще не перевірене в застосунку) |
+| `runtime_requirements` | напр. «local inference runtime (потенційно ComfyUI API) + ваги моделі; не встановлено» |
+| `options` | напр. ERNIE: `[{key: "prompt_enhancement", label: "Prompt Enhancement", default: false, status: "planned"}]` |
+| `price_note` | напр. Seedream 4.5: «опублікована ціна ≈ $0.04 / image; не перевірено» |
+
+### 12.7.1 Безкоштовні Cloudflare-моделі: FLUX.2 Klein 4B і FLUX.1 Schnell (v1.9)
+
+**Джерело фактів:** публічна документація Cloudflare Workers AI (сторінки моделей, pricing, errors); нічого з цього ще **не перевірено live** (`verified: false`).
+
+| | FLUX.2 Klein 4B | FLUX.1 Schnell |
+|---|---|---|
+| Запит | `multipart/form-data` навіть без зображень: `prompt`, `input_image_0..3` (до 4, кожне < 512×512), `width`/`height` (256–1920), `seed`; `steps` фіксовано | JSON `{prompt, steps (≤8), seed}`; без розміру й без image input |
+| Відповідь | base64-зображення (`result.image`), нормалізується в PNG | base64 JPEG, нормалізується в PNG |
+| References | **так**, до 4 (адаптер зменшує кожне до < 512×512) | **ні**: у job references не надсилаються, provenance фіксує `reference_selection = unsupported_by_model`; пряма картка з references відхиляється з поясненням |
+| Орієнтовна вартість (опублікована) | ≈ 110 Neurons (~$0.0012) / 1024² зображення | ≈ 58 Neurons (~$0.0006) / зображення |
+
+**Правила безпеки free-tier (обов'язкові):**
+1. Безкоштовне — це **добова квота 10 000 Neurons** (скидання 00:00 UTC) на плані Workers Free; поза нею запити **відхиляються** на Free і **тарифікуються** на Workers Paid. Модель **не позначається «безумовно безкоштовною»**; у `price_note` це сказано явно.
+2. Застосунок **ніколи не змінює й не активує платний план Cloudflare**.
+3. **Немає тихого fallback**: помилка/квота Cloudflare зупиняє job із чітким повідомленням; інший провайдер не викликається автоматично.
+4. Квотна помилка (`3036`, HTTP 429) → `quota_exceeded`: не retryable, не billable, повідомлення «добова безкоштовна квота вичерпана, нічого не списано, зміну плану не виконано; зачекайте до 00:00 UTC або оберіть іншу модель». Інші 429 — звичайний rate limit; `3040` — тимчасова нестача потужності; `5035` — модель потребує Workers Paid (`plan_required`).
+5. Налаштування `CLOUDFLARE_PLAN` (`free` за замовчуванням): `free` → оцінка 0, без confirmation; `paid` → оцінка за опублікованою ціною, діють confirmation і budget caps як для Gemini.
+6. Перші live-запити (smoke test) виконуються **лише після явного схвалення користувача**, мінімальним обсягом (`scripts/smoke_cloudflare.py`, один запит на модель).
+
+### Seedream 4.5 (через Cloudflare)
+
+Cloudflare model ID: **`bytedance/seedream-4.5`**; опублікована ціна **≈ $0.04 за згенероване зображення**. **Не вмикати й не робити платних викликів**, доки інтеграцію явно не схвалено та не перевірено billing і credentials; до цього — лише рядок `Planned` у селекторі. Cost guard при вмиканні має отримати окрему оцінку за зображення, а не ставку Gemini.
+
+---
+
+# 13. QA rubric / формалізована перевірка
+
+## 13.1 Спочатку hard rules
+
+| Rule ID | Перевірка | Автоматична? | Якщо fail |
+|---|---|---|---|
+| HR-01 | Рівно 10 card specs/variant | Так | Replan |
+| HR-02 | Картки мають унікальні IDs та names | Так | Replan |
+| HR-03 | Для demo тільки Cat. 1–4 | Так | Reject plan |
+| HR-04 | Golden off | Так | Reject plan |
+| HR-05 | Кожен artwork файл читається | Так | Regenerate asset |
+| HR-06 | Export містить потрібні файли | Так | Rebuild export |
+| HR-07 | Кожна картка має category-specific rules | Так | Replan / fix spec |
+| HR-08 | Card Category Distribution дотримано (кількість карток по Cat.1–4 = запитаному; Σ=10; кожна ≥1; Cat.5=0; §3.4) | Так | Replan |
+| HR-09 | Немає exact duplicate artwork file hashes | Так | Review / regenerate |
+| HR-10 | API calls не виходять за budget/rate caps | Так | Stop/queue |
+
+## 13.2 Художня оцінка — human rubric, не автоматичний score
+
+Людина переглядає кожну ілюстрацію та весь набір за критеріями: (1) схожість стилю на source refs; (2) композиція категорії; (3) відповідність темі; (4) читабельність на thumbnail; (5) узгодженість набору. **Не виводити AI-generated відсотки і не встановлювати автоматичні `best match` без валідованої методики.**
+
+## 13.3 Приклад запису QA (схема, не реальний результат)
+
+```json
+{
+  "card_id": "sci-fi-A-01",
+  "technical_qa": "passed",
+  "checks": {"file_readable": true, "format": "PNG", "dimensions": [512, 512]},
+  "art_review": "pending",
+  "reviewer_notes": [],
+  "regeneration_requested": false
+}
+```
+
+Фінальне прийняття artwork — ручне. За потреби UI фіксує зауваження, reviewer ID/label і дату.
+
+## 13.4 Set-level checks
+
+- Три об'єкти занадто схожі? Якщо так — змінити plan, а не просто перегенерувати з тим самим subject.
+- Одна картка різко відрізняється за світлом/матеріалами? Targeted regenerate.
+- Category 1 випадково виглядає як Category 4? Перевірити prompt та image.
+- Усі елементи жанрові, але сам набір не розповідає єдиної історії? Перепланування concept.
+- У варіантах A/B/C фактично однакові 10 об'єктів? Регенерувати плани, не лише картинки.
+
+## 13.5 Human-in-the-loop
+
+- У базовому happy path людина **не потрібна до результатів**.
+- Після автоматичного output людина виконує фінальний acceptance review (порівняння поряд із референсом).
+- Помилку можна `accept with reason` або `regenerate`; усі overrides логуються.
+- Автономність треба **вимірювати** за кількістю втручань, а не оголошувати абсолютною.
+
+---
+
+# 14. Experiment design — як довести, що рішення працює
+
+## 14.1 Порядок перевірок: не починати з повноцінного UI
+
+**Experiment 1 — Prompt/reference feasibility:** 4–8 artwork у всіх категоріях.  
+**Experiment 2 — Set planning:** 3–5 різних концептів по 10 структурно валідних карток.  
+**Experiment 3 — Style consistency:** один повний сет із 10 artwork.  
+**Experiment 4 — Automated QA & targeted retries:** перевірити 2–3 спеціально проблемних outputs.  
+**Experiment 5 — End-to-end Web UI:** один користувач проходить complete flow без коду.  
+**Experiment 6 — Three genres:** фінальний тест на 3 жанрах і 3–5 варіантах кожного.
+
+Чому так: найбільший ризик — **чи здатні публічні image-моделі дотриматися стилю й категорій**. Немає сенсу будувати складний frontend до першої успішної 10-card серії.
+
+## 14.2 A/B порівняння підходів
+
+| Тест | A | B | Вимірюваний результат |
+|---|---|---|---|
+| Reference usage | 1 common style reference | 2–4 category-specific refs | Style match, category adherence |
+| Planning | One plan then random variations | 3–5 explicitly different concepts | Semantic novelty |
+| Generation | All images independently | Shared style manifest + prior approved examples | Cohesion |
+| QA | Technical checks + human review | Targeted regeneration after human feedback | Accepted rate / intervention count |
+| Models | **Gemini Nano Banana 2.1 (text/reference REST tested)** | **Cloudflare fallback; OpenAI GPT Image planned/disabled** | Style/category fidelity, actual app integration, budget/quota |
+| Resolution | 512 px verified smoke-test size | Other supported sizes only after provider-specific verification | Quality / actual quota cost |
+
+Результати фіксувати в таблиці `experiments.csv` та в Miro: **гіпотеза → inputs → outputs → спостереження → рішення**.
+
+## 14.3 Метрики
+
+```text
+first_pass_acceptance_rate = first_attempt_accepted / initial_outputs
+final_acceptance_rate = accepted_cards / expected_cards
+average_generation_attempts = total_image_calls / accepted_cards
+human_interventions = count(manual_edits + manual_regenerations + overrides)
+manual_intervention_rate = human_interventions / accepted_cards
+cost_per_accepted_card = total_api_cost / accepted_cards
+time_per_accepted_set = accepted_set_duration_seconds / count(accepted_sets)
+planning_validity_rate = valid_plans / proposed_plans
+```
+
+Збирати фактичний `model ID`, `retry reason`, `QA verdict`, `usage`, `latency`, `review decision`. Чітко відрізняти measured values від estimate та гіпотез.
+
+## 14.4 Baseline для висновків
+
+Тестове не дає кількісного порогу прийняття. Тому не можна чесно заявляти «заощадження 80% часу» без виміряного ручного baseline. Якщо порівняння з ручною роботою недоступне — показати фактичний час/вартість автоматизованого процесу і написати, що **manual baseline не вимірювався**.
+
+---
+
+# 15. Три демонабори для Movie Collection — початкова концепція [D]
+
+**Вимога:** три різні кіножанри, без золота, 10 artwork/сет. Нижче — **робочі кандидати для планувальника**, не затверджений art plan і не готовий результат. Після аналізу ref frames і тесту моделі назви та категорії можна змінювати.
+
+## 15.1 Set A — Science Fiction / Retro Space Discovery
+
+**Фантазія:** доброзичливий, яскравий retro-futuristic кіножанр, що асоціюється з космічними експедиціями. Не використовувати чужі франшизні логотипи/персонажів.
+
+| № | Об'єкт — кандидат | Категорія (попередньо) | Чому він тут |
+|---:|---|---:|---|
+| 1 | Holographic Communicator | 1 | Миттєво впізнаваний sci-fi gadget |
+| 2 | Space Helmet | 1 | Силует космічної тематики |
+| 3 | Anti-Gravity Boots | 2 | Об'єкт на опорі, простий фон |
+| 4 | Robot Assistant | 2 | Character-like device; не золота картка, не ігровий герой |
+| 5 | Stellar Navigation Console | 2 | Control prop без розгорнутої сцени |
+| 6 | Asteroid Sample Container | 3 | Лабораторний контекст і реалістична поверхня |
+| 7 | Lunar Rover | 3 | Розпізнаваний предмет на поверхні |
+| 8 | Orbital Telescope | 4 | Об'єкт у space-observatory environment |
+| 9 | Interstellar Transit Gate | 4 | Центральний портал у цікавій локації |
+| 10 | Landing Shuttle | 4 | Центральний транспорт на посадковому майданчику |
+
+**Ризик:** sci-fi іконки легко стають надто технічними, «реалістичними» або темними; слід контролювати simplification, кольори й silhouette.
+
+## 15.2 Set B — Detective & Mystery / Classic Whodunit
+
+**Фантазія:** пригодницький детектив у доступній casual стилізації, без графічного насильства.
+
+| № | Об'єкт — кандидат | Категорія (попередньо) | Чому він тут |
+|---:|---|---:|---|
+| 1 | Magnifying Glass | 1 | Класичний символ розслідування |
+| 2 | Coded Note | 1 | Пізнавана загадка |
+| 3 | Detective Hat | 2 | Кіношний реквізит на поверхні |
+| 4 | Evidence Case | 2 | Збір доказів |
+| 5 | Pocket Recorder | 2 | Ключовий предмет детективної історії |
+| 6 | Typewriter with Clue | 3 | Впізнавана композиція на столі |
+| 7 | Locked Antique Safe | 3 | Секрет, інтрига |
+| 8 | Investigation Board | 4 | Центр кімнати розслідувань |
+| 9 | Midnight Telephone Booth | 4 | Виразний предмет у міському середовищі |
+| 10 | Mysterious Manor Door | 4 | Атмосферний центральний об'єкт у оточенні |
+
+**Ризик:** категорія 4 може перетворитися на landscape із надлишком деталей; тримати конкретний focal object.
+
+## 15.3 Set C — Fantasy Adventure / Magical Quest
+
+**Фантазія:** легка магічна пригода, яскраві предмети з чарівного світу. Не прив'язуватися до конкретних захищених фентезійних франшиз.
+
+| № | Об'єкт — кандидат | Категорія (попередньо) | Чому він тут |
+|---:|---|---:|---|
+| 1 | Crystal Wand | 1 | Простий магічний силует |
+| 2 | Enchanted Compass | 1 | Пригодницький предмет |
+| 3 | Potion Bottle | 2 | Зрозуміла casual-іконка на опорі |
+| 4 | Spellbook on Stand | 2 | Символ магічного навчання |
+| 5 | Mystic Lantern | 2 | Артефакт із простим тлом |
+| 6 | Treasure Chest | 3 | Об'єкт на фізичній поверхні |
+| 7 | Dragon Egg | 3 | Магічний object prop у контексті |
+| 8 | Ancient Stone Altar | 4 | Центральний об'єкт у середовищі |
+| 9 | Castle Gate | 4 | Впізнавана fantasy-локація з focal object |
+| 10 | Enchanted Bridge | 4 | Фінальна композиція у fantasy environment |
+
+**Ризик:** вихід може стати надто «дитячим», painterly або зовсім іншим за матеріалами; art refs важливіші за generic fantasy-естетику.
+
+## 15.4 Як із цих трьох зробити 3–5 варіантів на кожен
+
+Варіанти мають відрізнятися **ідеєю сету**, а не тільки довільною кольоровою варіацією. Приклади:
+
+- Science Fiction: `Retro Space Discovery` / `Alien City Life` / `Future Laboratory`.
+- Detective: `Classic Whodunit` / `Secret Agent Gadgets` / `Museum Heist Mystery`.
+- Fantasy: `Magical Quest` / `Wizard Workshop` / `Enchanted Forest Adventure`.
+
+**Це 9 запропонованих напрямків, а не фінальні 90 card specs.** Набори формує planner із обов'язковою перевіркою на дублікати й категорійні правила. Для тесту слід показати, що система може видати 3–5 повних output groups на один запит, і обрати один найкращий із кожного жанру для Miro.
+
+---
+
+## 15.5 Семантика "3 жанри" проти "3–5 варіантів" (критично)
+
+- **Genre / Set** — одна тема всередині Movie Collection (Sci-Fi, Detective або Fantasy).
+- **Variant** — альтернативна **група 10 artworks тієї самої теми** (A, B, C ...).
+- **Movie test** — три різні жанри, **без золотих**, для фінальної подачі по одному найкращому набору кожного.
+- **Pipeline requirement** — для **кожного** запиту по genre produce 3–5 різних variants; batch з трьох genres з `variants=3` означає теоретично 9 різних наборів/90 artwork (до retries).
+- Важливо не перетворити 3 різних genres на 3 variants одного set: це підміна вимоги.
+
+
+# 16. Scope / MoSCoW
+
+## 16.1 MUST HAVE — без цього тестове не виконується
+
+- [ ] Сформульований і показаний аналіз референсів — ідейна та візуальна частини.
+- [ ] Style Bible / composition rule profile.
+- [ ] Генерація **3–5 повних варіантів набору** на input theme + wishes.
+- [ ] Рівно 10 зображень у кожному варіанті.
+- [ ] Всі чотири category rules застосовано згідно затвердженого ref profile.
+- [ ] Жодних золотих карток у трьох тестових наборах.
+- [ ] API/пайплайн із реальними calls, не просто статичний mockup.
+- [ ] Можливість незалежного запуску іншою людиною — UI або чіткий automated script workflow; обраний підхід: Web UI.
+- [ ] Референси застосовуються у planning/style workflow, а не просто відображаються на екрані.
+- [ ] Збереження output і можливість повторної генерації failed individual card.
+- [ ] Фактичні outputs для трьох різних жанрів.
+- [ ] Порівняльна оцінка з референсами, включно з недоліками.
+- [ ] Весь процес на Miro + GitHub code link.
+
+## 16.2 SHOULD HAVE
+
+- [ ] **[U] Reference Compare:** Split Slider зліва Generated/справа Reference, Side by Side (1×1, дві повні картинки), Grid Overview (10 пар) + вибір правильного референсу. Не є формальною вимогою Playrix, але входить до погодженого UX scope нашого продукту.
+- [ ] Перегляд 3–5 variants side-by-side.
+- [ ] Роздільні tabs Plans / Results / QA / Logs.
+- [ ] JSON/ZIP export + contact sheet.
+- [ ] Cost/time/attempt counters.
+- [ ] Збереження jobs після browser refresh.
+- [ ] Alternative model adapter.
+- [ ] Блокування повторного запуску одного й того ж job випадковими кліками.
+
+## 16.3 COULD HAVE
+
+- [ ] Upload user-generated replacement art.
+- [ ] Templates/History UI.
+- [ ] Category-specific reference tagging.
+- [ ] Optional frame-overlay preview.
+- [ ] n8n notification/log sync.
+- [ ] Offline local LLM для частини text-only planning.
+
+## 16.4 WON'T HAVE IN MVP
+
+- [ ] Full game UI/window compositor (Playrix прямо не вимагає).
+- [ ] Генерація готових анімованих assets.
+- [ ] Splash screen, VFX, character animation, 3D meshes.
+- [ ] Навчання власної LoRA/моделі з Playrix refs.
+- [ ] Автоматичне публікування зображень у живу гру.
+- [ ] Enterprise accounts, RBAC, multi-tenant billing.
+
+---
+
+## 16.5 Реалістичний бюджет часу та stop conditions для неоплачуваного PoC [U]/[D]
+
+- Критична перевірка **до масштабування:** окремий Cloudflare REST smoke test уже пройдено (текстовий + з референсом), але художня якість слабка; протестувати 4 категорії, інші модельні adapters та невеликий batch із реальним quota-monitoring перед 30/90 images.
+- Paid API **лише Gemini**: prepaid €5 уже зараховано; app-level budget gate + finite retry limit; Cloudflare **Free** може бути fallback. OpenAI `OPENAI_IMAGE_ENABLED=false` і `OPENAI_PAID_CALLS_ENABLED=false`. Import research samples працює незалежно від providers.
+- Якщо Gemini art зі style reference недостатньо близький: змінити ref selection/prompt/QA, порівняти Cloudflare baseline та окремі дозволені Gemini models; задокументувати gap, не підміняти імпортованими картинками результат живого app pipeline.
+- No public hosting, accounts, complex cloud queues, автоматичне компонування рамок, навчання власної LoRA у першому PoC.
+
+
+# 17. Backlog, спринти/фази та definition of done
+
+Це **порядок робіт, не обіцянка календарних строків**. Перехід до наступної фази здійснюється за результатом перевірки, а не після фіксованої кількості годин.
+
+## Phase 0 — Reference discovery + rubric
+
+**Tasks:**
+- [ ] Зібрати всі source refs у локальну папку з метаданими (не пушити чужі матеріали публічно без дозволу).
+- [ ] Позначити по кілька позитивних/пограничних прикладів кожної категорії.
+- [ ] Зафіксувати композиційні й стилістичні правила.
+- [ ] Перевірити фактичну category distribution/rarity mapping на повному фреймі.
+- [ ] Створити `style-profile-v1.json`, `reference-analysis.md`.
+
+**DoD:** незалежний художник може прочитати rubric і зрозуміти, чим Cat. 2 відрізняється від Cat. 3.
+
+## Phase 1 — Provider proof-of-concept
+
+**Tasks:**
+- [ ] Перевірити API key/billing/quota і доступність моделей.
+- [ ] Реалізувати **Gemini / Nano Banana 2.1 adapter** на основі вже перевірених text-to-image та reference-to-image REST smoke tests; токен лише backend. Потім додати Cloudflare fallback adapter.
+- [ ] Згенерувати 4–8 пробних картинок Cat. 1–4.
+- [ ] Порівняти за rubric; задокументувати failed cases.
+- [ ] За потреби порівняти challenger model.
+
+**DoD:** є хоча б один реально переконливий приклад для кожної категорії й зрозумілий план покращення слабких категорій; якщо немає — об'єктивно зафіксовано blocker.
+
+## Phase 2 — Structured planner
+
+**Tasks:**
+- [ ] Pydantic schema для `SetVariant`, `CardSpec`.
+- [ ] Генератор 3–5 різних планів по 10 карток.
+- [ ] Category rules, unique IDs/objects, no golden.
+- [ ] Card Category Distribution (§3.4): моделі `auto_balanced`/`custom`, валідація (Σ=10, кожна Cat.1–4 ≥1, Cat.5=0), призначення об'єктів у category slots, однаковий розподіл у всіх 3–5 альтернативах.
+- [ ] Retry malformed JSON + semantic review.
+- [ ] Unit tests на invalid plans.
+
+**DoD:** набір валідний без ручного редагування для 3 жанрів; invalid prompt не дає invalid output без помітного попередження.
+
+## Phase 3 — Image worker + storage
+
+**Tasks:**
+- [ ] Job states і збереження в SQLite.
+- [ ] Async/background execution поза HTTP request.
+- [ ] Input refs, image generation, file saving, basic thumbnails.
+- [ ] Per-card status, retry network failures, budget cap.
+- [ ] Логи з prompt/model/cost provenance.
+
+**DoD:** після restart browser/worker збережений job і готові картинки доступні.
+
+## Phase 4 — Automated QA + corrections
+
+**Tasks:**
+- [ ] Technical QA.
+- [ ] Human art review з category rubric, без обов'язкового Vision evaluator.
+- [ ] `Regenerate failed card` з обмеженням спроб.
+- [ ] Whole-set audit + reasons.
+- [ ] Протестувати 2–3 edge cases, показати невдалі спроби.
+
+**DoD:** одне невдале зображення можна замінити без повторного generation інших 9.
+
+## Phase 5 — Web UI matching sketch
+
+**Tasks:**
+- [ ] Left form (theme/genre/variants/wishes/style refs/models/resolution).
+- [ ] `Card Category Distribution` control у Generation Settings (`Auto (Balanced)` / `Custom`, steppers Cat.1–4, Cat.5 locked 0, лічильник Σ=10, inline-валідація) без зміни затвердженого layout.
+- [ ] Upload refs та preview.
+- [ ] Generate + progress bar.
+- [ ] Right gallery with 3–5 variants and 10 card previews.
+- [ ] `Reference Compare` component: Split Slider, Side by Side (1×1), Grid Overview (10 pairs), category-aware reference selection, image fit/zoom, keyboard/touch interactions.
+- [ ] Integration tests: зміна reference, переключення трьох режимів, regenerated artwork version, збереження зв'язку після refresh.
+- [ ] QA/log/plans tabs.
+- [ ] Actions approve / regenerate / export.
+- [ ] Friendly error states.
+
+**DoD:** стороння людина успішно запускає один повний job з браузера без доступу до термінала.
+
+## Phase 6 — Three-genre production pass
+
+**Tasks:**
+- [ ] Генерація 3–5 альтернатив Sci-Fi.
+- [ ] Генерація 3–5 альтернатив Detective.
+- [ ] Генерація 3–5 альтернатив Fantasy.
+- [ ] Відібрати найкращий full set у кожному жанрі.
+- [ ] Фінальна ручна перевірка й обґрунтування відхилень.
+- [ ] Вставити 3 × 10 final artwork у надані Miro frames.
+- [ ] Зберегти всі prompts, iterations і часткові fail cases.
+
+**DoD:** три фінальні набори × десять артів, порівняння поруч із референсами, немає золота; інструмент видавав 3–5 реальних альтернатив, а не лише один набір.
+
+## Phase 7 — Packaging / submission
+
+**Tasks:**
+- [ ] GitHub README (setup, env, run, usage, troubleshooting, architecture).
+- [ ] `.env.example` без реальних секретів.
+- [ ] Локальний `start.bat` / setup інструкція; Docker Compose **необов’язковий**.
+- [ ] Miro story + results + experiments + candid limitations.
+- [ ] Прогнати smoke tests з чистого checkout.
+- [ ] Перевірити всі links, secrets, ліцензії, asset rights.
+
+**DoD:** reviewer може зрозуміти й запустити систему за README та оцінити результати на Miro.
+
+### Pending implementation (v1.10) — затверджено, не розпочато
+
+- [x] **Grand Set (All Golden)** — `Implemented` (§3.5): `Set Type` (Standard / Grand), авто-Gold = Number of Cards, Cat.1–4 = 0 і вимкнені контроли, planner для персонажних сцен-кульмінацій, prompt/QA/export для набору лише з Cat.5, тести. Не входить у Movie Collection deliverables.
+- [ ] Порядок якості/моделей: (1) тест і доопрацювання Gemini Nano Banana 2.1 → (2) live-верифікація Cloudflare FLUX.2 Klein 4B → (3) покращення якості цими двома → (4) рішення про додаткові моделі.
+
+### Future integration backlog (post-MVP, v1.8) — поза фазами 0–7
+
+Не змінює фази й не входить у scope MVP; порядок визначається після оцінки якості (§12.5, §12.7):
+
+- [ ] Seedream 4.5 через Cloudflare (`bytedance/seedream-4.5`): adapter, окрема оцінка вартості, перевірка billing/credentials — **лише після явного схвалення**.
+- [ ] Local runtime adapter (потенційно ComfyUI API) і workflows для: FLUX.2 Klein 4B, Z-Image-Turbo, Z-Image Base, ERNIE-Image-Turbo/Base (з опційним Prompt Enhancement), Qwen-Image-Edit-2511 (editing), Qwen-Image-2512.
+- [ ] Порівняння якості на Phase 3 benchmark і рішення, які моделі активувати.
+
+---
+
+# 18. Proposed GitHub repository structure
+
+```text
+playrix-collection-studio/
+├── README.md
+├── docs/
+│   ├── SOURCE_OF_TRUTH.md
+│   ├── ARCHITECTURE.md
+│   ├── REFERENCE_ANALYSIS.md
+│   ├── ART_RUBRIC.md
+│   ├── EXPERIMENT_LOG.md
+│   ├── RUNBOOK.md
+│   └── USER_GUIDE.md
+├── assets/
+│   └── ui-sketch.png                    # Власний mockup, не приватні source refs
+├── frontend/
+│   ├── package.json
+│   ├── src/
+│   │   ├── app/
+│   │   ├── components/
+│   │   │   ├── RequestForm.tsx
+│   │   │   ├── ReferenceUploader.tsx
+│   │   │   ├── ModelSettings.tsx
+│   │   │   ├── GenerationProgress.tsx
+│   │   │   ├── VariantGallery.tsx
+│   │   │   ├── CardPreview.tsx
+│   │   │   └── QAReport.tsx
+│   │   ├── hooks/
+│   │   ├── api/
+│   │   └── types/
+│   └── tests/
+├── backend/
+│   ├── pyproject.toml
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── api/
+│   │   ├── models/
+│   │   ├── services/
+│   │   │   ├── reference_manager.py
+│   │   │   ├── style_analyzer.py
+│   │   │   ├── set_planner.py
+│   │   │   ├── plan_validator.py
+│   │   │   ├── prompt_compiler.py
+│   │   │   ├── technical_qa.py
+│   │   │   ├── retry_policy.py
+│   │   │   └── exporter.py
+│   │   ├── providers/
+│   │   │   ├── base.py
+│   │   │   ├── cloudflare_image.py        # verified external REST / free fallback
+│   │   │   ├── comfyui_image.py          # optional future
+│   │   │   ├── gemini_image.py           # FIRST primary app adapter to implement
+│   │   │   ├── openai_image.py           # planned scaffold, disabled / no paid calls
+│   │   │   └── model_registry.py
+│   │   ├── worker/
+│   │   │   ├── runner.py
+│   │   │   └── states.py
+│   │   └── config/
+│   │       ├── category_rules.yaml
+│   │       └── prompt_templates/
+│   └── tests/
+│       ├── test_plan_validation.py
+│       ├── test_category_rules.py
+│       ├── test_provider_mock.py
+│       ├── test_job_resume.py
+│       └── test_export.py
+├── demo/
+│   ├── example-input.json
+│   ├── anonymized-sample-output/
+│   └── sample-qa-report.json
+├── scripts/
+│   ├── check_env.py
+│   ├── run_smoke_test.py
+│   └── export_miro_contact_sheet.py
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+└── LICENSE                        # Обрати тільки після перевірки прав
+```
+
+**Приватні референси / вхідні зображення роботодавця:** не додавати автоматично в публічний GitHub. Якщо їх можна законно поширювати, дозволити окрему папку `references/`; якщо ні — запропонувати reviewer інструкцію з локального upload наданих матеріалів.
+
+## 18.1 Setup / запуск після реалізації (local-first)
+
+Два варіанти запуску — **без вимоги хмарного сервера**:
+
+1. **UI-only demonstration**: відкрити `Playrix_Collection_Studio_UI_Mockup.html` у браузері. Можна подивитися налаштування й sample gallery; **не запускає генерацію**.
+2. **Working local PoC після реалізації**: у README буде `start.bat` (Windows) / аналог для іншої ОС, який запускає UI + FastAPI. Для primary generation потрібен **Gemini API key у backend** і доступна paid quota; для fallback — Cloudflare Workers AI token і Free allowance; **OpenAI key не потрібен**. `Ollama` та `ComfyUI` **не потрібні**, поки не активовано optional local adapter. Не приписувати HTML можливості, яких у нього немає.
+
+**Пропоновані Windows-команди** (не стверджуємо, що вони вже працюють, доки немає реалізації):
+
+```powershell
+Copy-Item .env.example .env
+# Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env on your machine only.
+.\start.bat
+# Open http://127.0.0.1:3000 (or chosen dev port)
+```
+
+Готовий repo має містити інструкції налаштування Gemini API, вибору image models, prepay/quota та fallback Cloudflare token, роботи з референсами й збереження PNG. OpenAI описати як planned/disabled без кроку обов’язкового billing. ComfyUI і desktop GPU описувати лише в optional fallback setup, без припущення, що вони є у reviewer.
+
+## 18.2 Environment variables (proposed v1.6)
+
+```dotenv
+# Proposed .env.example ONLY: never commit real secrets
+DEFAULT_IMAGE_PROVIDER=gemini
+DEFAULT_IMAGE_MODEL=gemini-nano-banana-2.1
+DEFAULT_PLANNING_MODE=rules
+GEMINI_API_KEY=
+GEMINI_API_ENABLED=true
+
+# Gemini is the sole enabled paid provider; €5 prepaid is external account state
+# Example LOCAL soft guard, not a guarantee against delayed provider billing
+GEMINI_JOB_BUDGET_USD=0.50
+PAID_IMAGE_CALLS_ENABLED=true
+MAX_CARD_RETRIES=2
+MAX_PARALLEL_GENERATIONS=1
+MAX_IMAGES_PER_JOB=50
+
+# Verified free fallback; switchable in UI once app adapter implemented
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+
+# OpenAI GPT Image is SPECIFIED but DISABLED by default
+OPENAI_API_KEY=
+OPENAI_IMAGE_ENABLED=false
+OPENAI_PAID_CALLS_ENABLED=false
+OPENAI_IMAGE_DEFAULT_MODEL=gpt-image-2.5-flare
+
+DATABASE_URL=sqlite:///./data/collection_studio.sqlite3
+ARTIFACT_ROOT=./data/artifacts
+COMFYUI_BASE_URL=
+TEXT_PLANNER_PROVIDER=
+```
+
+`.env.example` містить ТІЛЬКИ назви параметрів без секретних значень. Реальні `.env`, токени, dumps, outputs — у `.gitignore`. **Не комітити `gemini_ref_test.png` або інші згенеровані файли в Specification без свідомого рішення**; для app outputs використовувати `data/artifacts/`. Claude Code Pro не є текстовим runtime API. Реальні model IDs та endpoint перевіряти перед запуском. **Не копіювати API-токени із тестових чатів у публічний repo чи демо-слайди**.
+
+# 19. Security, rights, reliability
+
+## 19.1 Secrets
+
+- API keys тільки в backend environment або server-side secrets store.
+- Не вставляти ключ у React `.env` змінні, що збираються в browser bundle.
+- Не відправляти secrets у Miro / screenshots / public logs.
+- Не логувати повні request headers.
+
+### 19.1.1 API Connections — збереження credentials (v1.9)
+
+1. **Хто вводить:** користувач у **Settings → API Connections**; підтримуються Google Gemini (API key) і Cloudflare Workers AI (Account ID + API token). Є додавання, заміна й видалення.
+2. **Де зберігаються:** лише **Python backend**, у **Windows Credential Manager** (DPAPI-захищено; сервіс `AICollectionStudio`). **`.env` лишається dev-fallback**: пріоритет — значення з Credential Manager, інакше `.env`, інакше не налаштовано; видалення збереженого значення повертає до `.env`. Зміни діють одразу, без перезапуску.
+3. **Заборонено** зберігати секрети в browser localStorage/sessionStorage, plaintext SQLite, логах, Git або frontend-конфігурації; у SQLite — лише **не секретний** статус перевірки.
+4. **API ніколи не повертає credentials** (навіть маскованими): лише булеві `stored` / `from_env`. Помилки валідації (422) не повторюють надіслані значення; логи не містять значень (httpx-URL з Account ID редагується).
+5. **Перевірка з'єднання не запускає платну генерацію**: Gemini — перелік моделей (metadata), Cloudflare — пошук у каталозі моделей (metadata). Статуси: `not_configured / unverified / connected / invalid / unreachable`, з чіткими повідомленнями.
+6. **Захист endpoints для credentials:** лише loopback `Host` (захист від DNS rebinding), loopback `Origin` (якщо присутній), per-session token у заголовку для змінюючих запитів, rate limit на тест; для реального застосунку той самий `Host/Origin` guard діє на весь API.
+7. **Перший запуск:** setup guide з трьох кроків (вітання з варіантом «спробувати demo без ключа» → підключення провайдерів → підсумок); його можна відкрити повторно з Settings.
+
+## 19.2 Reference/IP handling
+
+- Завантажені референси можуть бути робочими матеріалами роботодавця.
+- До відправлення на external AI API перевірити, чи дозволено використання матеріалів із відповідним провайдером; якщо статус невідомий — позначити як ризик і не викладати публічно.
+- У prompts надавати референси для **стильового орієнтиру**, не просити копіювати один-в-один існуючі ігрові assets.
+- Для кінотематики не генерувати логотипи, постери, впізнаваних персонажів або конкретні franchise artwork, якщо немає ліцензії.
+- У README прямо вказати, що надані Playrix references не входять до відкритого репозиторію без дозволу.
+
+## 19.3 Upload safety
+
+- Перевірка MIME + file signature.
+- Обмеження розміру та кількості референсів.
+- Sanitized filenames/UUID storage.
+- Заборонити path traversal.
+- Ліміти preview image processing.
+- Не повертати користувачу довільні filesystem paths.
+
+## 19.4 API/worker reliability
+
+- Provider timeout, rate limiting, exponential backoff.
+- Circuit breaker або fallback provider після повторних 5xx, якщо має сенс.
+- Передбачений partial success і можливість відновлення job.
+- Ідемпотентні job creation + per-card generation steps, де це можливо.
+- Immutable artifact versions.
+- Немає silent failures: пояснення в UI та events log.
+
+## 19.5 Бюджетні та operational safeguards
+
+- Preflight cost estimate з позначкою `estimate`.
+- Hard cap на кількість provider calls.
+- На 429 не створювати неконтрольовану кількість паралельних retries.
+- Якщо все заблоковано, зупинити job і показати причину — не приховувати в нескінченному spinner.
+
+---
+
+# 20. Non-functional requirements / scale
+
+| Вимога | MVP target | Future production |
+|---|---|---|
+| Users | 1–кілька локальних користувачів | Multi-user RBAC |
+| Concurrency | 1 активний job, bounded image calls | Queue workers + quotas per team |
+| Persistence | SQLite + local volumes | PostgreSQL + S3 |
+| Resumability | Resume incomplete stages після restart | Durable queue + idempotent tasks |
+| Latency | Відображати фактичний progress; **без гарантій часу** | SLO за даними вимірювань |
+| Image resolution | 1K baseline; 2K/4K за підтримки моделі | Provider-specific multi-resolution |
+| Availability | Local Docker environment | Hosted with monitoring/backup |
+| Cost control | Per job budget + retry cap | Team budgets + billing analytics |
+| Observability | JSONL logs + job/QA/usage DB | Tracing, metrics, dashboards |
+| Model upgrade | Configurable adapter & capability registry | Model routing/A/B cohorts |
+
+## 20.1 Реальна scalability логіка
+
+- **Масштаб UI:** Web frontend майже не є вузьким місцем.
+- **Масштаб worker:** збільшення кількості незалежних generation worker instances.
+- **Масштаб database:** міграція SQLite → PostgreSQL перед багатокористувацьким навантаженням.
+- **Масштаб файлів:** local volumes → object storage з immutable object IDs.
+- **Масштаб бюджету:** жорсткі caps та дешевші моделі для чернеток; premium models для складних/фінальних карток.
+- **Основна межа:** зовнішні model rate limits, latency, quality consistency, не сам HTML/UI.
+
+**Ризик при переході до scale:** багатокористувацькі одночасні jobs потребують керованої черги, concurrency controls, per-user quota, асинхронних подій, dedup, ownership. Але **не слід будувати Kubernetes заради тестового**.
+
+---
+
+# 21. Risk register / ризики та mitigation
+
+| ID | Ризик | Вплив | Імовірність | Дія |
+|---|---|---|---|---|
+| R-01 | Не вдається дотриматися референсного art style | Критичний | Висока | Pilot 4 категорій до UI, refs, model comparison, iterative QA |
+| R-02 | Card category composition drift | Високий | Висока | Category-specific prompts, refs і rubric |
+| R-03 | Семантичні дублікати об'єктів | Високий | Середня | Plan validation + semantic review + cross-set exclusions |
+| R-04 | 3–5 variants занадто подібні | Високий | Середня | Вимагати distinct concepts і оцінювати novelty |
+| R-05 | Модель додає UI, зірки, назви | Середній | Висока | Artwork-only prompts, негативні приклади, targeted retries |
+| R-06 | Важкий фон поглинає об'єкт | Високий | Висока | Category rules + thumbnail readability check |
+| R-07 | QA оцінює «все чудово» без підстав | Високий | Висока | Calibration, explicit evidence, human acceptance |
+| R-08 | Ціна/кількість API retries росте | Середній | Середня | Budget cap, max retries, cost per accepted image |
+| R-09 | API/модель змінилася або не доступна | Середній | Середня | Model registry, provider adapter, runtime capability check |
+| R-10 | Тест не демонструє автономність | Критичний | Середня | Незалежний end-to-end user test |
+| R-11 | Репозиторій містить ключі/приватні refs | Критичний | Середня | Secrets scanning, gitignore, rights review |
+| R-12 | UI занадто складний для геймдизайнера | Середній | Середня | Basic mode defaults, Advanced collapsed |
+| R-13 | Втрата карток при refresh/crash | Високий | Середня | DB-backed state + durable files |
+| R-14 | Замість арту розробляється game window compositor | Середній | Висока | Scope guard: art only, manual insertion в Miro |
+| R-15 | Три Movie-сети не різняться жанром | Високий | Середня | Sci-fi / Mystery / Fantasy + set-level check |
+| R-16 | Некоректно заявлені time/cost/quality метрики | Високий | Висока | Metric provenance, no mock values in submission |
+
+---
+
+# 22. Miro board — повна структура submission
+
+**Playrix просить показати весь хід роботи та результати на наданій Miro-дошці.** Рекомендована послідовність фреймів:
+
+## Frame 01 — Problem and Goal
+
+- 1–2 абзаци, що саме автоматизуємо.
+- Вхід: theme + wishes + style refs.
+- Вихід: 3–5 complete set variants × 10 artwork.
+- Scope: images only; manual insertion у game set windows.
+
+## Frame 02 — Reference Analysis: Product Principles
+
+- Приклади broad collection → narrower set → 10 unique object ideas.
+- Принципи coherence, no duplicates, recognizability, variety, game-friendly style.
+- Таблиця «reference observation → generation rule → verification method».
+
+## Frame 03 — Reference Analysis: Art Principles
+
+- Відкриті category samples 1–4, підписи.
+- Відмінності floating/standing/realistic surface/environment.
+- Зовнішній вигляд: silhouette, lighting, material, saturation, perspective.
+- Показати category 5 як окрему систему, але пояснити, що demo її виключає.
+
+## Frame 04 — Hypothesis and Solution Architecture
+
+- Web UI screenshot.
+- Diagram: UI → Planner → Validator → Image Model → QA → Results.
+- Коротко пояснити навіщо step planning перед generation.
+
+## Frame 05 — Model Comparison
+
+- Однакові specs і refs для моделей.
+- 4 категорії, per-model examples.
+- Конкретні помилки (зайвий об'єкт, неправильний background, стиль не той).
+- Рішення про default model і чому.
+
+## Frame 06 — Iteration Log / Lessons Learned
+
+- Початкові outputs, критика, зміна prompt/refs/model.
+- Before/after приклади не менше ніж з різних категорій.
+- Навмисно не приховувати невдалі спроби.
+
+## Frame 07 — Pipeline Demo
+
+- UI: форма запиту, sample refs, model/resolution.
+- Відображення planning, progress, generated results.
+- Screenshot однієї card regeneration.
+- GitHub README/demo link.
+
+## Frames 08–10 — Final Sets
+
+- `Science Fiction` — 10 карток у готовому шаблоні.
+- `Detective & Mystery` — 10 карток.
+- `Fantasy Adventure` — 10 карток.
+- За необхідності показати окремо 3–5 згенерованих альтернатив на один жанр, аби перевіряльник побачив виконання цієї вимоги.
+
+## Frame 11 — Comparison with Reference
+
+Поруч: Playrix reference group і власна група. Таблиця:
+
+| Принцип | Reference observation | Наш результат | Збіг? | Що покращити |
+|---|---|---|---|---|
+| Semantic coherence | ... | ... | ... | ... |
+| Category composition | ... | ... | ... | ... |
+| Lighting/materials | ... | ... | ... | ... |
+| Readability | ... | ... | ... | ... |
+| Unity of style | ... | ... | ... | ... |
+
+**Важливо:** залишити поле для чесної критики результату. Не підміняти оцінку словами «perfect match» без доказу.
+
+## Frame 12 — Results, Metrics, Limitations
+
+- Plans created / valid.
+- Images generated, attempts/retries.
+- Auto QA passed/failed; human overrides.
+- Actual total cost (якщо відомий) / estimate з позначенням.
+- Actual duration.
+- Які проблеми лишилися й як продукт масштабувався б.
+- GitHub link, використані моделі, версія source of truth.
+
+---
+
+# 23. README для майбутнього репозиторію — що обов'язково має бути
+
+1. **Purpose:** що робить Collection Studio і для кого.
+2. **Requirements:** Python/Node/Docker, API key/billing.
+3. **Installation:** clone, `.env`, `docker compose up`.
+4. **Quick Start:** тематична задача, refs, model, Generate, QA, Export.
+5. **MVP features & limitations:** images only, 10 cards, 3–5 variants, manual Miro placement.
+6. **Architecture:** коротка схема і детальні docs.
+7. **Provider support:** adapter list + current model IDs (runtime validated).
+8. **Prompt/versioning:** де налаштовуються категорії і Style Bible.
+9. **Testing:** як запустити unit/e2e/smoke tests; приклад mock mode без витрат API.
+10. **Troubleshooting:** API invalid key, rate-limit, missing refs, partial jobs.
+11. **Privacy/IP:** як поводитися з роботодавчими референсами.
+12. **Known issues / Roadmap:** чесний список обмежень.
+13. **Submission / Miro link:** якщо дозволяється публікувати URL.
+
+---
+
+# 24. Test strategy / критерії приймання системи
+
+## 24.1 Unit tests
+
+- Plan із 9 або 11 карток не проходить.
+- Plan із повтором ID не проходить.
+- Golden Cat. 5 у Movie demo не проходить.
+- Distribution з Σ≠10, з будь-якою Cat.1–4 = 0 або з Cat.5 > 0 не проходить; `Auto (Balanced)` дає [2,2,3,3]; 3–5 альтернатив мають однаковий розподіл.
+- Prompt Compiler додає в промпт обмеження відповідної категорії (напр. Cat.1 → floating, no small details; Cat.4 → realistic environment, object remains focus).
+- Unsupported resolution не надсилається до provider.
+- Max retries виконується.
+- Export manifest відповідає фактично збереженим PNG.
+
+## 24.2 Integration tests (на mock provider)
+
+- Submit valid `POST /api/jobs` → job created.
+- Three variants × 10 cards → worker створює 30 mock artwork files.
+- Один provider failure → retry card, усі інші completed.
+- Refresh/UI poll → готові результати не зникають.
+- Download ZIP → усі 10 selected artworks + manifest.
+- Cancel request → припинення нових task dispatch, без пошкодження готових файлів.
+
+## 24.3 Live smoke test
+
+- API key та model access validated.
+- One Cat. 1 and one Cat. 4 generation with refs.
+- Елементи мають правильний формат, назви, versioned paths.
+- Logging фактичної кількості запитів, часу, помилок.
+
+## 24.4 User acceptance test
+
+**Tester:** інша людина, якій доступний URL/локальна інструкція, але яка не знає код.
+
+Сценарій: створити новий set за довільним жанром, завантажити refs, отримати 3 варіанти по 10, змінити одну картку, експортувати фінальний ZIP.
+
+**Pass:** tester не потребує консультації розробника для нормального сценарію. **Fail:** якщо для basic task потрібні редагування коду, ручні API-виклики чи переписування промптів у сторонньому інтерфейсі.
+
+## 24.5 Art acceptance
+
+Це окремий gate, а не частина unit tests. Фінальне рішення приймається порівнянням із Playrix refs. Навіть працюючий технічний інструмент не задовольняє тестове, якщо art не відповідає.
+
+---
+
+# 25. Open questions / ті рішення, яких не варто вигадувати
+
+Це **не питання, які блокують початок прототипу**; вони мають бути розв'язані evidence-based під час аналізу/експериментів.
+
+| ID | Питання | Власний default до перевірки |
+|---|---|---|
+| OQ-01 | Який точний розподіл Cat. 1–4 по 10 картках у наданих прикладах? | (v1.7) Не зафіксований у джерелах; `Card Category Distribution`: `Auto (Balanced)` [2,2,3,3] як наше припущення [D] або `Custom` (§3.4); не подавати як вимогу Playrix |
+| OQ-02 | Чи всі референси можна передавати зовнішнім AI API? | Не публікувати й перевірити правила до cloud upload |
+| OQ-03 | Чи хоче Playrix саме 3–5 готових наборів на кожну тему, чи частково допустимі плани? | Дотримуватися суворої інтерпретації: **3–5 готових artwork groups** |
+| OQ-04 | Чи потрібен повний automation of Miro insertion? | Ні, вручну, як у ТЗ |
+| OQ-05 | Чи коректні category composition rules з текстового конспекту щодо всіх прикладів? | Перевірка на зображеннях перед фіксацією StyleProfile |
+| OQ-06 | Чи доцільний 1K output? | Почати з 1024×1024, оцінити quality need |
+| OQ-07 | Який provider найкраще відтворює стиль? | A/B pilot; не вирішувати апріорі |
+| OQ-08 | Чи має сенс автоматично вставляти арт у прев'ю рамки? | P2; для Miro користувач вставляє вручну |
+| OQ-09 | Який поріг AI art score відповідає людській оцінці? | Немає порогу до калібрування |
+| OQ-10 | Чи потрібно багатокористувацьке/хмарне розгортання? | Ні для MVP; локальний backend + desktop AI host |
+| OQ-11 | Чи слід показувати сценарії 2K/4K у базовій формі? | Тільки якщо модель дозволяє і збільшення якості доведено |
+| OQ-12 | Як саме дизайнеру зручніше порівнювати 5 варіантів? | Side-by-side + zoom для кожної картки |
+
+---
+
+# 26. Decisions log (ADR-style)
+
+| Decision | Вибір | Чому | Переглядати, коли... |
+|---|---|---|---|
+| ADR-001 | Web UI замість чистого CLI | Автономність геймдизайнера | Якщо занадто довго до art proof |
+| ADR-002 | Планувати 10 об'єктів до image generation | Семантичний контроль | Завжди core |
+| ADR-003 | Одна картка / один primary image request | Редагування, QA, versioning | Якщо batch дає вимірювану перевагу |
+| ADR-004 | Artwork-only output | Пряма вимога тестового | Тільки якщо зміниться ТЗ |
+| ADR-005 | **Gemini Nano Banana 2.1** — first implemented premium adapter (target); **Cloudflare** — free fallback | Обидва мають підтверджені окремі REST smoke tests; Gemini text/ref успішні; лише Gemini має ввімкнений prepaid account | За результатами art-quality pilot |
+| ADR-006 | **Model-agnostic ImageProvider registry: Live API / Live Local / Samples Only / Not Configured** | Міняти моделі без переписування Web UI / pipeline | Залишити |
+| ADR-007 | SQLite + local files для MVP | Простота й достатня надійність | Перед multi-user/cloud |
+| ADR-008 | **Technical QA у Python + human art approval**; Vision QA optional advisory only | Не вигадувати точність AI judge | Після реального калібрування |
+| ADR-009 | Зберігати всі ітерації й rejected outputs | Прозорість тестового | Залишити |
+| ADR-010 | No LoRA training у MVP | Обсяг і правила тестового | Якщо окремо доведена потреба/права |
+| ADR-011 | System Rules + UI Settings + Producer Free Wishes | Розділити policy/structure та творчі побажання | Лише якщо зміниться продуктове ТЗ |
+| ADR-012 | Prompt Library: view/edit/save versioned templates | Повторне використання, контроль ітерацій | MVP vs P1 detail |
+| ADR-013 | **€5 Gemini prepaid + per-job spend guard**, local Windows app; Cloudflare Free fallback; **OpenAI paid disabled** | Quality-first з контрольованими витратами; desktop GPU optional | Якщо Gemini quality, price чи quota не підійдуть |
+| ADR-014 | **OpenAI GPT Image everywhere in specification, UI and registry, runtime disabled** | Майбутнє розширення без перероблення ядра і без передчасних витрат | Лише після явної активації API та витрат |
+| ADR-015 | **Card Category Distribution: `Auto (Balanced)` [2,2,3,3] / `Custom`; Σ=10, кожна Cat.1–4 ≥1, Cat.5=0 locked** | Playrix не фіксує кількість по категоріях; конфігурований розподіл дає контроль без вигаданої вимоги; застосовується на Set Planning до генерації й однаковий для всіх альтернатив | Якщо аналіз референсів покаже фактичний розподіл, або зміниться ТЗ щодо Cat.5 |
+| ADR-018 | **Grand Set (All Golden) (v1.10): окремий тип сету лише з golden cards, `Set Type` Standard/Grand, виняток із покриття Cat.1–4** | Playrix визначає 16-й сет як фінальний golden-сет; потрібно підтримати його без зміни поведінки Standard Set і без golden у поточних Movie Collection deliverables | **Implemented (локально)**; Grand Set не входить у Movie Collection bundle; ≤2 персонажів валідується в плані; переглянути, якщо Playrix уточнить кількість карток або правила golden |
+| ADR-019 | **Semantic Set Planner + Session Favorites + Plan Only (v1.11): AI-планування за замовчуванням, Set як смислова межа, історія між батчами, My Selection у sessionStorage, Export Selected** | Потрібні швидкі ітерації «згенерувати ще батч і вибрати найкращі» без ручного керування списками виключень і без approve-кроків; перевірка семантики до витрат на зображення | **Implemented (локально)**; mocked-тести; якість live LLM ще не виміряна; порівняти дешеві текстові моделі (Gemini vs Cloudflare) через Plan Only |
+| ADR-020 | **Єдиний AI-планувальник, session-only prompt overrides, immutable per-job prompt snapshot, строгий вибір референсів, View/Preview Prompt (v1.12)** | Curated pools заважали семантиці Collection→Set і створювали два шляхи планування; аудит показав, що шаблони читаються окремо для кожної картки (дрейф версій), set-концепт не потрапляє в промпт, а fallback референсів надсилає нерелевантні зображення; потрібне швидке експериментування з промптами без зміни production-дефолтів | **Implemented (локально)**; mocked/Mock-image тести; live якість планів і арту не виміряна; наступний крок: Plan Only на дешевих текстових моделях, потім бенчмарк Prompt System v0.2 |
+| ADR-017 | **API Connections (v1.9): credentials у Windows Credential Manager через Python backend; `.env` — dev-fallback; безкоштовні Cloudflare-моделі без auto-upgrade і без тихого fallback; whole-API loopback guard** | Не-технічний користувач підключає провайдерів сам; секрети не потрапляють у browser/SQLite/логи/Git; free-квота не вважається безкоштовним необмеженим використанням | Якщо з'явиться multi-user/хмарне розгортання (потрібне інше сховище секретів) або Cloudflare змінить схему моделей |
+| ADR-016 | **Model roadmap (v1.8): селектор за runtime; Seedream 4.5 + 7 local-моделей як visible-but-disabled backlog; capability metadata; ERNIE Prompt Enhancement — опція; Qwen-Image-Edit-2511 — editing-модель** | Видимий roadmap без розширення scope MVP; ніколи не показувати недоступне як робоче; єдина provider abstraction для cloud і local (ComfyUI API) | Після MVP: оцінка якості на Phase 3 benchmark; явне схвалення перед будь-якими платними викликами Seedream |
+
+---
+
+# 27. Handoff instructions для AI coding agent
+
+**Як використати цей документ у новому середовищі (Claude Code, Codex, Cursor, GitHub Copilot тощо):**
+
+1. Покласти файл до `docs/SOURCE_OF_TRUTH.md`.
+2. Покласти UI-скетч до `assets/ui-sketch.png` або змінити шлях у документації.
+3. Спочатку створити **architecture skeleton** і `README`, не генерувати сотні картинок.
+4. Зафіксувати API contracts і Pydantic schemas.
+5. Написати mock provider, щоб UI й pipeline тестувалися без грошей.
+6. Реалізувати reference uploads, planning, validations, states, export.
+7. Підключити **одного** реального image provider.
+8. Зробити малий art pilot і лише після цього розширити UI до всього скетчу.
+9. Додати model adapter №2, QA, retries, reports.
+10. Провести acceptance tests на трьох жанрах і підготувати Miro.
+
+### Prompt для Claude Code / Codex (актуальний v1.6; можна копіювати)
+
+```text
+Build "AI Collection Studio" as a BUDGET-CONTROLLED LOCAL WEB APP with CLOUD IMAGE INFERENCE for the Playrix AI Producer take-home.
+Read docs/SOURCE_OF_TRUTH.md. Version 1.6 overrides previous Cloudflare-only / zero-spend assumptions.
+Requirements: [P] Playrix, [U] user preference, [D] design, [A] assumption, [F] future.
+
+HARD CONSTRAINTS:
+- Keep the ORIGINAL DETAILED LIGHT UI DESIGN with dark header, left settings panel and rich right gallery.
+- Artwork-only: no in-game card UI, frames, badges or window compositor.
+- Each genre/set = 10 illustrations. A request produces 3–5 alternative full sets.
+- Card Category Distribution (spec §3.4, v1.7): Generation Settings control with `Auto (Balanced)` default
+  [2,2,3,3] (OUR design assumption, NOT a Playrix-mandated ratio) and `Custom`. Validate sum = 10 and each
+  of Cat. 1-4 >= 1; Cat. 5 locked to 0 for the Movie demo. Apply it during set planning (before image
+  generation), keep it identical across all 3-5 alternatives, and reflect each category's visual rules in
+  the prompt (Cat.1 floating/no small details/simple background; Cat.2 simple surface + vertical backdrop;
+  Cat.3 realistic surface/volumetric; Cat.4 realistic environment, object remains focus). Distribution is
+  separate from rarity/stars. Integrate into the approved layout without redesign.
+- Model roadmap (spec §12.7, v1.8): the Model Selector is grouped by runtime (Cloud API / Local planned /
+  Development-testing). Seedream 4.5 (`bytedance/seedream-4.5`, via Cloudflare) and the local models
+  (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) are
+  PLANNED: visible but DISABLED, never shown as working, no weights/runtimes downloaded or installed, no paid
+  Seedream calls without explicit approval. All go through the existing provider abstraction with capability
+  metadata (identifiers separate from UI labels; unverified = null). Qwen-Image-Edit-2511 is an editing model,
+  not assumed text-to-image; ERNIE Prompt Enhancement is an optional setting, not extra models. This backlog is
+  NOT MVP scope: keep building the MVP first.
+- Final demo: three different movie genres, without Golden Cards.
+- Three instruction layers: permanent Style Bible, structured settings, optional Free Wishes.
+- Independent image-provider adapter architecture; do not hardcode app logic to FLUX.
+- PRIMARY provider to implement: Google Gemini / gemini-nano-banana-2.1.
+  Real external PowerShell REST text-to-image and single-reference-to-image PNG tests SUCCEEDED.
+  User configured paid Gemini API with EUR 5 prepaid. Actual art/style match is NOT YET REVIEWED.
+- VERIFIED fallback adapter: Cloudflare Workers AI / @cf/black-forest-labs/flux-2-klein-4b.
+  External REST + reference PNG smoke tests succeeded; app pipeline not built.
+- PLANNED, DISABLED provider: OpenAI GPT Image (e.g. gpt-image-2.5-flare/sunburst).
+  Include in provider registry, UI, model choices, settings, env template, docs, status and tests.
+  No OpenAI API key, paid billing or OpenAI requests required or allowed now.
+  Full app, 10-card batch, quotas and art quality remain UNVERIFIED.
+- Keep provider credentials server-side only. Never copy tokens into examples or repo.
+- Allow only intentionally configured paid GEMINI calls with conservative per-job cost guard.
+  No auto top-up, no unexpected OpenAI charges, no unbounded retries.
+  Cloudflare Free is fallback; OpenAI stays disabled until explicit user authorization.
+- Qwen/Ollama/ComfyUI are NOT REQUIRED for MVP.
+- Claude Code writes code and prompts but is NOT a runtime Claude API planner.
+- Set planning MVP: Python rules + prepared object pools (bounded Movie demo).
+  If broad arbitrary themes/wishes are needed, add optional real TextPlanner provider;
+  do not falsely claim Python templates understand any free-form instruction.
+- Implement technical QA and human art approval. No fake AI art scores.
+- Provide reference upload, 3–5 variants, gallery, targeted regeneration, compare
+  (Split Slider / Side by Side / Grid), prompt library, PNG/ZIP export and provenance.
+- Label imported samples honestly; distinguish external API PowerShell smoke test from live-app-generated artwork.
+- Provider status must distinguish docs-only, externally smoke-tested, app-configured, app-live, disabled.
+- Dynamically allow Gemini image-model selection ONLY for models verified available in the account.
+- Preserve the ORIGINAL detailed UI sketch and all three reference compare modes.
+
+START WITH: a small functional end-to-end path using GEMINI adapter + one reference
++ one image + saved PNG, then 10-card generation, cost/status controls, then the detailed UI.
+Keep Cloudflare as fallback; show OpenAI in UI but DISABLED.
+Show implementation/test status clearly, commit in small milestones.
+```
+
+## 27.1 Rules for implementation agent
+
+- Не змінювати `cards_per_set=10` і `variants=3–5` без явної зміни вимоги.
+- Не робити category 5 у Movie demo.
+- Не використовувати sample fake images як доказ роботи реального API.
+- Не ставити «production-ready» в README без демонстрації фактичної відповідності refs.
+- Не міняти стек заради новизни, якщо немає чіткої переваги.
+- Не запускати необмежену платну генерацію без ліміту.
+- Перед комітом перевіряти `git status`, `.gitignore`, наявність секретів/вхідних refs.
+- Додавати tests на кожну ключову business rule.
+- В README позначати, що реалізовано, а що proposed.
+
+---
+
+# 28. Рекомендований порядок наступних практичних рішень (v1.6)
+
+1. **Already done:** Gemini Nano Banana 2.1 та Cloudflare FLUX.2 Klein 4B окремо пройшли text/reference REST smoke tests у Windows PowerShell; це не app integration. Gemini prepaid €5 активовано.
+2. **Art feasibility:** завантажити `gemini_ref_test.png`, вручну оцінити схожість із Playrix reference; порівняти Cat.1–4 із тим самим ref pack, підвищити якість стилю (prompt / refs / generation mode), а не просто кількість зображень.
+3. **First backend slice:** FastAPI + `GeminiImageProvider` + одне завдання з референсом → файл PNG і metadata. Потім додати `CloudflareImageProvider` як fallback. OpenAI — planned/disabled.
+4. **Set planning:** `RulesPlanner` + object pools / category rules, версіонований Prompt Compiler; обмеження для довільного Free Wishes чесно показувати. `TextPlanner` API — за необхідності.
+5. **Batch generation:** 10 cards + 3–5 variants, прогрес, квоти, retry, resume, technical QA, provenance.
+6. **Detailed Web UI:** відтворити ПЕРШИЙ багатий мокап; додати Free Wishes, Provider selection/status, Prompt Library, Compare/Grid, human review, export.
+7. **Alternative image providers:** після art pilot — plug-in adapters для інших моделей без перероблення UI. (v1.8) Конкретний backlog (Seedream 4.5; local FLUX.2 Klein 4B, Z-Image, ERNIE-Image, Qwen-Image) — §12.7; **не scope MVP**, активація — після порівняння якості.
+8. **Submission:** три кіножанри, Miro з raw/selected images та чесними experiment logs, GitHub із working code.
+
+**Головний trade-off:** runtime зображення — єдиний обов'язковий AI inference для першого PoC; Claude Code — засіб розробки. Але кінцева автономність для *довільного* нового жанру/вільного тексту потребуватиме семантичного planner (опціонального text API) або чесного обмеження підтримуваних сценаріїв.
+
+# 29. Checklist перед здачею Playrix
+
+### Product/Art
+
+- [ ] Принципи формування колекцій описані на основі референсів.
+- [ ] Обґрунтовані category rules, показані приклади.
+- [ ] У фінальному результаті 3 набори різних кіножанрів.
+- [ ] Рівно 10 artwork у кожному наборі.
+- [ ] Немає golden cards.
+- [ ] Кожен набір має логіку, читабельність, унікальні об'єкти.
+- [ ] Порівняння з референсами чесне та конкретне.
+- [ ] Reference Compare дає змогу перевірити generated проти правильного style/category reference у Split / Side by Side / Grid.
+
+### Pipeline
+
+- [ ] Вхід: theme + genre + optional producer wishes, **окремо від системних rules і UI settings**.
+- [ ] Вихід: 3–5 альтернативних повних наборів на запит.
+- [ ] Є реальна автоматизація через **Gemini Nano Banana 2.1 image REST API** всередині Web UI/backend (primary); Cloudflare fallback, OpenAI GPT Image scaffold disabled. Окремі PowerShell smoke tests — ще не реалізація застосунку.
+- [ ] Підтримуються style refs; `Golden Cards` у Movie preset вимкнено й заблоковано.
+- [ ] Planning Mode (`Rules` / авторизований `Text API`) і Image Model selector відокремлені; **Gemini Nano Banana 2.1 — external REST verified, app adapter pending; GPT Image — UI planned/disabled**; imported samples не видаються за live-app API.
+- [ ] Prompt Library дозволяє перегляд, редагування і збереження версій без виклику моделі.
+- [ ] UI/backend працює локально з **Gemini Nano Banana 2.1 paid API (активний prepaid €5)** та Cloudflare Free fallback; **OpenAI GPT Image disabled без API key/billing**; публічний сервер та desktop GPU не обов'язкові; `quota exceeded` обробляється.
+- [ ] Можна регенерувати тільки одну картку.
+- [ ] Є хоча б базовий QA та visible errors.
+- [ ] Можна працювати без автора інструмента.
+
+### Delivery
+
+- [ ] Повний хід роботи, експерименти й ітерації — Miro.
+- [ ] Фінальні PNG вручну підставлені у готові Miro frames.
+- [ ] GitHub містить робочий код, README, setup, залежності.
+- [ ] Посилання працюють.
+- [ ] Немає випадково опублікованих API keys або приватних refs.
+- [ ] Реальні метрики не переплутані з numbers зі скетчу.
+
+---
+
+# 30. Glossary
+
+- **Collection** — широка тематична група з 16 наборів.
+- **Set / набір** — вузька тематична група з 10 карток.
+- **Card spec** — структурований опис одного задуму для artwork.
+- **Artwork** — саме предметне зображення для картки (основний output тесту).
+- **Card frame / game window** — UI-шаблон гри; Playrix не вимагає його генерувати.
+- **Set variant** — одна з 3–5 альтернативних **груп 10 artwork**.
+- **Style Bible / Art Profile** — явні правила художнього стилю, затверджені за референсами.
+- **Planner** — логічний модуль, який формує карткові плани; може бути Python RulesPlanner з підготовленими catalogs або опціональним runtime text LLM, а не обов'язково Qwen.
+- **Prompt Compiler** — перетворює specs у model-specific промпти.
+- **Image Provider Adapter** — нормалізує роботу різних image API.
+- **QA** — технічні й візуальні перевірки відповідності.
+- **Targeted regeneration** — перероблення одного проблемного зображення, а не всього набору.
+- **Provenance** — журнал: який prompt/model/reference/версія згенерували файл.
+- **MVP** — мінімальний цілісний продукт, який реально виконує завдання.
+
+---
+
+# 31. Джерела для майбутньої перевірки та оновлень
+
+1. Playrix AI Producer — https://playrix.com/job/open/game-design/ai-producer
+2. Агрегований опис ролі — https://www.gamejobsuk.com/playrix/ai-producer-5409
+3. Додатковий опис ролі — https://gamejobs.co/AI-Producer-at-Playrix
+4. Gemini Image Generation — https://ai.google.dev/gemini-api/docs/image-generation
+5. Gemini API Pricing — https://ai.google.dev/gemini-api/docs/pricing
+6. OpenAI Image Generation — https://developers.openai.com/api/docs/guides/image-generation
+7. Оригінальні матеріали тестового — **6 скриншотів, наданих користувачем у чаті 04.11.2026**; як основне джерело слід зберегти їх окремо, без публікації без дозволу.
+8. Updated UI sketch — `Playrix_Collection_Studio_UI_Sketch.png` і локальний `Playrix_Collection_Studio_UI_Mockup.html`, оновлено 07.11.2026; це дизайн-концепція, не живий generator.
+
+**Актуальність API:** назви моделей, квоти, тарифікація, модельні можливості, умови використання референсів змінюються. Перед coding/API call перевіряти офіційні model docs і доступ у власному акаунті.
+
+---
+
+# 32. Change log
+
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-11-04 | Перша повна Source of Truth: вакансія, тестове, правила колекцій, UX скетчу, архітектура, моделі, API/contracts, QA, backlog, ризики, Miro, acceptance criteria |
+| 1.1 | 2026-11-06 | Reference Compare: Split Slider, Side by Side (1×1), Grid Overview 10 пар; UX, reference matching, API, acceptance |
+| **1.2** | **2026-11-07** | **Three prompt layers**: System Rules + Generation Settings + Producer Free Wishes; Prompt Library editing/versioning; 3 genres vs 3–5 variants per genre; Gold OFF; separate planning/image model dropdowns and accurate Live Local vs Samples Only; 0-additional-cost local stack; laptop/desktop topology; manual GPT/Gemini sample import; revised UI sketch; honest PoC handoff. |
+| **1.3** | **2026-11-07** | Technical QA + human visual approval; Vision model optional, not required; remove ungrounded style scores |
+| **1.4** | **2026-11-07** | **First verified Cloudflare FLUX.2 Klein 4B REST PNG generation** (plain prompt + reference input); **model-agnostic ImageProvider registry**; Qwen/Ollama/ComfyUI no longer mandatory; Claude Code is development-time only; `RulesPlanner` with optional runtime TextPlanner; Cloudflare Free quota gate; detailed original mockup stays design reference; revise QA, stack, README, API settings, roadmap, implementation-agent prompt |
+| **1.5** | **2026-11-07** | **Provider comparison update:** Cloudflare remains verified zero-cost baseline; **Gemini (Nano Banana 2.1 / 3.1 Flash Lite Image)** becomes recommended first premium image adapter after API comparison; **OpenAI GPT Image** is validated as optional second adapter; document now explicitly recommends **one provider first**, not two paid providers at once. |
+| **1.6** | **2026-11-07** | **Real Gemini Nano Banana 2.1 external REST proof:** text-to-image + Playrix-reference-to-image PNG succeeded; €5 prepaid. **Gemini = target primary image provider; Cloudflare = verified fallback; OpenAI GPT Image = everywhere in design/architecture/UI but disabled, not paid/connected.** Correct prior 400 diagnosis; revise default model, env, cost controls, UI statuses, architecture, coding-agent instructions and roadmap. |
+| **1.7** | **2026-11-07** | **Card Category Distribution** (new §3.4): `Auto (Balanced)` default [2,2,3,3] (our assumption, not Playrix-mandated) / `Custom`; Σ=10, each Cat.1–4 ≥1, Cat.5 locked 0 for Movie demo; applied at Set Planning, identical across 3–5 alternatives; category-specific prompt logic documented. Targeted edits only (header, §0.2/0.3, §3.2, §6.4/6.6, §8.4, Stages 1–4, §10.3, §11.1, HR-08, phases, tests, OQ-01, ADR-015, handoff prompt, UX criteria); no change to providers, budget, scope or approved UI layout. |
+| **1.8** | **2026-11-08** | **Model roadmap** (new §12.7): Model Selector grouped by runtime (Cloud API / Local planned / Development-testing); Seedream 4.5 (`bytedance/seedream-4.5`, via Cloudflare, ≈ $0.04/image, not enabled) and 7 local models (FLUX.2 Klein 4B, Z-Image-Turbo/Base, ERNIE-Image-Turbo/Base, Qwen-Image-Edit-2511, Qwen-Image-2512) as visible-but-disabled backlog; capability metadata contract (`runtime`, `planned` status, tri-state capabilities, `options`, `price_note`); ERNIE Prompt Enhancement as optional config; Qwen-Image-Edit-2511 = editing model; Cloudflare FLUX status stated honestly (adapter implemented + mock-tested, live verification pending account ID). Targeted edits only (header, v1.8 notice, §0.3, §6.6, §8.3, §12.2, §12.3.1, §12.7, §17 backlog list, §26 ADR-016, §27 prompt, §28, this log); no change to phases 0-7, architecture, Gemini functionality or approved UI layout. |
+| **1.9** | **2026-11-09** | **API Connections** (§6.2, §19.1.1): credentials у Windows Credential Manager, `.env` fallback, free connection test, protected endpoints, first-run setup guide; **Cloudflare FLUX.2 Klein 4B + FLUX.1 Schnell** (§12.7.1) з free-tier safety rules (без auto-upgrade, без тихого fallback, квотні помилки); **UI aligned to mockup** (§6.15: Set Summary, Quick Actions, Next Steps, title-row actions); whole-API local-only guard. Пізніші вимоги збережено; фази 0–7 без змін; Cloudflare-моделі не live до схваленого smoke test. |
+| **1.8.1** | **2026-11-08** | **Status refresh only** (no requirement changes): header status, credibility note and Final status now describe the working local MVP (Phases 0–7 implemented; Gemini verified live; Cloudflare mock-tested; art quality untuned) instead of «APP NOT IMPLEMENTED». File name stays `..._v1.8.md`. |
+
+## Final status
+
+**Стан на 2026-11-08:** локальний застосунок AI Collection Studio **реалізовано за фазами 0–7**: planner, jobs, QA, review/approval, regeneration, Reference Compare, Prompt Library, Templates, Settings, History, export, collection workflow, startup scripts і документація. Перевірено: 171 automated backend tests, offline smoke test, clean-checkout verification; Gemini — live (text, reference, pilot із 4 карток).
+**Не завершено / не перевірено:** художня якість і відповідність референсам (Cat. 3/4), повний live 10-card set і три фінальні жанри, live-перевірка Cloudflare, TextPlanner, local-моделі та Seedream 4.5 (backlog §12.7), Miro-подача (вручну за ТЗ).
+**Наступні gates:** (1) налаштування Style Bible/prompts/референсів і порівняння моделей з `benchmarks/phase3_gemini_baseline`; (2) staged live-генерація трьох жанрів у межах бюджету; (3) Miro + GitHub packaging. Не підміняти автоматичний app output зовнішніми smoke tests.

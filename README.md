@@ -10,7 +10,7 @@ approved set is quality-checked and exported. Built as the Playrix AI Producer t
 
 | | |
 |---|---|
-| **Miro board (final presentation)** | `PASTE-MIRO-LINK-HERE` (placeholder, see [docs/PRESENTATION_BOARD.md](docs/PRESENTATION_BOARD.md)) |
+| **Miro board (final presentation)** | [https://miro.com/app/board/uXjVEQ0lWao=/](https://miro.com/app/board/uXjVEQ0lWao=/) (see [docs/PRESENTATION_BOARD.md](docs/PRESENTATION_BOARD.md)) |
 | **Live demo** | none: the app runs locally (no hosted instance exists) |
 | **Detective, 10 cards** | [deliverables/README.md](deliverables/README.md#detective-10-cards) · [contact sheet](deliverables/previews/detective.png) |
 | **Comedy, 10 cards** | pending final selection: [deliverables/README.md](deliverables/README.md) |
@@ -102,10 +102,11 @@ python scripts/verify_clean_checkout.py        # proves the repo works from trac
 
 ## Handover
 
-- Source of truth: [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (Ukrainian) and `specification/Mockup.png`.
+- Source of truth: [`specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md`](specification/PLAYRIX_SOURCE_OF_TRUTH_v1.10.md) (English; the original Ukrainian is kept as `PLAYRIX_SOURCE_OF_TRUTH_v1.10.uk.md`) and `specification/Mockup.png`.
 - Start with [docs/HANDOFF.md](docs/HANDOFF.md) (what is included, default references, asset ownership, limitations),
   then [Architecture](docs/ARCHITECTURE.md), [User guide](docs/USER_GUIDE.md), [Runbook](docs/RUNBOOK.md),
   [Known issues](docs/KNOWN_ISSUES.md), [Presentation board](docs/PRESENTATION_BOARD.md), [Progress log](docs/PROGRESS.md).
+- Final presentation: [Miro board](https://miro.com/app/board/uXjVEQ0lWao=/).
 - Historical prompt releases live in `backend/app/config/prompt_system_v0*.yaml` and `docs/prompt-archive/`.
 
 ## Secrets and rights

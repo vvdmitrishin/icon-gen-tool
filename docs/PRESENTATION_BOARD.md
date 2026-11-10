@@ -1,8 +1,7 @@
 # Presentation board (Miro)
 
-> **Miro board URL: `PASTE-MIRO-LINK-HERE`**: not created or verified yet. No Miro access was available when this
-> handover was prepared, so nothing was edited in Miro and no link is claimed. Replace the placeholder here and in the
-> README section "View the Final Presentation".
+> **Miro board: <https://miro.com/app/board/uXjVEQ0lWao=/>** (link provided by the producer; not opened or verified by the assistant, which has no Miro access).
+> Before submitting, open it in a private window and confirm it is view-only and loads without signing in.
 
 ## Suggested board structure (7 frames)
 
