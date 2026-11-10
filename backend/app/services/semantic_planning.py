@@ -107,6 +107,9 @@ def forbidden_terms(wishes: str) -> set[str]:
     terms: set[str] = set()
     for m in _EXCLUDE_RE.finditer(wishes or ""):
         chunk = re.split(r"[.;!?\n]|\bbut\b|\bfocus\b", m.group(1), maxsplit=1)[0]
+        first = re.findall(r"[a-z]+", chunk.lower())
+        if len(first) > 1 and first[0].endswith("ing") and len(first[0]) > 5:
+            continue  # prose guidance ("avoid narrowing the theme to...", "without requiring text"), not a list of excluded things
         for part in re.split(r",|/|&|\band\b|\bor\b", chunk):
             words = [w for w in re.findall(r"[a-z]+", part.lower()) if w not in _STOP]
             if not words or len(words) > 3:

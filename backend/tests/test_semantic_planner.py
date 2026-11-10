@@ -283,3 +283,12 @@ def test_export_selection_ten_card_standard_set_and_errors(settings):
         # the same image selected twice is exported once
         one = _selection(j, [2])
         assert c.post("/api/exports/selection", json=dict(items=one + one)).json()["count"] == 1
+
+
+def test_prose_guidance_in_wishes_is_not_an_exclusion_list():
+    from app.services.semantic_planning import forbidden_terms
+    w = ("Avoid narrowing the theme to circus, clowns, theater, backstage, film sets, or a single comedic profession or location. "
+         "These can appear occasionally. Prioritize visual metaphors that communicate humor without requiring written explanations.")
+    assert forbidden_terms(w) == set()
+    assert {"weapon", "sword"} <= forbidden_terms("No weapons, no buildings.") and "building" in forbidden_terms("No weapons, no buildings.")
+    assert "building" in forbidden_terms("avoid building")
