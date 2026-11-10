@@ -109,8 +109,8 @@ def test_job_validation_errors(settings, rec):
         assert c.post("/api/jobs/preview", json=body(genre="Western")).json()["detail"]["code"] == "ai_plan_required"
         r = c.post("/api/jobs", json=body(provider="openai", model="gpt-image-2.5-flare"))
         assert r.status_code == 400 and r.json()["detail"]["code"] == "model_unavailable"
-        r = c.post("/api/jobs", json=body(category_distribution={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 0, "4": 0}}))
-        assert r.status_code == 422 and r.json()["detail"]["code"] == "category_empty"
+        r = c.post("/api/jobs", json=body(category_distribution={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 1, "4": 0}}))
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "bad_total"
         assert c.post("/api/jobs", json=body(number_of_variants=6)).status_code == 422
         assert c.post("/api/jobs", json=body(reference_ids=["ref-0000000000"])).status_code == 400
         assert rec.requests == []

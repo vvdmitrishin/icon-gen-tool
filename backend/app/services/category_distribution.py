@@ -10,7 +10,7 @@ count always comes from `gold_cards`).
 
 Rules (same in UI, API and planner):
   * sum(Cat.1-4) == standard count;
-  * if standard >= 4 every one of Cat.1-4 needs >= 1 card;
+  * a category MAY have 0 cards: Playrix-style coverage of all four is only reported by compliance(), never enforced;
   * if standard is 1..3 categories may be 0, and Auto picks the FIRST categories in order 1, 2, 3
     (1 card -> Cat.1; 2 -> Cat.1+2; 3 -> Cat.1+2+3);
   * standard == 0 is allowed (an all-golden set).
@@ -105,12 +105,6 @@ def validate_counts(counts: dict[int, int], *, number_of_cards: int = CARDS_PER_
     norm = {c: int(counts.get(c, 0)) for c in STANDARD_CATEGORIES}
     if any(v < 0 for v in norm.values()):
         raise DistributionError("Counts cannot be negative.", "negative")
-    if standard >= 4:
-        missing = [c for c in STANDARD_CATEGORIES if norm[c] < 1]
-        if missing:
-            raise DistributionError(
-                f"Each of Categories 1-4 needs at least 1 card (missing: {missing}).", "category_empty"
-            )
     s = sum(norm.values())
     if s != standard:
         raise DistributionError(

@@ -6,10 +6,6 @@ export type DistMode = "auto_balanced" | "custom";
 /** Mirrors the backend rules; the server stays authoritative. `standard` = number_of_cards - gold_cards. */
 export function distributionErrors(counts: DistCounts, standard: number): string[] {
   const errs: string[] = [];
-  if (standard >= 4) {
-    const empty = CATS.filter((c) => counts[c] < 1);
-    if (empty.length) errs.push(`Each of Categories 1–4 needs at least 1 card (empty: ${empty.join(", ")}).`);
-  }
   const sum = CATS.reduce((s, c) => s + counts[c], 0);
   if (sum !== standard) errs.push(`Standard categories must total ${standard} card${standard === 1 ? "" : "s"} (currently ${sum}).`);
   return errs;

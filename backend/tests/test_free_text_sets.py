@@ -59,7 +59,7 @@ def test_auto_ten_with_two_gold():
 
 @pytest.mark.parametrize("counts,cards,gold,code", [
     ({1: 2, 2: 2, 3: 2, 4: 2}, 10, 0, "bad_total"),
-    ({1: 0, 2: 3, 3: 3, 4: 2}, 8, 0, "category_empty"),      # standard >= 4: every category needs a card
+    ({1: 0, 2: 3, 3: 3, 4: 2}, 8, 0, None),                  # a category may have 0 cards (only flagged non-compliant)
     ({1: 3, 2: 0, 3: 0, 4: 0}, 3, 0, None),                  # 1..3 standard cards: zeros are fine
     ({1: 1, 2: 1, 3: 1, 4: 1}, 5, 1, None),
     ({1: 2, 2: 0, 3: 0, 4: 0}, 3, 0, "bad_total"),

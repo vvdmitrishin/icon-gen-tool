@@ -6,6 +6,7 @@ from app.services.category_distribution import (
     CategoryDistribution,
     DistributionError,
     assign_slots,
+    compliance,
     default_counts,
     resolve_distribution,
     validate_counts,
@@ -32,11 +33,18 @@ def test_custom_valid():
     assert out == {1: 1, 2: 4, 3: 3, 4: 2, 5: 0}
 
 
+def test_a_category_may_have_zero_cards_and_is_only_flagged():
+    out = resolve_distribution(CategoryDistribution(mode="custom", counts={1: 0, 2: 4, 3: 3, 4: 3}))
+    assert out == {1: 0, 2: 4, 3: 3, 4: 3, 5: 0}
+    ok, note = compliance(out)
+    assert ok is False and "Category 1" in (note or "")
+    assert resolve_distribution(CategoryDistribution(mode="custom", counts={1: 0, 2: 10, 3: 0, 4: 0}))[2] == 10
+
+
 @pytest.mark.parametrize("counts,code", [
     ({1: 2, 2: 2, 3: 3, 4: 2}, "bad_total"),          # sums to 9
     ({1: 3, 2: 3, 3: 3, 4: 3}, "bad_total"),          # sums to 12
-    ({1: 0, 2: 4, 3: 3, 4: 3}, "category_empty"),     # a category has 0
-    ({1: 2, 2: 2, 3: 3}, "category_empty"),           # missing category
+    ({1: 2, 2: 2, 3: 3}, "bad_total"),               # missing category: sums to 7
     ({1: -1, 2: 4, 3: 4, 4: 3}, "negative"),
     ({1: 2, 2: 2, 3: 3, 4: 3, 6: 0}, "unknown_category"),
 ])
@@ -119,8 +127,11 @@ def test_validate_endpoint_auto_and_custom(client):
 
 def test_validate_endpoint_rejects_bad_custom(client):
     r = client.post("/api/category-distribution/validate",
-                    json={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 0, "4": 0}})
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "category_empty"
+                    json={"mode": "custom", "counts": {"1": 5, "2": 5, "3": 0, "4": 1}})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "bad_total"
+    r = client.post("/api/category-distribution/validate",  # only Category 2: allowed, just flagged non-compliant
+                    json={"mode": "custom", "counts": {"1": 0, "2": 10, "3": 0, "4": 0}})
+    assert r.status_code == 200 and r.json()["counts"]["2"] == 10 and r.json()["compliant"] is False
     # a Cat.5 key is ignored in Custom mode: the golden count comes from gold_cards
     r = client.post("/api/category-distribution/validate",
                     json={"mode": "custom", "counts": {"1": 2, "2": 2, "3": 3, "4": 3, "5": 1}})
