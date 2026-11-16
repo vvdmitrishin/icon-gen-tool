@@ -57,3 +57,6 @@ screenshots/
 .coverage
 htmlcov/
 backend/.venv/
+
+# static demo build (deployed to Vercel directly)
+frontend/demo-dist/

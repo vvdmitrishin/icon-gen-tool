@@ -1,6 +1,6 @@
 // Static interface preview (Vercel): build with VITE_DEMO=1. No backend, no keys, no content:
 // reads return empty/neutral fixtures so every screen renders; anything that would change data or call a provider is refused.
-export const DEMO = import.meta.env.VITE_DEMO === "1";
+export const DEMO = import.meta.env.MODE === "demo" || import.meta.env.VITE_DEMO === "1";
 
 export const DEMO_MESSAGE =
   "Interface preview: no backend is connected here, so nothing can be generated or saved. Run the tool locally to use it (see the README).";

@@ -28,7 +28,7 @@ approved set is quality-checked and exported. Built as the Playrix AI Producer t
 | | |
 |---|---|
 | **Miro board (final presentation)** | [https://miro.com/app/board/uXjVEQ0lWao=/](https://miro.com/app/board/uXjVEQ0lWao=/) (see [docs/PRESENTATION_BOARD.md](docs/PRESENTATION_BOARD.md)) |
-| **Live demo** | none: the app runs locally (no hosted instance exists) |
+| **Interface preview** | [ai-collection-studio.vercel.app](https://ai-collection-studio.vercel.app): the tool's interface only (read-only, no backend, no content). The working tool runs locally, see [Installation](#installation) |
 
 The Miro board shows the three Movie-collection Standard Sets (Comedy, Adventure, Detective: 10 cards each, no golden cards),
 the production workflow, the five visual categories with their references, producer review and selective regeneration,
