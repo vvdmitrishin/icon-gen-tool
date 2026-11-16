@@ -425,3 +425,5 @@ ul.log time { color: var(--muted); margin-right: 6px; }
 }
 @media (max-width: 760px) { .chevrons { display: none; } .jobpick { margin-left: auto; } }
 @media (prefers-reduced-motion: reduce) { .chevrons .chev { animation: none; opacity: .8; filter: none; } }
+
+.demo-banner{background:#fff4d6;color:#5b4300;border-bottom:1px solid #e8d08a;padding:8px 16px;text-align:center;font-size:13px}

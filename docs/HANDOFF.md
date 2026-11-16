@@ -12,6 +12,13 @@
 
 Continue development with `docs/ARCHITECTURE.md` (modules, data flow), `docs/PROGRESS.md` (history) and the spec's ADRs.
 
+## Static interface preview (Vercel)
+
+`frontend/vercel.json` builds the UI with `VITE_DEMO=1`: a read-only preview of the tool's interface with **no backend, no keys and no content**
+(`frontend/src/api/demo.ts` answers reads with empty data and refuses everything that would generate or save). A banner explains this.
+To publish: Vercel > Add New Project > import the GitHub repo > **Root Directory = `frontend`** > Deploy (no environment variables).
+Local check: `cd frontend && VITE_DEMO=1 npm run dev`. The normal build (`npm run build`) contains none of this.
+
 ## Prompt system and versioning
 
 Templates (system style, categories 1-5, closing, repair) live in SQLite `prompt_templates`. Releases are YAML files

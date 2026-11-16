@@ -1,3 +1,4 @@
+import { DEMO, DEMO_MESSAGE, demoRead } from "./demo";
 import type { ConnectionsState, ProviderConn, ProviderId, TestResult } from "../types/connections";
 
 export class ConnError extends Error {
@@ -52,12 +53,14 @@ async function getToken(force = false): Promise<string> {
 }
 
 export async function read<T>(path: string): Promise<T> {
+  if (DEMO) return demoRead(path) as T;
   const res = await raw(path);
   if (!res.ok) await fail(res);
   return (await res.json()) as T;
 }
 
 export async function write<T>(method: "PUT" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+  if (DEMO) throw new ConnError("demo", DEMO_MESSAGE, 0);
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getToken(attempt > 0);
     const res = await raw(path, {

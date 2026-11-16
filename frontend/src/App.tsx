@@ -1,3 +1,4 @@
+import { DEMO, DEMO_MESSAGE } from "./api/demo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "./api/client";
 import { CategoryDistribution, distributionErrors, type DistMode } from "./components/CategoryDistribution";
@@ -736,6 +737,8 @@ const NAV: { v: View; label: string; icon: string }[] = [
 
 function Header({ budget, view, onView, onConnect }: { budget?: Budget; view: View; onView: (v: View) => void; onConnect: () => void }) {
   return (
+    <>
+    {DEMO && <div className="demo-banner" role="status">{DEMO_MESSAGE}</div>}
     <header className="top">
       <div className="brand">
         <span className="logo" aria-hidden>
@@ -768,6 +771,7 @@ function Header({ budget, view, onView, onConnect }: { budget?: Budget; view: Vi
         </div>
       </div>
     </header>
+    </>
   );
 }
 

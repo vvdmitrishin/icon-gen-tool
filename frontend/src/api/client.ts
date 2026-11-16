@@ -1,3 +1,4 @@
+import { DEMO, DEMO_MESSAGE, demoRead } from "./demo";
 import type {
   ReplacementSuggestion,
   PlanRegenerateRequest,
@@ -37,6 +38,10 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  if (DEMO) {
+    if (init?.method && init.method !== "GET") throw new ApiError("demo", DEMO_MESSAGE, 0);
+    return demoRead(path) as T;
+  }
   let res: Response;
   try {
     res = await fetch(path, init);
